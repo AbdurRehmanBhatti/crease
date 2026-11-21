@@ -1,0 +1,12 @@
+# Impeccable temporary build & comp mocks
+.impeccable/mocks/
+.impeccable/build/
+.impeccable/decision-direction.json
+.impeccable/scoring-brief-body.md
+.impeccable/config.local.json
+regions.json
+
+# OS & editor
+.DS_Store
+Thumbs.db
+*.log

@@ -59,6 +59,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadMatches();
   }
 
+  Future<void> _refreshAndSync() async {
+    await LocalEventStore.instance.syncAllPendingToSupabase();
+    await _loadMatches();
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
@@ -74,7 +79,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         child: SafeArea(
-          child: CustomScrollView(
+          child: RefreshIndicator(
+            color: c.pitchGreen,
+            onRefresh: _refreshAndSync,
+            child: CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
                 child: Padding(
@@ -264,16 +272,41 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                   const Spacer(),
                                   if (m.unsyncedCount > 0)
-                                    Text(
-                                      'Saved locally',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelMedium,
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.cloud_off_rounded,
+                                          size: 14,
+                                          color: c.inkSecondary,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Saved locally',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelMedium,
+                                        ),
+                                      ],
                                     )
                                   else
-                                    Icon(
-                                      Icons.chevron_right_rounded,
-                                      color: c.inkSecondary,
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.cloud_done_outlined,
+                                          size: 15,
+                                          color: c.pitchGreen,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Synced',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelMedium
+                                              ?.copyWith(color: c.pitchGreen),
+                                        ),
+                                      ],
                                     ),
                                 ],
                               ),
@@ -343,6 +376,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _navIndex,

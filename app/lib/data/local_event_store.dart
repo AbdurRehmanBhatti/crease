@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -218,6 +219,16 @@ class LocalEventStore {
     );
   }
 
+  /// Syncs all matches that have unsynced ball events to Supabase.
+  Future<int> syncAllPendingToSupabase() async {
+    final matches = await listMatches();
+    var total = 0;
+    for (final m in matches) {
+      total += await syncPendingToSupabase(m.id);
+    }
+    return total;
+  }
+
   /// Idempotent sync of unsynced ball events to Supabase when configured.
   /// Returns the number of events synced (0 if offline or Supabase not configured).
   Future<int> syncPendingToSupabase(String matchId) async {
@@ -227,6 +238,18 @@ class LocalEventStore {
     } catch (_) {
       return 0;
     }
+
+    var userId = client.auth.currentUser?.id;
+    if (userId == null) {
+      try {
+        final res = await client.auth.signInAnonymously();
+        userId = res.user?.id;
+      } catch (e) {
+        debugPrint('[Crease Sync] Anonymous sign-in failed: $e');
+        return 0;
+      }
+    }
+    if (userId == null) return 0;
 
     final db = await database;
     final unsyncedRows = await db.query(
@@ -238,9 +261,39 @@ class LocalEventStore {
     if (unsyncedRows.isEmpty) return 0;
 
     try {
+      // Ensure parent match row exists in Supabase before upserting ball events.
+      final match = await getMatch(matchId);
+      if (match != null) {
+        await client.from('matches').upsert(
+          {
+            'id': match.id,
+            'owner_id': userId,
+            'team_a': match.teamA,
+            'team_b': match.teamB,
+            'overs_limit': match.oversLimit,
+            'players_per_side': match.playersPerSide,
+            'format_label': match.formatLabel,
+            'batting_first_team': match.battingFirstTeam,
+            'opening_striker_1': match.openingStrikerInnings1,
+            'opening_non_striker_1': match.openingNonStrikerInnings1,
+            'opening_bowler_1': match.openingBowlerInnings1,
+            'opening_striker_2': match.openingStrikerInnings2,
+            'opening_non_striker_2': match.openingNonStrikerInnings2,
+            'opening_bowler_2': match.openingBowlerInnings2,
+            'team_a_players': match.teamAPlayers,
+            'team_b_players': match.teamBPlayers,
+            'first_innings_target_override': match.firstInningsTargetOverride,
+            'is_demo': match.isDemo,
+            'created_at': match.createdAt.millisecondsSinceEpoch,
+          },
+          onConflict: 'id',
+        );
+      }
+
       final payload = unsyncedRows.map((row) {
         final copy = Map<String, Object?>.from(row);
         copy.remove('synced');
+        copy['owner_id'] = userId;
         copy['is_wicket'] = (row['is_wicket'] as int?) == 1;
         copy['voided'] = (row['voided'] as int?) == 1;
         return copy;
@@ -258,9 +311,10 @@ class LocalEventStore {
         );
       }
       await batch.commit(noResult: true);
+      debugPrint('[Crease Sync] Synced ${unsyncedRows.length} ball events for match $matchId');
       return unsyncedRows.length;
-    } catch (_) {
-      // Offline or remote table not yet provisioned; events stay safe locally.
+    } catch (e) {
+      debugPrint('[Crease Sync] Upsert failed for match $matchId: $e');
       return 0;
     }
   }

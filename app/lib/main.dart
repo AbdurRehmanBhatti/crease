@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,10 +10,15 @@ import 'features/home/home_screen.dart';
 import 'features/scoring/scoring_screen.dart';
 import 'theme/crease_theme.dart';
 
-/// Optional Supabase credentials passed at build time via --dart-define.
-/// When omitted, Crease runs 100% offline-first on SQLite with zero friction.
-const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+/// Supabase project configuration (overridable via --dart-define).
+const _supabaseUrl = String.fromEnvironment(
+  'SUPABASE_URL',
+  defaultValue: 'https://ajwqkcblakfojsbyqjqt.supabase.co',
+);
+const _supabasePublishableKey = String.fromEnvironment(
+  'SUPABASE_PUBLISHABLE_KEY',
+  defaultValue: 'sb_publishable_6MtwRj2UjMJJSeRWqDDnOw_oUW_NR0z',
+);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,11 +32,12 @@ Future<void> main() async {
     ),
   );
 
-  if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+  if (_supabaseUrl.isNotEmpty && _supabasePublishableKey.isNotEmpty) {
     await Supabase.initialize(
       url: _supabaseUrl,
-      publishableKey: _supabaseAnonKey,
+      publishableKey: _supabasePublishableKey,
     );
+    unawaited(_ensureAnonymousSessionAndSync());
   }
 
   // Seed synthetic demo match on first launch so the live scoring experience
@@ -50,6 +58,19 @@ Future<void> main() async {
   }
 
   runApp(const CreaseApp());
+}
+
+Future<void> _ensureAnonymousSessionAndSync() async {
+  try {
+    final auth = Supabase.instance.client.auth;
+    if (auth.currentSession == null) {
+      await auth.signInAnonymously();
+    }
+    final synced = await LocalEventStore.instance.syncAllPendingToSupabase();
+    debugPrint('[Crease Sync] Auth ready (${auth.currentUser?.id}), synced $synced events.');
+  } catch (e) {
+    debugPrint('[Crease Sync] Startup auth/sync skipped: $e');
+  }
 }
 
 class CreaseApp extends StatelessWidget {

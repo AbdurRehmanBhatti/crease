@@ -61,11 +61,10 @@ class CricketEngine {
       target: null,
     );
 
-    final int? targetForInn2 = hasDemoChase
-        ? config.firstInningsTargetOverride
-        : (innings1.isComplete || inn2Events.isNotEmpty)
+    final int? targetForInn2 = config.firstInningsTargetOverride ??
+        ((innings1.isComplete || inn2Events.isNotEmpty)
             ? innings1.totalRuns + 1
-            : null;
+            : null);
 
     final bool showInnings2 =
         hasDemoChase || inn2Events.isNotEmpty || forcedInnings == 2;
@@ -113,7 +112,10 @@ class CricketEngine {
     MatchStatus status = MatchStatus.live;
     String? resultSummary;
 
-    if (finalInn2 != null && finalInn2.isComplete) {
+    if (config.isAbandoned) {
+      status = MatchStatus.completed;
+      resultSummary = 'Match abandoned (No result)';
+    } else if (finalInn2 != null && finalInn2.isComplete) {
       status = MatchStatus.completed;
       final target = finalInn2.target ?? (finalInn1.totalRuns + 1);
       final targetScore = target - 1;
@@ -533,9 +535,13 @@ class CricketEngine {
       totalRuns += ball.totalRuns;
       currentOverRuns += ball.totalRuns;
 
-      // Batter stats
+      // Batter stats (wide, penalty, and retired hurt do not count as a ball faced)
       b.runs += ball.runsOffBat;
-      if (ball.extraType != ExtraType.wide) {
+      final isRetiredHurt =
+          ball.isWicket && ball.wicketType == WicketType.retiredHurt;
+      if (ball.extraType != ExtraType.wide &&
+          ball.extraType != ExtraType.penalty &&
+          !isRetiredHurt) {
         b.balls += 1;
       }
       if (ball.runsOffBat == 4) b.fours += 1;
@@ -553,10 +559,14 @@ class CricketEngine {
           byes += ball.extraRuns;
         case ExtraType.legBye:
           legByes += ball.extraRuns;
+        case ExtraType.penalty:
+          byes += ball.extraRuns;
       }
 
-      // Bowler runs conceded (byes and leg-byes are not charged to the bowler)
-      if (ball.extraType == ExtraType.bye ||
+      // Bowler runs conceded (byes, leg-byes, and penalty runs are not charged to bowler)
+      if (ball.extraType == ExtraType.penalty) {
+        // Penalty runs are dead-ball awards — not charged to bowler.
+      } else if (ball.extraType == ExtraType.bye ||
           ball.extraType == ExtraType.legBye) {
         bowl.runsConceded += ball.runsOffBat;
       } else {
@@ -569,27 +579,35 @@ class CricketEngine {
         bowl.legalBalls += 1;
       }
 
-      // Wicket handling
+      // Wicket / Retired Hurt handling
       if (ball.isWicket) {
-        wickets += 1;
-        currentOverWickets += 1;
         final dismissedName = ball.dismissedBatter ?? ball.striker;
         final dismissed = ensureBatter(dismissedName);
-        dismissed.isOut = true;
-        dismissed.dismissalText = ball.scorecardDismissalText ?? 'out';
+        final countsWicket = ball.wicketType?.countsAsTeamWicket ?? true;
 
-        if (ball.wicketType?.creditedToBowler ?? true) {
-          bowl.wickets += 1;
+        if (countsWicket) {
+          wickets += 1;
+          currentOverWickets += 1;
+          dismissed.isOut = true;
+          dismissed.dismissalText = ball.scorecardDismissalText ?? 'out';
+
+          if (ball.wicketType?.creditedToBowler ?? true) {
+            bowl.wickets += 1;
+          }
+
+          fallOfWickets.add(
+            FallOfWicket(
+              wicketNumber: wickets,
+              runsAtFall: totalRuns,
+              oversAtFall: '${legalBalls ~/ 6}.${legalBalls % 6}',
+              batterName: dismissedName,
+            ),
+          );
+        } else {
+          // Retired hurt: batter leaves crease without losing a wicket
+          dismissed.isOut = false;
+          dismissed.dismissalText = 'retired hurt';
         }
-
-        fallOfWickets.add(
-          FallOfWicket(
-            wicketNumber: wickets,
-            runsAtFall: totalRuns,
-            oversAtFall: '${legalBalls ~/ 6}.${legalBalls % 6}',
-            batterName: dismissedName,
-          ),
-        );
 
         final incoming = ball.nextBatter?.trim() ?? '';
         if (incoming.isNotEmpty) {

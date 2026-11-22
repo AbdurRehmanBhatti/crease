@@ -7,9 +7,11 @@ enum ExtraType {
   wide,
   noBall,
   bye,
-  legBye;
+  legBye,
+  penalty;
 
-  bool get isLegalDelivery => this != wide && this != noBall;
+  bool get isLegalDelivery =>
+      this != wide && this != noBall && this != penalty;
 
   String get shortLabel => switch (this) {
         ExtraType.none => '',
@@ -17,6 +19,7 @@ enum ExtraType {
         ExtraType.noBall => 'nb',
         ExtraType.bye => 'b',
         ExtraType.legBye => 'lb',
+        ExtraType.penalty => 'pen',
       };
 
   String get displayLabel => switch (this) {
@@ -25,6 +28,7 @@ enum ExtraType {
         ExtraType.noBall => 'No ball',
         ExtraType.bye => 'Bye',
         ExtraType.legBye => 'Leg bye',
+        ExtraType.penalty => 'Penalty',
       };
 
   static ExtraType fromName(String value) => ExtraType.values.firstWhere(
@@ -40,9 +44,13 @@ enum WicketType {
   runOut,
   stumped,
   hitWicket,
+  retiredHurt,
   retired;
 
-  bool get creditedToBowler => this != runOut && this != retired;
+  bool get countsAsTeamWicket => this != retiredHurt;
+
+  bool get creditedToBowler =>
+      this != runOut && this != retired && this != retiredHurt;
 
   String get label => switch (this) {
         WicketType.bowled => 'Bowled',
@@ -51,7 +59,8 @@ enum WicketType {
         WicketType.runOut => 'Run out',
         WicketType.stumped => 'Stumped',
         WicketType.hitWicket => 'Hit wicket',
-        WicketType.retired => 'Retired',
+        WicketType.retiredHurt => 'Retired hurt',
+        WicketType.retired => 'Retired out',
       };
 
   static WicketType? fromNullableName(String? value) {
@@ -131,22 +140,29 @@ class MatchConfig {
 
   String get title => '$teamA v $teamB';
 
+  /// Matches abandoned due to rain / mutual agreement encode `-1` in `declaredInnings`.
+  bool get isAbandoned => declaredInnings.contains(-1);
+
   List<String> rosterForTeam(String teamName) =>
       teamName == teamA ? teamAPlayers : teamBPlayers;
 
   MatchConfig copyWith({
+    int? oversLimit,
+    String? formatLabel,
     List<String>? teamAPlayers,
     List<String>? teamBPlayers,
     List<int>? declaredInnings,
     bool? followOnEnforced,
+    int? firstInningsTargetOverride,
+    bool clearTargetOverride = false,
   }) =>
       MatchConfig(
         id: id,
         teamA: teamA,
         teamB: teamB,
-        oversLimit: oversLimit,
+        oversLimit: oversLimit ?? this.oversLimit,
         playersPerSide: playersPerSide,
-        formatLabel: formatLabel,
+        formatLabel: formatLabel ?? this.formatLabel,
         battingFirstTeam: battingFirstTeam,
         openingStrikerInnings1: openingStrikerInnings1,
         openingNonStrikerInnings1: openingNonStrikerInnings1,
@@ -160,7 +176,9 @@ class MatchConfig {
         isTestMatch: isTestMatch,
         declaredInnings: declaredInnings ?? this.declaredInnings,
         followOnEnforced: followOnEnforced ?? this.followOnEnforced,
-        firstInningsTargetOverride: firstInningsTargetOverride,
+        firstInningsTargetOverride: clearTargetOverride
+            ? null
+            : (firstInningsTargetOverride ?? this.firstInningsTargetOverride),
         isDemo: isDemo,
         createdAt: createdAt,
       );
@@ -190,7 +208,16 @@ class MatchConfig {
         'created_at': createdAt.millisecondsSinceEpoch,
       };
 
+  static bool _decodeBool(Object? raw) {
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    return false;
+  }
+
   static List<int> _decodeInts(Object? raw) {
+    if (raw is List) {
+      return raw.map((e) => int.parse(e.toString())).toList();
+    }
     if (raw is! String || raw.isEmpty) return const [];
     try {
       final list = jsonDecode(raw);
@@ -202,6 +229,9 @@ class MatchConfig {
   }
 
   static List<String> _decodePlayers(Object? raw) {
+    if (raw is List) {
+      return raw.map((e) => e.toString()).toList();
+    }
     if (raw is! String || raw.isEmpty) return const [];
     try {
       final list = jsonDecode(raw);
@@ -216,8 +246,8 @@ class MatchConfig {
         id: map['id']! as String,
         teamA: map['team_a']! as String,
         teamB: map['team_b']! as String,
-        oversLimit: map['overs_limit']! as int,
-        playersPerSide: (map['players_per_side'] as int?) ?? 11,
+        oversLimit: (map['overs_limit']! as num).toInt(),
+        playersPerSide: ((map['players_per_side'] as num?) ?? 11).toInt(),
         formatLabel: map['format_label']! as String,
         battingFirstTeam: map['batting_first_team']! as String,
         openingStrikerInnings1: map['opening_striker_1']! as String,
@@ -232,14 +262,15 @@ class MatchConfig {
         teamAPlayers: _decodePlayers(map['team_a_players']),
         teamBPlayers: _decodePlayers(map['team_b_players']),
         tournamentId: map['tournament_id'] as String?,
-        isTestMatch: ((map['is_test_match'] as int?) ?? 0) == 1,
+        isTestMatch: _decodeBool(map['is_test_match']),
         declaredInnings: _decodeInts(map['declared_innings']),
-        followOnEnforced: ((map['follow_on_enforced'] as int?) ?? 0) == 1,
+        followOnEnforced: _decodeBool(map['follow_on_enforced']),
         firstInningsTargetOverride:
-            map['first_innings_target_override'] as int?,
-        isDemo: ((map['is_demo'] as int?) ?? 0) == 1,
-        createdAt:
-            DateTime.fromMillisecondsSinceEpoch(map['created_at']! as int),
+            (map['first_innings_target_override'] as num?)?.toInt(),
+        isDemo: _decodeBool(map['is_demo']),
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+          (map['created_at']! as num).toInt(),
+        ),
       );
 }
 
@@ -288,10 +319,12 @@ class BallEvent {
   final DateTime createdAt;
 
   int get totalRuns => runsOffBat + extraRuns;
-  bool get isLegalDelivery => extraType.isLegalDelivery;
+  bool get isLegalDelivery =>
+      extraType.isLegalDelivery && wicketType != WicketType.retiredHurt;
 
-  /// Runs that rotate strike between batters (excludes the 1-run penalty for wide/no-ball).
+  /// Runs that rotate strike between batters (excludes the 1-run penalty for wide/no-ball and penalty runs).
   int get runningRuns {
+    if (extraType == ExtraType.penalty) return 0;
     if (extraType == ExtraType.wide) {
       return (extraRuns - 1).clamp(0, 10);
     }
@@ -303,7 +336,13 @@ class BallEvent {
 
   /// Short notation shown inside an over-timeline ball circle.
   String get shortMark {
-    if (isWicket) return 'W';
+    if (isWicket) {
+      if (wicketType == WicketType.retiredHurt) return 'RH';
+      if (extraType == ExtraType.wide) return 'W+wd';
+      if (extraType == ExtraType.noBall) return 'W+nb';
+      return 'W';
+    }
+    if (extraType == ExtraType.penalty) return '+${extraRuns}p';
     if (extraType == ExtraType.wide) {
       return extraRuns > 1 ? '${extraRuns}wd' : 'wd';
     }
@@ -342,7 +381,8 @@ class BallEvent {
             ? 'st $fielder b $bowler'
             : 'stumped b $bowler',
       WicketType.hitWicket => 'hit wkt b $bowler',
-      WicketType.retired => 'retired hurt',
+      WicketType.retiredHurt => 'retired hurt',
+      WicketType.retired => 'retired out',
       null => 'out',
     };
   }
@@ -405,26 +445,33 @@ class BallEvent {
         'created_at': createdAt.millisecondsSinceEpoch,
       };
 
+  static bool _decodeBool(Object? raw) {
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    return false;
+  }
+
   static BallEvent fromMap(Map<String, Object?> map) => BallEvent(
         id: map['id']! as String,
         matchId: map['match_id']! as String,
-        inningsNumber: map['innings_number']! as int,
-        sequenceNumber: map['sequence_number']! as int,
+        inningsNumber: (map['innings_number']! as num).toInt(),
+        sequenceNumber: (map['sequence_number']! as num).toInt(),
         striker: map['striker']! as String,
         nonStriker: map['non_striker']! as String,
         bowler: map['bowler']! as String,
-        runsOffBat: (map['runs_off_bat'] as int?) ?? 0,
+        runsOffBat: ((map['runs_off_bat'] as num?) ?? 0).toInt(),
         extraType: ExtraType.fromName((map['extra_type'] as String?) ?? 'none'),
-        extraRuns: (map['extra_runs'] as int?) ?? 0,
-        isWicket: ((map['is_wicket'] as int?) ?? 0) == 1,
+        extraRuns: ((map['extra_runs'] as num?) ?? 0).toInt(),
+        isWicket: _decodeBool(map['is_wicket']),
         wicketType: WicketType.fromNullableName(map['wicket_type'] as String?),
         dismissedBatter: map['dismissed_batter'] as String?,
         fielder: map['fielder'] as String?,
         nextBatter: map['next_batter'] as String?,
-        synced: ((map['synced'] as int?) ?? 0) == 1,
-        voided: ((map['voided'] as int?) ?? 0) == 1,
-        createdAt:
-            DateTime.fromMillisecondsSinceEpoch(map['created_at']! as int),
+        synced: _decodeBool(map['synced']),
+        voided: _decodeBool(map['voided']),
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+          (map['created_at']! as num).toInt(),
+        ),
       );
 }
 

@@ -271,6 +271,25 @@
 
     .match-card:hover { border-color: var(--green); }
 
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .open-app-btn {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--green);
+      padding: 6px 12px;
+      border-radius: 999px;
+      text-decoration: none;
+    }
+
     .footer {
       text-align: center;
       color: var(--ink-muted);
@@ -283,10 +302,13 @@
   <div class="container">
     <header class="topbar">
       <a class="brand" href="./">Crease</a>
-      <span id="status-badge" class="live-badge" style="display:none;">
-        <span class="live-dot"></span>
-        <span id="status-text">LIVE</span>
-      </span>
+      <div class="topbar-actions">
+        <a id="open-app-btn" class="open-app-btn" href="#">Open in App</a>
+        <span id="status-badge" class="live-badge" style="display:none;">
+          <span class="live-dot"></span>
+          <span id="status-text">LIVE</span>
+        </span>
+      </div>
     </header>
 
     <main id="app">
@@ -303,6 +325,7 @@
 
     const params = new URLSearchParams(window.location.search);
     const matchId = params.get('match');
+    const authCode = params.get('code');
     let selectedInnings = null;
     let currentMatch = null;
     let currentEvents = [];
@@ -609,8 +632,28 @@
       `;
     }
 
-    if (matchId) loadSingleMatch(matchId);
-    else loadRecentMatches();
+    if (authCode && !matchId) {
+      document.getElementById('app').innerHTML = `
+        <div class="glass">
+          <div class="section-title" style="color:var(--green);">Email verified</div>
+          <p class="muted" style="margin-top:8px;">Your Crease account is confirmed. You can close this tab and return to the Crease app.</p>
+        </div>
+      `;
+    } else if (matchId) {
+      // On Android browsers, expose a zero-error "Open in App" button using intent://
+      // with fallback to the current live web scorecard URL.
+      if (/Android/i.test(navigator.userAgent)) {
+        const openBtn = document.getElementById('open-app-btn');
+        if (openBtn) {
+          const fallback = encodeURIComponent(window.location.href);
+          openBtn.href = `intent://match/${encodeURIComponent(matchId)}#Intent;scheme=crease;package=app.crease.crease;S.browser_fallback_url=${fallback};end`;
+          openBtn.style.display = 'inline-flex';
+        }
+      }
+      loadSingleMatch(matchId);
+    } else {
+      loadRecentMatches();
+    }
   </script>
 </body>
 </html>

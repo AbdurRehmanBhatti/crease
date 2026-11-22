@@ -138,6 +138,76 @@ void main() {
       expect(resolved.activeInnings.needsNextBatter, isFalse);
       expect(resolved.activeInnings.striker, 'Shadab K.');
     });
+
+    test('handles retired hurt, +5 penalty runs, wide+stumped, and revised target', () {
+      final cfg = MatchConfig(
+        id: 'edge-cases-1',
+        teamA: 'A',
+        teamB: 'B',
+        oversLimit: 10,
+        formatLabel: 'T10',
+        battingFirstTeam: 'A',
+        openingStrikerInnings1: 'Ali',
+        openingNonStrikerInnings1: 'Bilal',
+        openingBowlerInnings1: 'Zain',
+        firstInningsTargetOverride: 55,
+        createdAt: DateTime(2026),
+      );
+      final events = [
+        BallEvent(
+          id: 'e1',
+          matchId: cfg.id,
+          inningsNumber: 1,
+          sequenceNumber: 1,
+          striker: 'Ali',
+          nonStriker: 'Bilal',
+          bowler: 'Zain',
+          extraType: ExtraType.penalty,
+          extraRuns: 5,
+          createdAt: DateTime(2026),
+        ),
+        BallEvent(
+          id: 'e2',
+          matchId: cfg.id,
+          inningsNumber: 1,
+          sequenceNumber: 2,
+          striker: 'Ali',
+          nonStriker: 'Bilal',
+          bowler: 'Zain',
+          isWicket: true,
+          wicketType: WicketType.retiredHurt,
+          dismissedBatter: 'Ali',
+          nextBatter: 'Kamran',
+          createdAt: DateTime(2026),
+        ),
+        BallEvent(
+          id: 'e3',
+          matchId: cfg.id,
+          inningsNumber: 1,
+          sequenceNumber: 3,
+          striker: 'Kamran',
+          nonStriker: 'Bilal',
+          bowler: 'Zain',
+          extraType: ExtraType.wide,
+          extraRuns: 1,
+          isWicket: true,
+          wicketType: WicketType.stumped,
+          dismissedBatter: 'Kamran',
+          fielder: 'WK',
+          createdAt: DateTime(2026),
+        ),
+      ];
+
+      final state = CricketEngine.derive(cfg, events);
+      expect(state.innings1.totalRuns, 6);
+      expect(state.innings1.legalBalls, 0);
+      expect(state.innings1.wickets, 1);
+      expect(state.innings1.bowlerByName('Zain').runsConceded, 1);
+      expect(state.innings1.bowlerByName('Zain').wickets, 1);
+      expect(state.innings1.batterByName('Ali').isOut, isFalse);
+      expect(state.innings1.batterByName('Ali').dismissalText, 'retired hurt');
+      expect(state.innings1.needsNextBatter, isTrue);
+    });
   });
 }
 

@@ -175,7 +175,10 @@ class CreaseTheme {
   CreaseTheme._();
 
   static TextTheme _buildTextTheme(Color primary, Color secondary) {
-    final base = GoogleFonts.interTextTheme();
+    final base = GoogleFonts.interTextTheme().apply(
+      bodyColor: primary,
+      displayColor: primary,
+    );
     return base.copyWith(
       displayLarge: GoogleFonts.inter(
         fontSize: 64,

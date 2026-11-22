@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../config/app_links.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/cricket_engine.dart';
 import '../../domain/match_insights.dart';
@@ -9,8 +8,10 @@ import '../../domain/models.dart';
 import '../../domain/stats_engine.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/glass_surface.dart';
+import 'match_summary_poster.dart';
 
 /// 4-tab Daylight Glass Match Center: Overview · Scorecard · Charts · Overs.
+/// Works seamlessly for both local matches and shared remote matches (with live updates).
 class ScorecardScreen extends StatefulWidget {
   const ScorecardScreen({super.key, required this.matchId});
 
@@ -23,7 +24,10 @@ class ScorecardScreen extends StatefulWidget {
 class _ScorecardScreenState extends State<ScorecardScreen> {
   DerivedMatchState? _state;
   bool _loading = true;
+  bool _isRemoteLive = false;
   int _selectedInnings = 1;
+  bool _userPickedInnings = false;
+  RealtimeChannel? _realtimeChannel;
 
   @override
   void initState() {
@@ -31,44 +35,104 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    final channel = _realtimeChannel;
+    if (channel != null) {
+      try {
+        Supabase.instance.client.removeChannel(channel);
+      } catch (_) {}
+    }
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final store = LocalEventStore.instance;
-    final config = await store.getMatch(widget.matchId);
-    final events = await store.getBallEvents(widget.matchId);
+    final localConfig = await store.getMatch(widget.matchId);
+    if (localConfig != null) {
+      final events = await store.getBallEvents(widget.matchId);
+      if (!mounted) return;
+      final derived = CricketEngine.derive(localConfig, events);
+      setState(() {
+        _state = derived;
+        _isRemoteLive = false;
+        if (!_userPickedInnings) {
+          _selectedInnings = derived.activeInningsNumber;
+        }
+        _loading = false;
+      });
+      return;
+    }
+
+    // Not stored locally (e.g. opened via shared deep link) — fetch from cloud & watch live.
+    final remote = await store.fetchRemoteMatch(widget.matchId);
     if (!mounted) return;
-    final derived = config == null ? null : CricketEngine.derive(config, events);
+    if (remote == null) {
+      setState(() {
+        _state = null;
+        _loading = false;
+      });
+      return;
+    }
+    final derived = CricketEngine.derive(remote.config, remote.events);
     setState(() {
       _state = derived;
-      if (derived != null) {
+      _isRemoteLive = true;
+      if (!_userPickedInnings) {
         _selectedInnings = derived.activeInningsNumber;
       }
       _loading = false;
     });
+    _subscribeRemoteUpdates();
   }
 
-  Future<void> _shareFullScorecard(
-    DerivedMatchState state,
-    DerivedInningsState inn,
-  ) async {
-    await LocalEventStore.instance.syncPendingToSupabase(state.config.id);
-    final buf = StringBuffer()
-      ..writeln('${state.config.title} · ${state.config.formatLabel}')
-      ..writeln('${inn.battingTeam}: ${inn.scoreText} (${inn.oversText} ov)')
-      ..writeln('');
-    for (final b in inn.batters) {
-      final star = b.isOut ? '' : '*';
-      buf.writeln(
-        '${b.name}$star  ${b.runs} (${b.balls})  4s:${b.fours} 6s:${b.sixes}',
-      );
-    }
-    buf.writeln('');
-    for (final bw in inn.bowlers) {
-      buf.writeln(
-        '${bw.name}  ${bw.figuresText} (Econ ${bw.economy.toStringAsFixed(1)})',
-      );
-    }
-    buf.writeln('\nWatch live: ${CreaseLinks.liveMatchUrl(state.config.id)}');
-    Share.share(buf.toString());
+  void _subscribeRemoteUpdates() {
+    if (_realtimeChannel != null) return;
+    try {
+      final client = Supabase.instance.client;
+      _realtimeChannel = client
+          .channel('scorecard-${widget.matchId}')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'ball_events',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'match_id',
+              value: widget.matchId,
+            ),
+            callback: (_) => _refreshRemote(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'matches',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'id',
+              value: widget.matchId,
+            ),
+            callback: (_) => _refreshRemote(),
+          )
+          .subscribe();
+    } catch (_) {}
+  }
+
+  Future<void> _refreshRemote() async {
+    final remote =
+        await LocalEventStore.instance.fetchRemoteMatch(widget.matchId);
+    if (!mounted || remote == null) return;
+    final derived = CricketEngine.derive(remote.config, remote.events);
+    setState(() {
+      _state = derived;
+      if (!_userPickedInnings) {
+        _selectedInnings = derived.activeInningsNumber;
+      }
+    });
+  }
+
+  Future<void> _shareFullScorecard(DerivedMatchState state) async {
+    await MatchSummaryPoster.shareMatch(state);
   }
 
   @override
@@ -86,7 +150,15 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
       return Scaffold(
         backgroundColor: c.ground,
         appBar: AppBar(title: const Text('Match Center')),
-        body: const Center(child: Text('Match not found.')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Match not found yet. Ask the scorer to sync online and try again.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       );
     }
 
@@ -101,12 +173,37 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
       child: Scaffold(
         backgroundColor: c.ground,
         appBar: AppBar(
-          title: const Text('Match Center'),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Match Center'),
+              if (_isRemoteLive && state.resultSummary == null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: c.pitchGreenSoft,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'LIVE',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: c.pitchGreen,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
           actions: [
             IconButton(
-              tooltip: 'Share scorecard',
+              tooltip: 'Share match summary & live link',
               icon: const Icon(Icons.share_rounded),
-              onPressed: () => _shareFullScorecard(state, shownInnings),
+              onPressed: () => _shareFullScorecard(state),
             ),
           ],
           bottom: TabBar(
@@ -131,14 +228,20 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
               innings: shownInnings,
               hasBothInnings: hasBothInnings,
               selectedInnings: _selectedInnings,
-              onSelectInnings: (v) => setState(() => _selectedInnings = v),
+              onSelectInnings: (v) => setState(() {
+                _userPickedInnings = true;
+                _selectedInnings = v;
+              }),
             ),
             _ChartsTab(
               state: state,
               innings: shownInnings,
               hasBothInnings: hasBothInnings,
               selectedInnings: _selectedInnings,
-              onSelectInnings: (v) => setState(() => _selectedInnings = v),
+              onSelectInnings: (v) => setState(() {
+                _userPickedInnings = true;
+                _selectedInnings = v;
+              }),
             ),
             _OversTab(
               state: state,

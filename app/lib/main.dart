@@ -1,13 +1,18 @@
 import 'dart:async';
 
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'config/app_links.dart';
 import 'data/local_event_store.dart';
 import 'data/sample_match.dart';
+import 'domain/user_profile.dart';
 import 'features/home/home_screen.dart';
+import 'features/scorecard/scorecard_screen.dart';
 import 'features/scoring/scoring_screen.dart';
+import 'features/teams/team_invite_sheets.dart';
 import 'theme/crease_theme.dart';
 
 /// Supabase project configuration (overridable via --dart-define).
@@ -65,6 +70,10 @@ Future<void> main() async {
     }
   }
 
+  // Load persisted theme preference before first frame
+  final savedProfile = await store.getUserProfile();
+  CreaseThemeController.instance.value = savedProfile.themeMode;
+
   runApp(const CreaseApp());
 }
 
@@ -81,38 +90,110 @@ Future<void> _ensureAnonymousSessionAndSync() async {
   }
 }
 
-class CreaseApp extends StatelessWidget {
+class CreaseApp extends StatefulWidget {
   const CreaseApp({super.key, this.initialMatchId});
 
   /// Optional match ID to open directly (handy for tests & verification).
   final String? initialMatchId;
 
   @override
+  State<CreaseApp> createState() => _CreaseAppState();
+}
+
+class _CreaseAppState extends State<CreaseApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  final _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSub;
+  String? _lastOpenedMatchId;
+
+  @override
+  void initState() {
+    super.initState();
+    _initDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    _linkSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        _handleIncomingUri(initialUri);
+      }
+      _linkSub = _appLinks.uriLinkStream.listen(
+        _handleIncomingUri,
+        onError: (_) {},
+      );
+    } catch (_) {
+      // Ignore on platforms/tests where app_links plugin isn't registered.
+    }
+  }
+
+  void _handleIncomingUri(Uri uri) {
+    final teamCode = CreaseLinks.parseTeamInviteCode(uri);
+    if (teamCode != null && teamCode.length == 6) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final ctx = _navigatorKey.currentContext;
+        if (ctx != null) {
+          showJoinTeamSheet(ctx, initialCode: teamCode);
+        }
+      });
+      return;
+    }
+
+    final matchId = CreaseLinks.parseMatchId(uri);
+    if (matchId == null || matchId == _lastOpenedMatchId) return;
+    _lastOpenedMatchId = matchId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => ScorecardScreen(matchId: matchId),
+        ),
+      ).whenComplete(() {
+        if (_lastOpenedMatchId == matchId) {
+          _lastOpenedMatchId = null;
+        }
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Crease',
-      debugShowCheckedModeBanner: false,
-      theme: CreaseTheme.light(),
-      darkTheme: CreaseTheme.dark(),
-      themeMode: ThemeMode.system,
-      builder: (context, child) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        return AnnotatedRegion<SystemUiOverlayStyle>(
-          value: SystemUiOverlayStyle(
-            statusBarColor: Colors.transparent,
-            statusBarIconBrightness:
-                isDark ? Brightness.light : Brightness.dark,
-            statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-            systemNavigationBarColor: Colors.transparent,
-            systemNavigationBarIconBrightness:
-                isDark ? Brightness.light : Brightness.dark,
-          ),
-          child: child ?? const SizedBox.shrink(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: CreaseThemeController.instance,
+      builder: (context, themeMode, _) {
+        return MaterialApp(
+          navigatorKey: _navigatorKey,
+          title: 'Crease',
+          debugShowCheckedModeBanner: false,
+          theme: CreaseTheme.light(),
+          darkTheme: CreaseTheme.dark(),
+          themeMode: themeMode,
+          builder: (context, child) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            return AnnotatedRegion<SystemUiOverlayStyle>(
+              value: SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness:
+                    isDark ? Brightness.light : Brightness.dark,
+                statusBarBrightness:
+                    isDark ? Brightness.dark : Brightness.light,
+                systemNavigationBarColor: Colors.transparent,
+                systemNavigationBarIconBrightness:
+                    isDark ? Brightness.light : Brightness.dark,
+              ),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
+          home: widget.initialMatchId != null
+              ? ScoringScreen(matchId: widget.initialMatchId!)
+              : const HomeScreen(),
         );
       },
-      home: initialMatchId != null
-          ? ScoringScreen(matchId: initialMatchId!)
-          : const HomeScreen(),
     );
   }
 }

@@ -152,6 +152,17 @@ class TournamentEngine {
 
     for (final match in matches) {
       if (match.status != MatchStatus.completed) continue;
+      if (match.config.isAbandoned) {
+        final t1 = ensureTeam(match.config.teamA);
+        final t2 = ensureTeam(match.config.teamB);
+        t1.played += 1;
+        t2.played += 1;
+        t1.tied += 1;
+        t2.tied += 1;
+        t1.points += tournament.pointsForTie;
+        t2.points += tournament.pointsForTie;
+        continue;
+      }
       final inn1 = match.innings1;
       final inn2 = match.innings2;
       if (inn2 == null) continue;

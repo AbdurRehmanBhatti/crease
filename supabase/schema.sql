@@ -167,3 +167,52 @@ create policy "teams_update_own" on public.teams for update to authenticated usi
 create policy "teams_delete_own" on public.teams for delete to authenticated using ((select auth.uid()) = owner_id);
 
 alter publication supabase_realtime add table public.teams;
+
+
+-- Scorer Handover ("Pass the Baton") (migration add_scorer_handover)
+alter table public.matches
+  add column if not exists active_scorer_id uuid references auth.users(id) on delete set null,
+  add column if not exists scorer_join_code text;
+
+create unique index if not exists idx_matches_scorer_join_code
+  on public.matches (scorer_join_code)
+  where scorer_join_code is not null;
+
+create table if not exists public.match_scorers (
+  match_id text not null references public.matches(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null default 'scorer' check (role in ('owner', 'scorer')),
+  joined_at bigint not null,
+  primary key (match_id, user_id)
+);
+
+create index if not exists idx_match_scorers_user_id on public.match_scorers (user_id);
+alter table public.match_scorers enable row level security;
+grant select on public.match_scorers to authenticated;
+
+
+-- Team Invite Codes & Player Claiming (migration add_team_invites_and_claims)
+alter table public.teams
+  add column if not exists join_code text;
+
+create unique index if not exists idx_teams_join_code
+  on public.teams (join_code)
+  where join_code is not null;
+
+create table if not exists public.team_members (
+  id uuid primary key default gen_random_uuid(),
+  team_id text not null references public.teams(id) on delete cascade,
+  player_name text not null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null default 'player' check (role in ('captain', 'player')),
+  joined_at bigint not null,
+  unique (team_id, user_id)
+);
+
+create unique index if not exists idx_team_members_team_player_lower
+  on public.team_members (team_id, lower(player_name));
+
+
+-- Per-player cricket roles & designations (migration add_team_player_roles)
+alter table public.teams
+  add column if not exists player_meta jsonb not null default '{}'::jsonb;

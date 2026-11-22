@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/local_event_store.dart';
 import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
 import '../../domain/team_profile.dart';
 import '../../domain/tournament_engine.dart';
+import '../../domain/user_profile.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/glass_surface.dart';
+import '../profile/profile_screen.dart';
 import '../quick_match/quick_match_sheet.dart';
+import '../scoring/scorer_handover_sheets.dart';
 import '../scoring/scoring_screen.dart';
 import '../stats/stats_tab_view.dart';
 import '../teams/teams_tab_view.dart';
@@ -26,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Tournament> _tournaments = [];
   List<TeamProfile> _teams = [];
   Map<String, List<String>> _knownRosters = {};
+  UserProfile _profile = const UserProfile();
   bool _loading = true;
   int _navIndex = 0;
 
@@ -41,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final tournaments = await store.listTournaments();
     final teams = await store.listTeams();
     final knownRosters = await store.listKnownTeamRosters();
+    final profile = await store.getUserProfile();
     final derived = <DerivedMatchState>[];
     for (final cfg in configs) {
       final events = await store.getBallEvents(cfg.id);
@@ -52,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _tournaments = tournaments;
       _teams = teams;
       _knownRosters = knownRosters;
+      _profile = profile;
       _loading = false;
     });
   }
@@ -94,6 +101,57 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => ScoringScreen(matchId: matchId)),
     );
     _loadMatches();
+  }
+
+  Future<void> _confirmDeleteMatch(DerivedMatchState match) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${match.config.title}?'),
+        content: const Text(
+          'This permanently removes the match and its ball-by-ball scorecard from this device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: context.crease.wicketRed,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await LocalEventStore.instance.deleteMatch(match.config.id);
+    _loadMatches();
+  }
+
+  Future<void> _joinAsScorer() async {
+    final matchId = await showJoinAsScorerSheet(context);
+    if (matchId == null || !mounted) return;
+    await _openMatch(matchId);
+  }
+
+  Future<void> _openProfile() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ProfileScreen()),
+    );
+    _loadMatches();
+  }
+
+  bool get _isGuestAccount {
+    try {
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      return email == null || email.trim().isEmpty;
+    } catch (_) {
+      return true;
+    }
   }
 
   Future<void> _refreshAndSync() async {
@@ -152,15 +210,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
                       FilledButton.icon(
                         style: FilledButton.styleFrom(
                           backgroundColor: c.pitchGreen,
                           foregroundColor: Colors.white,
-                          minimumSize: const Size(0, 48),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          minimumSize: const Size(0, 44),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24),
+                            borderRadius: BorderRadius.circular(22),
                           ),
                         ),
                         onPressed: _navIndex == 1
@@ -168,13 +226,69 @@ class _HomeScreenState extends State<HomeScreen> {
                             : _navIndex == 2
                                 ? _createTournament
                                 : _createQuickMatch,
-                        icon: const Icon(Icons.add_rounded, size: 20),
+                        icon: const Icon(Icons.add_rounded, size: 18),
                         label: Text(
                           _navIndex == 1
                               ? 'Team'
                               : _navIndex == 2
                                   ? 'Tournament'
                                   : 'Quick Match',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: 'Profile & Sign in',
+                        child: InkWell(
+                          onTap: _openProfile,
+                          borderRadius: BorderRadius.circular(22),
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: c.surfaceGlass,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: c.hairline),
+                                ),
+                                alignment: Alignment.center,
+                                child: _profile.initials.isNotEmpty
+                                    ? Text(
+                                        _profile.initials,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelLarge
+                                            ?.copyWith(
+                                              color: c.pitchGreen,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      )
+                                    : Icon(
+                                        Icons.person_outline_rounded,
+                                        size: 22,
+                                        color: c.inkPrimary,
+                                      ),
+                              ),
+                              if (_isGuestAccount)
+                                Positioned(
+                                  right: 1,
+                                  top: 1,
+                                  child: Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: c.pitchGreen,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: c.ground,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -204,6 +318,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
+                            const SizedBox(height: 16),
+                            OutlinedButton.icon(
+                              onPressed: _joinAsScorer,
+                              icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                              label: const Text('Join as scorer with code'),
+                            ),
                           ],
                         ),
                       ),
@@ -212,10 +332,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 else ...[
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(22, 6, 20, 8),
-                      child: Text(
-                        'Live & recent',
-                        style: Theme.of(context).textTheme.labelMedium,
+                      padding: const EdgeInsets.fromLTRB(22, 2, 12, 4),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Live & recent',
+                            style: Theme.of(context).textTheme.labelMedium,
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: c.pitchGreen,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: _joinAsScorer,
+                            icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                            label: const Text('Join as scorer'),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -229,6 +363,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       final inn = m.activeInnings;
                       return GestureDetector(
                         onTap: () => _openMatch(m.config.id),
+                        onLongPress: () => _confirmDeleteMatch(m),
                         child: GlassSurface(
                           padding: const EdgeInsets.all(18),
                           child: Column(

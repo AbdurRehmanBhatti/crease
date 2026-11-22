@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crease — Live Cricket Scorecard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --ground: #eef3f3;
+      --sage-top: #e3f0ea;
+      --glass: rgba(255, 255, 255, 0.82);
+      --ink: #0a0c0c;
+      --ink-muted: #5b6560;
+      --hairline: #d5dfdd;
+      --hairline-subtle: #e3eae8;
+      --pill-muted: #e4eae9;
+      --green: #098558;
+      --green-soft: #ddf1e8;
+      --red: #d74956;
+      --shadow: 0 6px 24px -4px rgba(10, 12, 12, 0.06);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ground: #0e1413;
+        --sage-top: #13221c;
+        --glass: rgba(24, 34, 32, 0.85);
+        --ink: #f2f6f5;
+        --ink-muted: #9aa8a2;
+        --hairline: #2b3834;
+        --hairline-subtle: #222e2b;
+        --pill-muted: #202b28;
+        --green-soft: #143528;
+        --shadow: 0 8px 28px -4px rgba(0, 0, 0, 0.35);
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(180deg, var(--sage-top) 0%, var(--ground) 280px);
+      background-color: var(--ground);
+      color: var(--ink);
+      min-height: 100vh;
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 20px 16px 56px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 18px;
+      letter-spacing: -0.4px;
+      text-decoration: none;
+      color: var(--ink);
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--green);
+      background: var(--green-soft);
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+
+    .glass {
+      background: var(--glass);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--hairline);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+      margin-bottom: 14px;
+    }
+
+    .hero-score {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 10px 0 6px;
+    }
+
+    .score-num {
+      font-size: 56px;
+      line-height: 1;
+      letter-spacing: -2px;
+      font-weight: 300;
+    }
+
+    .score-num .wkts { font-weight: 600; }
+
+    .muted { color: var(--ink-muted); font-size: 13.5px; }
+    .green { color: var(--green); font-weight: 600; }
+
+    .format-pill {
+      display: inline-block;
+      background: var(--pill-muted);
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+      margin-left: 6px;
+    }
+
+    .batters-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .batter-pill {
+      background: var(--glass);
+      border: 1px solid var(--hairline);
+      border-radius: 20px;
+      padding: 11px 14px;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .batter-pill.striker { border-color: var(--green); border-width: 1.4px; }
+
+    .over-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .ball-dot {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12.5px;
+      font-weight: 600;
+      border: 1px solid var(--hairline);
+      background: var(--glass);
+    }
+
+    .ball-dot.boundary {
+      background: var(--green-soft);
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .ball-dot.wicket {
+      background: var(--red);
+      border-color: var(--red);
+      color: #fff;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      margin: 18px 4px 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th {
+      text-align: right;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      padding: 6px 4px 10px;
+      border-bottom: 1px solid var(--hairline-subtle);
+    }
+
+    th:first-child, td:first-child { text-align: left; }
+
+    td {
+      text-align: right;
+      padding: 10px 4px;
+      border-bottom: 1px solid var(--hairline-subtle);
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .dismissal {
+      display: block;
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-top: 2px;
+    }
+
+    .innings-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .inn-btn {
+      border: 1px solid var(--hairline);
+      background: var(--glass);
+      color: var(--ink);
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .inn-btn.active {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .match-card {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s ease;
+    }
+
+    .match-card:hover { border-color: var(--green); }
+
+    .footer {
+      text-align: center;
+      color: var(--ink-muted);
+      font-size: 12px;
+      margin-top: 28px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="topbar">
+      <a class="brand" href="./">Crease</a>
+      <span id="status-badge" class="live-badge" style="display:none;">
+        <span class="live-dot"></span>
+        <span id="status-text">LIVE</span>
+      </span>
+    </header>
+
+    <main id="app">
+      <div class="glass muted">Loading live scorecard…</div>
+    </main>
+
+    <footer class="footer">Live ball-by-ball · Scored with Crease</footer>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://ajwqkcblakfojsbyqjqt.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_6MtwRj2UjMJJSeRWqDDnOw_oUW_NR0z';
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const params = new URLSearchParams(window.location.search);
+    const matchId = params.get('match');
+    let selectedInnings = null;
+    let currentMatch = null;
+    let currentEvents = [];
+
+    function esc(str) {
+      return String(str ?? '').replace(/[&<>"']/g, s => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[s]));
+    }
+
+    function deriveInnings(match, events, innNum) {
+      const balls = events
+        .filter(e => !e.voided && e.innings_number === innNum)
+        .sort((a, b) => a.sequence_number - b.sequence_number);
+
+      const battingFirst = match.batting_first_team;
+      const battingSecond = battingFirst === match.team_a ? match.team_b : match.team_a;
+      const followOn = !!match.follow_on_enforced;
+      const battingTeam = innNum === 1 ? battingFirst
+        : innNum === 2 ? battingSecond
+        : innNum === 3 ? (followOn ? battingSecond : battingFirst)
+        : (followOn ? battingFirst : battingSecond);
+      const bowlingTeam = battingTeam === battingFirst ? battingSecond : battingFirst;
+
+      let runs = 0, wickets = 0, legalBalls = 0;
+      let wides = 0, noBalls = 0, byes = 0, legByes = 0;
+      const batters = new Map();
+      const bowlers = new Map();
+      const overs = [];
+      let curOver = [];
+      let curLegal = 0;
+      let striker = innNum === 1 ? match.opening_striker_1 : match.opening_striker_2;
+      let nonStriker = innNum === 1 ? match.opening_non_striker_1 : match.opening_non_striker_2;
+      let bowler = innNum === 1 ? match.opening_bowler_1 : match.opening_bowler_2;
+
+      const ensureBat = (n) => {
+        if (!batters.has(n)) batters.set(n, { name: n, runs: 0, balls: 0, fours: 0, sixes: 0, isOut: false, dismissal: '' });
+        return batters.get(n);
+      };
+      const ensureBowl = (n) => {
+        if (!bowlers.has(n)) bowlers.set(n, { name: n, legal: 0, runs: 0, wickets: 0 });
+        return bowlers.get(n);
+      };
+
+      for (const b of balls) {
+        const bt = ensureBat(b.striker);
+        ensureBat(b.non_striker);
+        const bw = ensureBowl(b.bowler);
+        striker = b.striker;
+        nonStriker = b.non_striker;
+        bowler = b.bowler;
+
+        const rBat = b.runs_off_bat || 0;
+        const rExt = b.extra_runs || 0;
+        const ext = b.extra_type || 'none';
+        const isLegal = ext !== 'wide' && ext !== 'noBall';
+
+        runs += rBat + rExt;
+        bt.runs += rBat;
+        if (ext !== 'wide') bt.balls += 1;
+        if (rBat === 4) bt.fours += 1;
+        if (rBat === 6) bt.sixes += 1;
+
+        if (ext === 'wide') wides += rExt;
+        else if (ext === 'noBall') noBalls += rExt;
+        else if (ext === 'bye') byes += rExt;
+        else if (ext === 'legBye') legByes += rExt;
+
+        bw.runs += (ext === 'bye' || ext === 'legBye') ? rBat : (rBat + rExt);
+        if (isLegal) {
+          legalBalls += 1;
+          curLegal += 1;
+          bw.legal += 1;
+        }
+
+        if (b.is_wicket) {
+          wickets += 1;
+          const outName = b.dismissed_batter || b.striker;
+          const outBt = ensureBat(outName);
+          outBt.isOut = true;
+          outBt.dismissal = b.wicket_type === 'caught'
+            ? (b.fielder ? `c ${b.fielder} b ${b.bowler}` : `c & b ${b.bowler}`)
+            : b.wicket_type === 'bowled' ? `b ${b.bowler}`
+            : b.wicket_type === 'lbw' ? `lbw b ${b.bowler}`
+            : b.wicket_type === 'runOut' ? (b.fielder ? `run out (${b.fielder})` : 'run out')
+            : (b.wicket_type || 'out');
+          if (b.wicket_type !== 'runOut' && b.wicket_type !== 'retired') bw.wickets += 1;
+          if (b.next_batter) {
+            ensureBat(b.next_batter);
+            if (outName === nonStriker) nonStriker = b.next_batter;
+            else striker = b.next_batter;
+          }
+        }
+
+        const running = ext === 'wide' ? Math.max(0, rExt - 1)
+          : ext === 'noBall' ? rBat + Math.max(0, rExt - 1)
+          : rBat + rExt;
+        if (running % 2 === 1) [striker, nonStriker] = [nonStriker, striker];
+
+        curOver.push(b);
+        if (curLegal === 6) {
+          overs.push(curOver);
+          curOver = [];
+          curLegal = 0;
+          [striker, nonStriker] = [nonStriker, striker];
+        }
+      }
+      if (curOver.length > 0) overs.push(curOver);
+
+      const declared = Array.isArray(match.declared_innings) && match.declared_innings.includes(innNum);
+      return {
+        innNum, battingTeam, bowlingTeam, runs, wickets, legalBalls,
+        oversText: `${Math.floor(legalBalls / 6)}.${legalBalls % 6}`,
+        scoreText: `${runs}/${wickets}${declared ? 'd' : ''}`,
+        crr: legalBalls > 0 ? (runs / (legalBalls / 6)).toFixed(2) : '0.00',
+        striker, nonStriker, bowler,
+        batters: Array.from(batters.values()),
+        bowlers: Array.from(bowlers.values()),
+        currentOver: overs.length ? overs[overs.length - 1] : [],
+        extras: { total: wides + noBalls + byes + legByes, wides, noBalls, byes, legByes },
+        hasData: balls.length > 0 || declared,
+      };
+    }
+
+    function shortMark(b) {
+      if (b.is_wicket) return 'W';
+      if (b.extra_type === 'wide') return b.extra_runs > 1 ? `${b.extra_runs}wd` : 'wd';
+      if (b.extra_type === 'noBall') {
+        const t = (b.runs_off_bat || 0) + (b.extra_runs || 0);
+        return t > 1 ? `${t}nb` : 'nb';
+      }
+      if (b.extra_type === 'bye') return `${b.extra_runs}b`;
+      if (b.extra_type === 'legBye') return `${b.extra_runs}lb`;
+      return b.runs_off_bat === 0 ? '•' : String(b.runs_off_bat);
+    }
+
+    function renderMatch() {
+      const m = currentMatch;
+      if (!m) return;
+      document.title = `${m.team_a} v ${m.team_b} · Crease Live`;
+      document.getElementById('status-badge').style.display = 'inline-flex';
+
+      const maxInn = m.is_test_match ? 4 : 2;
+      const inningsList = [];
+      for (let i = 1; i <= maxInn; i++) {
+        const d = deriveInnings(m, currentEvents, i);
+        if (d.hasData || i === 1) inningsList.push(d);
+      }
+      if (selectedInnings == null) {
+        selectedInnings = inningsList[inningsList.length - 1].innNum;
+      }
+      const inn = inningsList.find(x => x.innNum === selectedInnings) || inningsList[0];
+
+      const strikerObj = inn.batters.find(b => b.name === inn.striker) || { name: inn.striker, runs: 0, balls: 0 };
+      const nonStrikerObj = inn.batters.find(b => b.name === inn.nonStriker) || { name: inn.nonStriker, runs: 0, balls: 0 };
+      const bowlerObj = inn.bowlers.find(b => b.name === inn.bowler);
+
+      const tabsHtml = inningsList.length > 1 ? `
+        <div class="innings-tabs">
+          ${inningsList.map(x => `
+            <button class="inn-btn ${x.innNum === inn.innNum ? 'active' : ''}" onclick="selectInnings(${x.innNum})">
+              ${esc(x.battingTeam)} ${m.is_test_match ? `#${x.innNum}` : ''} (${esc(x.scoreText)})
+            </button>
+          `).join('')}
+        </div>
+      ` : '';
+
+      const overHtml = inn.currentOver.map(b => {
+        const cls = b.is_wicket ? 'wicket' : (b.runs_off_bat === 4 || b.runs_off_bat === 6 ? 'boundary' : '');
+        return `<span class="ball-dot ${cls}">${esc(shortMark(b))}</span>`;
+      }).join('');
+
+      document.getElementById('app').innerHTML = `
+        <section class="glass">
+          <div class="muted">${esc(m.team_a)} v ${esc(m.team_b)} <span class="format-pill">${esc(m.format_label)}</span></div>
+          <div class="hero-score">
+            <div>
+              <div class="score-num">${inn.runs}<span class="wkts">/${inn.wickets}</span></div>
+              <div class="muted" style="margin-top:4px;">${esc(inn.battingTeam)} · ${inn.oversText} overs</div>
+            </div>
+            <div style="text-align:right;">
+              <div class="muted">CRR</div>
+              <div style="font-size:18px;font-weight:600;">${inn.crr}</div>
+            </div>
+          </div>
+
+          <div class="batters-grid">
+            <div class="batter-pill striker">
+              <span>${esc(strikerObj.name)} <strong class="green">*</strong></span>
+              <span><strong>${strikerObj.runs}</strong> <span class="muted">(${strikerObj.balls})</span></span>
+            </div>
+            <div class="batter-pill">
+              <span>${esc(nonStrikerObj.name)}</span>
+              <span><strong>${nonStrikerObj.runs}</strong> <span class="muted">(${nonStrikerObj.balls})</span></span>
+            </div>
+          </div>
+
+          ${bowlerObj ? `<div class="muted" style="text-align:center;">${esc(bowlerObj.name)} &nbsp; ${Math.floor(bowlerObj.legal / 6)}.${bowlerObj.legal % 6}-${bowlerObj.runs}-${bowlerObj.wickets}</div>` : ''}
+
+          ${overHtml ? `<div class="over-strip"><span class="muted" style="font-size:12px;">This over</span>${overHtml}</div>` : ''}
+        </section>
+
+        ${tabsHtml}
+
+        <div class="section-title">Batting · ${esc(inn.battingTeam)}</div>
+        <section class="glass" style="padding:12px 16px;">
+          <table>
+            <thead>
+              <tr><th>Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr>
+            </thead>
+            <tbody>
+              ${inn.batters.map(b => `
+                <tr>
+                  <td>
+                    <span class="${!b.isOut ? 'green' : ''}">${esc(b.name)}${!b.isOut ? ' *' : ''}</span>
+                    ${b.dismissal ? `<span class="dismissal">${esc(b.dismissal)}</span>` : ''}
+                  </td>
+                  <td><strong>${b.runs}</strong></td>
+                  <td>${b.balls}</td>
+                  <td>${b.fours}</td>
+                  <td>${b.sixes}</td>
+                  <td>${b.balls ? Math.round((b.runs / b.balls) * 100) : 0}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="muted" style="margin-top:10px;font-size:12px;">
+            Extras ${inn.extras.total} (wd ${inn.extras.wides}, nb ${inn.extras.noBalls}, b ${inn.extras.byes}, lb ${inn.extras.legByes})
+          </div>
+        </section>
+
+        <div class="section-title">Bowling · ${esc(inn.bowlingTeam)}</div>
+        <section class="glass" style="padding:12px 16px;">
+          <table>
+            <thead>
+              <tr><th>Bowler</th><th>O</th><th>R</th><th>W</th><th>Econ</th></tr>
+            </thead>
+            <tbody>
+              ${inn.bowlers.map(bw => `
+                <tr>
+                  <td>${esc(bw.name)}</td>
+                  <td>${Math.floor(bw.legal / 6)}.${bw.legal % 6}</td>
+                  <td>${bw.runs}</td>
+                  <td><strong>${bw.wickets}</strong></td>
+                  <td>${bw.legal ? (bw.runs / (bw.legal / 6)).toFixed(1) : '0.0'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </section>
+      `;
+    }
+
+    window.selectInnings = (n) => {
+      selectedInnings = n;
+      renderMatch();
+    };
+
+    async function loadSingleMatch(id) {
+      const [{ data: match }, { data: events }] = await Promise.all([
+        sb.from('matches').select('*').eq('id', id).maybeSingle(),
+        sb.from('ball_events').select('*').eq('match_id', id).order('sequence_number', { ascending: true }),
+      ]);
+      if (!match) {
+        document.getElementById('app').innerHTML = `<div class="glass">Match not found yet. Ask the scorer to sync online.</div>`;
+        return;
+      }
+      currentMatch = match;
+      currentEvents = events || [];
+      renderMatch();
+
+      // Subscribe to live Realtime ball updates
+      sb.channel(`match-${id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'ball_events', filter: `match_id=eq.${id}` }, async () => {
+          const { data: fresh } = await sb.from('ball_events').select('*').eq('match_id', id).order('sequence_number', { ascending: true });
+          currentEvents = fresh || [];
+          renderMatch();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${id}` }, async () => {
+          const { data: freshMatch } = await sb.from('matches').select('*').eq('id', id).maybeSingle();
+          if (freshMatch) currentMatch = freshMatch;
+          renderMatch();
+        })
+        .subscribe();
+    }
+
+    async function loadRecentMatches() {
+      const { data: matches } = await sb.from('matches').select('*').order('created_at', { ascending: false }).limit(20);
+      if (!matches || matches.length === 0) {
+        document.getElementById('app').innerHTML = `<div class="glass muted">No synced matches yet. Score a match in the Crease Android app to see it live here.</div>`;
+        return;
+      }
+      document.getElementById('app').innerHTML = `
+        <div class="section-title">Recent Live Matches</div>
+        ${matches.map(m => `
+          <a class="glass match-card" href="?match=${encodeURIComponent(m.id)}">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong>${esc(m.team_a)} v ${esc(m.team_b)}</strong>
+              <span class="format-pill">${esc(m.format_label)}</span>
+            </div>
+            <div class="muted" style="margin-top:6px;">Tap to watch live scorecard →</div>
+          </a>
+        `).join('')}
+      `;
+    }
+
+    if (matchId) loadSingleMatch(matchId);
+    else loadRecentMatches();
+  </script>
+</body>
+</html>

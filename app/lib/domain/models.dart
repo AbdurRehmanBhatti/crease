@@ -92,6 +92,10 @@ class MatchConfig {
     this.openingBowlerInnings2 = 'Bowler 1',
     this.teamAPlayers = const [],
     this.teamBPlayers = const [],
+    this.tournamentId,
+    this.isTestMatch = false,
+    this.declaredInnings = const [],
+    this.followOnEnforced = false,
     this.firstInningsTargetOverride,
     this.isDemo = false,
     required this.createdAt,
@@ -100,7 +104,7 @@ class MatchConfig {
   final String id;
   final String teamA;
   final String teamB;
-  final int oversLimit;
+  final int oversLimit; // 0 = unlimited overs (Test match)
   final int playersPerSide;
   final String formatLabel;
   final String battingFirstTeam;
@@ -112,6 +116,10 @@ class MatchConfig {
   final String openingBowlerInnings2;
   final List<String> teamAPlayers;
   final List<String> teamBPlayers;
+  final String? tournamentId;
+  final bool isTestMatch;
+  final List<int> declaredInnings;
+  final bool followOnEnforced;
 
   /// Optional target override for starting directly in a 2nd-innings chase demo.
   final int? firstInningsTargetOverride;
@@ -129,6 +137,8 @@ class MatchConfig {
   MatchConfig copyWith({
     List<String>? teamAPlayers,
     List<String>? teamBPlayers,
+    List<int>? declaredInnings,
+    bool? followOnEnforced,
   }) =>
       MatchConfig(
         id: id,
@@ -146,6 +156,10 @@ class MatchConfig {
         openingBowlerInnings2: openingBowlerInnings2,
         teamAPlayers: teamAPlayers ?? this.teamAPlayers,
         teamBPlayers: teamBPlayers ?? this.teamBPlayers,
+        tournamentId: tournamentId,
+        isTestMatch: isTestMatch,
+        declaredInnings: declaredInnings ?? this.declaredInnings,
+        followOnEnforced: followOnEnforced ?? this.followOnEnforced,
         firstInningsTargetOverride: firstInningsTargetOverride,
         isDemo: isDemo,
         createdAt: createdAt,
@@ -167,10 +181,25 @@ class MatchConfig {
         'opening_bowler_2': openingBowlerInnings2,
         'team_a_players': jsonEncode(teamAPlayers),
         'team_b_players': jsonEncode(teamBPlayers),
+        'tournament_id': tournamentId,
+        'is_test_match': isTestMatch ? 1 : 0,
+        'declared_innings': jsonEncode(declaredInnings),
+        'follow_on_enforced': followOnEnforced ? 1 : 0,
         'first_innings_target_override': firstInningsTargetOverride,
         'is_demo': isDemo ? 1 : 0,
         'created_at': createdAt.millisecondsSinceEpoch,
       };
+
+  static List<int> _decodeInts(Object? raw) {
+    if (raw is! String || raw.isEmpty) return const [];
+    try {
+      final list = jsonDecode(raw);
+      if (list is List) {
+        return list.map((e) => int.parse(e.toString())).toList();
+      }
+    } catch (_) {}
+    return const [];
+  }
 
   static List<String> _decodePlayers(Object? raw) {
     if (raw is! String || raw.isEmpty) return const [];
@@ -202,6 +231,10 @@ class MatchConfig {
             (map['opening_bowler_2'] as String?) ?? 'Bowler 1',
         teamAPlayers: _decodePlayers(map['team_a_players']),
         teamBPlayers: _decodePlayers(map['team_b_players']),
+        tournamentId: map['tournament_id'] as String?,
+        isTestMatch: ((map['is_test_match'] as int?) ?? 0) == 1,
+        declaredInnings: _decodeInts(map['declared_innings']),
+        followOnEnforced: ((map['follow_on_enforced'] as int?) ?? 0) == 1,
         firstInningsTargetOverride:
             map['first_innings_target_override'] as int?,
         isDemo: ((map['is_demo'] as int?) ?? 0) == 1,
@@ -499,6 +532,7 @@ class DerivedInningsState {
     required this.byes,
     required this.legByes,
     required this.isComplete,
+    this.isDeclared = false,
     this.target,
   });
 
@@ -508,7 +542,7 @@ class DerivedInningsState {
   final int totalRuns;
   final int wickets;
   final int legalBalls;
-  final int oversLimit;
+  final int oversLimit; // 0 = unlimited (Test)
   final int playersPerSide;
   final String striker;
   final String nonStriker;
@@ -522,21 +556,25 @@ class DerivedInningsState {
   final int byes;
   final int legByes;
   final bool isComplete;
+  final bool isDeclared;
   final int? target;
 
   int get extrasTotal => wides + noBalls + byes + legByes;
   bool get needsNextBatter =>
       !isComplete && (striker.isEmpty || nonStriker.isEmpty);
-  String get scoreText => '$totalRuns/$wickets';
+  String get scoreText =>
+      '$totalRuns/$wickets${isDeclared ? 'd' : ''}';
   String get oversText => '${legalBalls ~/ 6}.${legalBalls % 6}';
   double get currentRunRate =>
       legalBalls == 0 ? 0.0 : totalRuns / (legalBalls / 6.0);
 
-  int get maxBalls => oversLimit * 6;
-  int get ballsRemaining => (maxBalls - legalBalls).clamp(0, maxBalls);
+  int get maxBalls => oversLimit <= 0 ? 0 : oversLimit * 6;
+  int get ballsRemaining =>
+      oversLimit <= 0 ? 0 : (maxBalls - legalBalls).clamp(0, maxBalls);
   int? get runsNeeded =>
       target == null ? null : (target! - totalRuns).clamp(0, 9999);
   double? get requiredRunRate {
+    if (oversLimit <= 0) return null;
     final needed = runsNeeded;
     if (needed == null || needed <= 0) return 0.0;
     if (ballsRemaining == 0) return null;
@@ -573,21 +611,42 @@ class DerivedMatchState {
     required this.config,
     required this.innings1,
     this.innings2,
+    this.innings3,
+    this.innings4,
     required this.activeInningsNumber,
     required this.status,
     this.resultSummary,
+    this.leadTrailText,
+    this.canEnforceFollowOn = false,
     required this.unsyncedCount,
   });
 
   final MatchConfig config;
   final DerivedInningsState innings1;
   final DerivedInningsState? innings2;
+  final DerivedInningsState? innings3;
+  final DerivedInningsState? innings4;
   final int activeInningsNumber;
   final MatchStatus status;
   final String? resultSummary;
+  final String? leadTrailText;
+  final bool canEnforceFollowOn;
   final int unsyncedCount;
 
-  DerivedInningsState get activeInnings =>
-      activeInningsNumber == 2 && innings2 != null ? innings2! : innings1;
+  List<DerivedInningsState> get allInnings => [
+        innings1,
+        ?innings2,
+        ?innings3,
+        ?innings4,
+      ];
+
+  DerivedInningsState inningsByNumber(int n) => switch (n) {
+        4 => innings4 ?? innings3 ?? innings2 ?? innings1,
+        3 => innings3 ?? innings2 ?? innings1,
+        2 => innings2 ?? innings1,
+        _ => innings1,
+      };
+
+  DerivedInningsState get activeInnings => inningsByNumber(activeInningsNumber);
 }
 

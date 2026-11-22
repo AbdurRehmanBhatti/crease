@@ -4,6 +4,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/models.dart';
+import '../domain/team_profile.dart';
+import '../domain/tournament_engine.dart';
 
 /// Offline-first SQLite event store for Crease.
 /// Every ball is persisted locally first with a client-generated UUID so
@@ -20,8 +22,34 @@ class LocalEventStore {
     final fullPath = p.join(dbPath, 'crease_events.db');
     _db = await openDatabase(
       fullPath,
-      version: 2,
+      version: 5,
       onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE teams (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            is_my_team INTEGER NOT NULL DEFAULT 0,
+            players TEXT NOT NULL DEFAULT '[]',
+            synced INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE tournaments (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            overs_limit INTEGER NOT NULL,
+            players_per_side INTEGER NOT NULL DEFAULT 11,
+            format_label TEXT NOT NULL,
+            team_rosters TEXT NOT NULL DEFAULT '{}',
+            points_for_win INTEGER NOT NULL DEFAULT 2,
+            points_for_tie INTEGER NOT NULL DEFAULT 1,
+            synced INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+          )
+        ''');
+
         await db.execute('''
           CREATE TABLE matches (
             id TEXT PRIMARY KEY,
@@ -39,6 +67,10 @@ class LocalEventStore {
             opening_bowler_2 TEXT NOT NULL,
             team_a_players TEXT NOT NULL DEFAULT '[]',
             team_b_players TEXT NOT NULL DEFAULT '[]',
+            tournament_id TEXT,
+            is_test_match INTEGER NOT NULL DEFAULT 0,
+            declared_innings TEXT NOT NULL DEFAULT '[]',
+            follow_on_enforced INTEGER NOT NULL DEFAULT 0,
             first_innings_target_override INTEGER,
             is_demo INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
@@ -82,6 +114,48 @@ class LocalEventStore {
             "ALTER TABLE matches ADD COLUMN team_b_players TEXT NOT NULL DEFAULT '[]'",
           );
         }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS tournaments (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              overs_limit INTEGER NOT NULL,
+              players_per_side INTEGER NOT NULL DEFAULT 11,
+              format_label TEXT NOT NULL,
+              team_rosters TEXT NOT NULL DEFAULT '{}',
+              points_for_win INTEGER NOT NULL DEFAULT 2,
+              points_for_tie INTEGER NOT NULL DEFAULT 1,
+              synced INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL
+            )
+          ''');
+          await db.execute(
+            'ALTER TABLE matches ADD COLUMN tournament_id TEXT',
+          );
+        }
+        if (oldVersion < 4) {
+          await db.execute(
+            'ALTER TABLE matches ADD COLUMN is_test_match INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            "ALTER TABLE matches ADD COLUMN declared_innings TEXT NOT NULL DEFAULT '[]'",
+          );
+          await db.execute(
+            'ALTER TABLE matches ADD COLUMN follow_on_enforced INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 5) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS teams (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              is_my_team INTEGER NOT NULL DEFAULT 0,
+              players TEXT NOT NULL DEFAULT '[]',
+              synced INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL
+            )
+          ''');
+        }
       },
     );
     return _db!;
@@ -91,6 +165,190 @@ class LocalEventStore {
     final db = await database;
     final rows = await db.query('matches', orderBy: 'created_at DESC');
     return rows.map(MatchConfig.fromMap).toList();
+  }
+
+  Future<List<MatchConfig>> listMatchesForTournament(String tournamentId) async {
+    final db = await database;
+    final rows = await db.query(
+      'matches',
+      where: 'tournament_id = ?',
+      whereArgs: [tournamentId],
+      orderBy: 'created_at DESC',
+    );
+    return rows.map(MatchConfig.fromMap).toList();
+  }
+
+  Future<List<Tournament>> listTournaments() async {
+    final db = await database;
+    final rows = await db.query('tournaments', orderBy: 'created_at DESC');
+    return rows.map(Tournament.fromMap).toList();
+  }
+
+  Future<List<TeamProfile>> listTeams() async {
+    final db = await database;
+    final rows = await db.query(
+      'teams',
+      orderBy: 'is_my_team DESC, name ASC',
+    );
+    return rows.map(TeamProfile.fromMap).toList();
+  }
+
+  Future<void> saveTeam(TeamProfile team) async {
+    final db = await database;
+    await db.insert(
+      'teams',
+      team.copyWith(synced: false).toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> syncTeamToSupabase(String teamId) async {
+    SupabaseClient? client;
+    try {
+      client = Supabase.instance.client;
+    } catch (_) {
+      return;
+    }
+    var userId = client.auth.currentUser?.id;
+    if (userId == null) {
+      try {
+        userId = (await client.auth.signInAnonymously()).user?.id;
+      } catch (_) {
+        return;
+      }
+    }
+    if (userId == null) return;
+    final db = await database;
+    final rows = await db.query('teams', where: 'id = ?', whereArgs: [teamId]);
+    if (rows.isEmpty) return;
+    final team = TeamProfile.fromMap(rows.first);
+    try {
+      await client.from('teams').upsert(
+        {
+          'id': team.id,
+          'owner_id': userId,
+          'name': team.name,
+          'is_my_team': team.isMyTeam,
+          'players': team.players,
+          'created_at': team.createdAt.millisecondsSinceEpoch,
+        },
+        onConflict: 'id',
+      );
+      await db.update(
+        'teams',
+        {'synced': 1},
+        where: 'id = ?',
+        whereArgs: [team.id],
+      );
+    } catch (e) {
+      debugPrint('[Crease Sync] Team upsert failed: $e');
+    }
+  }
+
+  /// Collects all unique team names and merged player rosters across all
+  /// saved teams, tournaments, and matches so Quick Match can pick existing teams.
+  Future<Map<String, List<String>>> listKnownTeamRosters() async {
+    final rosters = <String, List<String>>{};
+
+    void merge(String teamName, List<String> players) {
+      final key = teamName.trim();
+      if (key.isEmpty) return;
+      final list = rosters.putIfAbsent(key, () => <String>[]);
+      for (final p in players) {
+        final trimmed = p.trim();
+        if (trimmed.isEmpty) continue;
+        if (!list.any((e) => e.toLowerCase() == trimmed.toLowerCase())) {
+          list.add(trimmed);
+        }
+      }
+    }
+
+    final savedTeams = await listTeams();
+    for (final t in savedTeams) {
+      merge(t.name, t.players);
+    }
+
+    final tournaments = await listTournaments();
+    for (final t in tournaments) {
+      for (final entry in t.teamRosters.entries) {
+        merge(entry.key, entry.value);
+      }
+    }
+
+    final matches = await listMatches();
+    for (final m in matches) {
+      merge(m.teamA, m.teamAPlayers);
+      merge(m.teamB, m.teamBPlayers);
+    }
+
+    return rosters;
+  }
+
+  Future<Tournament?> getTournament(String tournamentId) async {
+    final db = await database;
+    final rows = await db.query(
+      'tournaments',
+      where: 'id = ?',
+      whereArgs: [tournamentId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Tournament.fromMap(rows.first);
+  }
+
+  Future<void> saveTournament(Tournament tournament) async {
+    final db = await database;
+    await db.insert(
+      'tournaments',
+      tournament.copyWith(synced: false).toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> syncTournamentToSupabase(String tournamentId) async {
+    SupabaseClient? client;
+    try {
+      client = Supabase.instance.client;
+    } catch (_) {
+      return;
+    }
+    var userId = client.auth.currentUser?.id;
+    if (userId == null) {
+      try {
+        userId = (await client.auth.signInAnonymously()).user?.id;
+      } catch (_) {
+        return;
+      }
+    }
+    if (userId == null) return;
+    final t = await getTournament(tournamentId);
+    if (t == null) return;
+    try {
+      await client.from('tournaments').upsert(
+        {
+          'id': t.id,
+          'owner_id': userId,
+          'name': t.name,
+          'overs_limit': t.oversLimit,
+          'players_per_side': t.playersPerSide,
+          'format_label': t.formatLabel,
+          'team_rosters': t.teamRosters,
+          'points_for_win': t.pointsForWin,
+          'points_for_tie': t.pointsForTie,
+          'created_at': t.createdAt.millisecondsSinceEpoch,
+        },
+        onConflict: 'id',
+      );
+      final db = await database;
+      await db.update(
+        'tournaments',
+        {'synced': 1},
+        where: 'id = ?',
+        whereArgs: [t.id],
+      );
+    } catch (e) {
+      debugPrint('[Crease Sync] Tournament upsert failed: $e');
+    }
   }
 
   Future<MatchConfig?> getMatch(String matchId) async {
@@ -219,8 +477,20 @@ class LocalEventStore {
     );
   }
 
-  /// Syncs all matches that have unsynced ball events to Supabase.
+  /// Syncs all teams, tournaments, and matches that have unsynced records to Supabase.
   Future<int> syncAllPendingToSupabase() async {
+    final teams = await listTeams();
+    for (final t in teams) {
+      if (!t.synced) {
+        await syncTeamToSupabase(t.id);
+      }
+    }
+    final tournaments = await listTournaments();
+    for (final t in tournaments) {
+      if (!t.synced) {
+        await syncTournamentToSupabase(t.id);
+      }
+    }
     final matches = await listMatches();
     var total = 0;
     for (final m in matches) {
@@ -261,9 +531,12 @@ class LocalEventStore {
     if (unsyncedRows.isEmpty) return 0;
 
     try {
-      // Ensure parent match row exists in Supabase before upserting ball events.
+      // Ensure parent tournament & match rows exist before upserting ball events.
       final match = await getMatch(matchId);
       if (match != null) {
+        if (match.tournamentId != null) {
+          await syncTournamentToSupabase(match.tournamentId!);
+        }
         await client.from('matches').upsert(
           {
             'id': match.id,
@@ -282,6 +555,10 @@ class LocalEventStore {
             'opening_bowler_2': match.openingBowlerInnings2,
             'team_a_players': match.teamAPlayers,
             'team_b_players': match.teamBPlayers,
+            'tournament_id': match.tournamentId,
+            'is_test_match': match.isTestMatch,
+            'declared_innings': match.declaredInnings,
+            'follow_on_enforced': match.followOnEnforced,
             'first_innings_target_override': match.firstInningsTargetOverride,
             'is_demo': match.isDemo,
             'created_at': match.createdAt.millisecondsSinceEpoch,

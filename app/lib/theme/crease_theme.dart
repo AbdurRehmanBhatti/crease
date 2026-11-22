@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Daylight Glass design tokens for Crease.
@@ -255,6 +256,13 @@ class CreaseTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         foregroundColor: CreaseColors.inkPrimaryLight,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.dark,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: CreaseColors.hairlineSubtleLight,
@@ -297,6 +305,13 @@ class CreaseTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         foregroundColor: CreaseColors.inkPrimaryDark,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.light,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: CreaseColors.hairlineSubtleDark,

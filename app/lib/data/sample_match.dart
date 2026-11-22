@@ -56,6 +56,98 @@ class SampleMatchSeed {
         createdAt: DateTime(2026, 11, 21, 19, 0),
       );
 
+  /// Generates realistic 1st innings (KHI Kites 179/6 in 20.0 ov) +
+  /// 2nd innings (LHR Lions 142/3 in 16.4 ov) ball events so both teams
+  /// appear cleanly across Overview, Scorecard, Charts (dual Worm), and Overs.
+  static List<BallEvent> innings1Events() {
+    final baseTime = DateTime(2026, 11, 21, 17, 30);
+    final list = <BallEvent>[];
+    var seq = 1;
+    String striker = 'M. Rizwan';
+    String nonStriker = 'S. Masood';
+    var legalInOver = 0;
+
+    void addBall({
+      required String bowler,
+      int runs = 0,
+      bool wicket = false,
+      WicketType? wicketType,
+      String? fielder,
+      String? nextBatter,
+    }) {
+      final event = BallEvent(
+        id: 'demo-inn1-ball-$seq',
+        matchId: demoMatchId,
+        inningsNumber: 1,
+        sequenceNumber: seq,
+        striker: striker,
+        nonStriker: nonStriker,
+        bowler: bowler,
+        runsOffBat: runs,
+        isWicket: wicket,
+        wicketType: wicketType,
+        dismissedBatter: wicket ? striker : null,
+        fielder: fielder,
+        nextBatter: nextBatter,
+        synced: true,
+        createdAt: baseTime.add(Duration(seconds: seq * 20)),
+      );
+      list.add(event);
+      seq++;
+      if (wicket && nextBatter != null) striker = nextBatter;
+      if (runs.isOdd) {
+        final t = striker;
+        striker = nonStriker;
+        nonStriker = t;
+      }
+      legalInOver++;
+      if (legalInOver == 6) {
+        legalInOver = 0;
+        final t = striker;
+        striker = nonStriker;
+        nonStriker = t;
+      }
+    }
+
+    // 20 overs totaling 179/6 (target 180)
+    final scripts = <_OverScript>[
+      const _OverScript('S. Afridi', [0, 4, 1, 0, 2, 1]), // 8
+      const _OverScript('H. Ali', [1, 4, 0, 1, 2, 1]), // 9 -> 17
+      const _OverScript('S. Afridi', [4, 0, 1, 0, 1, 2], wktIdx: 3, wktType: WicketType.bowled, next: 'J. Vince'), // 8 -> 25/1
+      const _OverScript('H. Ali', [2, 1, 4, 0, 1, 1]), // 9 -> 34/1
+      const _OverScript('Z. Khan', [1, 0, 4, 2, 1, 1]), // 9 -> 43/1
+      const _OverScript('Shadab K.', [0, 2, 1, 4, 1, 1]), // 9 -> 52/1
+      const _OverScript('Z. Khan', [1, 1, 2, 0, 4, 0], wktIdx: 5, wktType: WicketType.lbw, next: 'K. Pollard'), // 8 -> 60/2
+      const _OverScript('Shadab K.', [1, 6, 0, 1, 1, 1]), // 10 -> 70/2
+      const _OverScript('A. Jamal', [0, 2, 4, 1, 1, 1]), // 9 -> 79/2
+      const _OverScript('Shadab K.', [1, 0, 2, 1, 4, 1]), // 9 -> 88/2
+      const _OverScript('A. Jamal', [0, 1, 0, 6, 1, 1], wktIdx: 2, wktType: WicketType.caught, next: 'I. Wasim'), // 9 -> 97/3
+      const _OverScript('Z. Khan', [1, 2, 1, 4, 0, 1]), // 9 -> 106/3
+      const _OverScript('Shadab K.', [2, 1, 4, 0, 1, 1]), // 9 -> 115/3
+      const _OverScript('H. Ali', [1, 0, 6, 1, 1, 0], wktIdx: 5, wktType: WicketType.bowled, next: 'S. Khan'), // 9 -> 124/4
+      const _OverScript('A. Jamal', [1, 4, 1, 2, 0, 1]), // 9 -> 133/4
+      const _OverScript('Z. Khan', [2, 1, 0, 4, 1, 1]), // 9 -> 142/4
+      const _OverScript('S. Afridi', [1, 0, 4, 1, 2, 1], wktIdx: 1, wktType: WicketType.caught, next: 'M. Nawaz'), // 9 -> 151/5
+      const _OverScript('H. Ali', [2, 4, 1, 0, 2, 1]), // 10 -> 161/5
+      const _OverScript('A. Jamal', [1, 0, 6, 1, 1, 0], wktIdx: 5, wktType: WicketType.bowled, next: 'M. Amir'), // 9 -> 170/6
+      const _OverScript('S. Afridi', [1, 2, 4, 1, 1, 0]), // 9 -> 179/6
+    ];
+
+    for (final ov in scripts) {
+      for (var i = 0; i < ov.runs.length; i++) {
+        final isWkt = ov.wktIdx == i;
+        addBall(
+          bowler: ov.bowler,
+          runs: isWkt ? 0 : ov.runs[i],
+          wicket: isWkt,
+          wicketType: isWkt ? ov.wktType : null,
+          nextBatter: isWkt ? ov.next : null,
+        );
+      }
+    }
+    return list;
+  }
+
   /// Generates 100 legal ball events for Innings 2 that naturally derive:
   /// - Total: 142/3 in 16.4 overs
   /// - Babar R. (striker) 58 (41)
@@ -63,8 +155,8 @@ class SampleMatchSeed {
   /// - H. Rauf figures: 3.4-0-31-1
   static List<BallEvent> events() {
     final baseTime = DateTime(2026, 11, 21, 19, 10);
-    final list = <BallEvent>[];
-    var seq = 1;
+    final list = <BallEvent>[...innings1Events()];
+    var seq = list.length + 1;
 
     String striker = 'Babar R.';
     String nonStriker = 'Saim A.';

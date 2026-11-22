@@ -47,14 +47,22 @@ Future<void> main() async {
   if (existing == null) {
     await store.saveMatch(SampleMatchSeed.config());
     await store.appendBallEventsBatch(SampleMatchSeed.events());
-  } else if (existing.teamAPlayers.isEmpty) {
-    final seed = SampleMatchSeed.config();
-    await store.saveMatch(
-      existing.copyWith(
-        teamAPlayers: seed.teamAPlayers,
-        teamBPlayers: seed.teamBPlayers,
-      ),
-    );
+  } else {
+    if (existing.teamAPlayers.isEmpty) {
+      final seed = SampleMatchSeed.config();
+      await store.saveMatch(
+        existing.copyWith(
+          teamAPlayers: seed.teamAPlayers,
+          teamBPlayers: seed.teamBPlayers,
+        ),
+      );
+    }
+    final existingEvents =
+        await store.getBallEvents(SampleMatchSeed.demoMatchId);
+    final hasInn1 = existingEvents.any((e) => e.inningsNumber == 1);
+    if (!hasInn1) {
+      await store.appendBallEventsBatch(SampleMatchSeed.innings1Events());
+    }
   }
 
   runApp(const CreaseApp());

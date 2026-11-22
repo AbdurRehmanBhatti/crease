@@ -103,3 +103,67 @@ create policy "ball_events_delete_own"
 
 alter publication supabase_realtime add table public.matches;
 alter publication supabase_realtime add table public.ball_events;
+
+-- Phase 2A: Tournaments & Auto-Derived Points Table / NRR (migration add_tournaments)
+create table if not exists public.tournaments (
+  id text primary key,
+  owner_id uuid references auth.users(id) on delete set null default auth.uid(),
+  name text not null,
+  overs_limit integer not null check (overs_limit > 0),
+  players_per_side integer not null default 11 check (players_per_side between 2 and 15),
+  format_label text not null,
+  team_rosters jsonb not null default '{}'::jsonb,
+  points_for_win integer not null default 2,
+  points_for_tie integer not null default 1,
+  created_at bigint not null
+);
+
+alter table public.matches
+  add column if not exists tournament_id text references public.tournaments(id) on delete set null;
+
+create index if not exists idx_tournaments_owner_id on public.tournaments (owner_id);
+create index if not exists idx_matches_tournament_id on public.matches (tournament_id);
+
+alter table public.tournaments enable row level security;
+grant select on public.tournaments to anon;
+grant select, insert, update, delete on public.tournaments to authenticated;
+
+create policy "tournaments_select_public" on public.tournaments for select to anon, authenticated using (true);
+create policy "tournaments_insert_own" on public.tournaments for insert to authenticated with check ((select auth.uid()) = owner_id);
+create policy "tournaments_update_own" on public.tournaments for update to authenticated using ((select auth.uid()) = owner_id) with check ((select auth.uid()) = owner_id);
+create policy "tournaments_delete_own" on public.tournaments for delete to authenticated using ((select auth.uid()) = owner_id);
+
+alter publication supabase_realtime add table public.tournaments;
+
+-- Test / Multi-day 4-innings match support (migration add_test_match_support)
+alter table public.matches drop constraint if exists matches_overs_limit_check;
+alter table public.matches add constraint matches_overs_limit_check check (overs_limit >= 0);
+alter table public.matches
+  add column if not exists is_test_match boolean not null default false,
+  add column if not exists declared_innings jsonb not null default '[]'::jsonb,
+  add column if not exists follow_on_enforced boolean not null default false;
+
+alter table public.ball_events drop constraint if exists ball_events_innings_number_check;
+alter table public.ball_events add constraint ball_events_innings_number_check check (innings_number between 1 and 4);
+
+-- Standalone Teams directory & rosters (migration add_teams)
+create table if not exists public.teams (
+  id text primary key,
+  owner_id uuid references auth.users(id) on delete set null default auth.uid(),
+  name text not null,
+  is_my_team boolean not null default false,
+  players jsonb not null default '[]'::jsonb,
+  created_at bigint not null
+);
+
+create index if not exists idx_teams_owner_id on public.teams (owner_id);
+alter table public.teams enable row level security;
+grant select on public.teams to anon;
+grant select, insert, update, delete on public.teams to authenticated;
+
+create policy "teams_select_public" on public.teams for select to anon, authenticated using (true);
+create policy "teams_insert_own" on public.teams for insert to authenticated with check ((select auth.uid()) = owner_id);
+create policy "teams_update_own" on public.teams for update to authenticated using ((select auth.uid()) = owner_id) with check ((select auth.uid()) = owner_id);
+create policy "teams_delete_own" on public.teams for delete to authenticated using ((select auth.uid()) = owner_id);
+
+alter publication supabase_realtime add table public.teams;

@@ -3,10 +3,16 @@ import 'package:flutter/material.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
+import '../../domain/team_profile.dart';
+import '../../domain/tournament_engine.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/glass_surface.dart';
 import '../quick_match/quick_match_sheet.dart';
 import '../scoring/scoring_screen.dart';
+import '../stats/stats_tab_view.dart';
+import '../teams/teams_tab_view.dart';
+import '../tournaments/create_tournament_sheet.dart';
+import '../tournaments/tournament_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,6 +23,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<DerivedMatchState> _matches = [];
+  List<Tournament> _tournaments = [];
+  List<TeamProfile> _teams = [];
+  Map<String, List<String>> _knownRosters = {};
   bool _loading = true;
   int _navIndex = 0;
 
@@ -29,6 +38,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadMatches() async {
     final store = LocalEventStore.instance;
     final configs = await store.listMatches();
+    final tournaments = await store.listTournaments();
+    final teams = await store.listTeams();
+    final knownRosters = await store.listKnownTeamRosters();
     final derived = <DerivedMatchState>[];
     for (final cfg in configs) {
       final events = await store.getBallEvents(cfg.id);
@@ -37,8 +49,33 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() {
       _matches = derived;
+      _tournaments = tournaments;
+      _teams = teams;
+      _knownRosters = knownRosters;
       _loading = false;
     });
+  }
+
+  Future<void> _createTeam() async {
+    final team = await showCreateTeamSheet(context);
+    if (team == null) return;
+    await LocalEventStore.instance.saveTeam(team);
+    LocalEventStore.instance.syncTeamToSupabase(team.id);
+    _loadMatches();
+  }
+
+  Future<void> _createTournament() async {
+    final tournament = await showCreateTournamentSheet(context);
+    if (tournament == null) return;
+    await LocalEventStore.instance.saveTournament(tournament);
+    LocalEventStore.instance.syncTournamentToSupabase(tournament.id);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TournamentDetailScreen(tournamentId: tournament.id),
+      ),
+    );
+    _loadMatches();
   }
 
   Future<void> _createQuickMatch() async {
@@ -126,9 +163,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             borderRadius: BorderRadius.circular(24),
                           ),
                         ),
-                        onPressed: _createQuickMatch,
+                        onPressed: _navIndex == 1
+                            ? _createTeam
+                            : _navIndex == 2
+                                ? _createTournament
+                                : _createQuickMatch,
                         icon: const Icon(Icons.add_rounded, size: 20),
-                        label: const Text('Quick Match'),
+                        label: Text(
+                          _navIndex == 1
+                              ? 'Team'
+                              : _navIndex == 2
+                                  ? 'Tournament'
+                                  : 'Quick Match',
+                        ),
                       ),
                     ],
                   ),
@@ -335,43 +382,125 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 ],
-              ] else
-                SliverFillRemaining(
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 28),
-                      child: GlassSurface(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _navIndex == 1
-                                  ? Icons.emoji_events_outlined
-                                  : Icons.insights_rounded,
-                              size: 32,
-                              color: c.pitchGreen,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _navIndex == 1
-                                  ? 'Tournaments & Auto NRR'
-                                  : 'Career Stats & Leaderboards',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _navIndex == 1
-                                  ? 'Coming in Phase 2 — points tables and Net Run Rate derived straight from the ball log.'
-                                  : 'Coming in Phase 2 — batting averages, strike rates, bowling economy, and MVP rankings.',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                          ],
+              ] else if (_navIndex == 1)
+                TeamsTabView(
+                  savedTeams: _teams,
+                  knownRosters: _knownRosters,
+                  matches: _matches,
+                  onChanged: _loadMatches,
+                )
+              else if (_navIndex == 2) ...[
+                if (_tournaments.isEmpty)
+                  SliverFillRemaining(
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: GlassSurface(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.emoji_events_outlined,
+                                size: 32,
+                                color: c.pitchGreen,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No tournaments yet',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Create a tournament to get an auto-calculated Points Table and ICC Net Run Rate.',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: c.pitchGreen,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: _createTournament,
+                                icon: const Icon(Icons.add_rounded),
+                                label: const Text('New Tournament'),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
+                  )
+                else ...[
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(22, 6, 20, 8),
+                      child: Text(
+                        'Your tournaments',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                    ),
                   ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                    sliver: SliverList.separated(
+                      itemCount: _tournaments.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final t = _tournaments[index];
+                        return GestureDetector(
+                          onTap: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    TournamentDetailScreen(tournamentId: t.id),
+                              ),
+                            );
+                            _loadMatches();
+                          },
+                          child: GlassSurface(
+                            padding: const EdgeInsets.all(18),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        t.name,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${t.teams.length} teams · ${t.formatLabel} (${t.oversLimit} overs)',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: c.inkSecondary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ] else
+                StatsTabView(
+                  matches: _matches,
+                  tournaments: _tournaments,
+                  savedTeams: _teams,
                 ),
             ],
           ),
@@ -383,20 +512,25 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: c.surfaceSheet,
         indicatorColor: c.pitchGreenSoft,
         onDestinationSelected: (i) => setState(() => _navIndex = i),
-        destinations: const [
+        destinations: [
           NavigationDestination(
-            icon: Icon(Icons.sports_cricket_outlined),
-            selectedIcon: Icon(Icons.sports_cricket_rounded),
+            icon: const Icon(Icons.sports_cricket_outlined),
+            selectedIcon: Icon(Icons.sports_cricket_rounded, color: c.pitchGreen),
             label: 'Matches',
           ),
           NavigationDestination(
-            icon: Icon(Icons.emoji_events_outlined),
-            selectedIcon: Icon(Icons.emoji_events_rounded),
+            icon: const Icon(Icons.groups_outlined),
+            selectedIcon: Icon(Icons.groups_rounded, color: c.pitchGreen),
+            label: 'Teams',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.emoji_events_outlined),
+            selectedIcon: Icon(Icons.emoji_events_rounded, color: c.pitchGreen),
             label: 'Tournaments',
           ),
           NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights_rounded),
+            icon: const Icon(Icons.insights_outlined),
+            selectedIcon: Icon(Icons.insights_rounded, color: c.pitchGreen),
             label: 'Stats',
           ),
         ],

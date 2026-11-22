@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/app_links.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
@@ -71,6 +72,12 @@ class _ScoringScreenState extends State<ScoringScreen> {
     return maxSeq + 1;
   }
 
+  bool _needsNewBowler(DerivedInningsState inn) =>
+      !inn.isComplete &&
+      inn.legalBalls > 0 &&
+      inn.legalBalls % 6 == 0 &&
+      _manualBowler == null;
+
   Future<void> _recordBall({
     int runsOffBat = 0,
     ExtraType extraType = ExtraType.none,
@@ -85,11 +92,15 @@ class _ScoringScreenState extends State<ScoringScreen> {
     if (state == null) return;
     final inn = state.activeInnings;
     if (inn.isComplete) {
-      _showSnack('Innings is complete. Start 2nd innings or open scorecard.');
+      _showSnack('Innings is complete. Start next innings or open Match Center.');
       return;
     }
     if (inn.needsNextBatter) {
       await _openSelectNextBatterSheet(state);
+      return;
+    }
+    if (_needsNewBowler(inn)) {
+      await _promptNewBowler(inn);
       return;
     }
 
@@ -226,6 +237,11 @@ class _ScoringScreenState extends State<ScoringScreen> {
                 ),
                 const SizedBox(height: 12),
                 if (availableBowlers.isNotEmpty) ...[
+                  Text(
+                    'Available bowlers',
+                    style: Theme.of(ctx).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -233,9 +249,45 @@ class _ScoringScreenState extends State<ScoringScreen> {
                       for (final name in availableBowlers)
                         ActionChip(
                           label: Text(name),
+                          backgroundColor: c.surfaceKey,
+                          side: BorderSide(color: c.pitchGreen, width: 1),
+                          labelStyle: TextStyle(
+                            color: c.inkPrimary,
+                            fontWeight: FontWeight.w500,
+                          ),
                           onPressed: () => Navigator.pop(ctx, name),
                         ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                // Show who just bowled as muted/disabled so it's clear why they can't bowl back-to-back overs
+                if (inn.legalBalls > 0 && inn.currentBowler.isNotEmpty) ...[
+                  Text(
+                    'Bowled previous over',
+                    style: Theme.of(ctx).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Opacity(
+                      opacity: 0.45,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: c.pillMutedBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: c.hairline),
+                        ),
+                        child: Text(
+                          '${inn.currentBowler} · ${inn.bowlerByName(inn.currentBowler).figuresText}',
+                          style: Theme.of(ctx).textTheme.labelMedium,
+                        ),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 14),
                 ],
@@ -293,6 +345,17 @@ class _ScoringScreenState extends State<ScoringScreen> {
   }
 
   Future<void> _openExtrasSheet(ExtraType type) async {
+    final state = _matchState;
+    if (state != null) {
+      if (state.activeInnings.needsNextBatter) {
+        await _openSelectNextBatterSheet(state);
+        return;
+      }
+      if (_needsNewBowler(state.activeInnings)) {
+        await _promptNewBowler(state.activeInnings);
+        return;
+      }
+    }
     HapticFeedback.selectionClick();
     final isPenaltyExtra = type == ExtraType.wide || type == ExtraType.noBall;
     final options = switch (type) {
@@ -409,6 +472,10 @@ class _ScoringScreenState extends State<ScoringScreen> {
     final inn = state.activeInnings;
     if (inn.needsNextBatter) {
       await _openSelectNextBatterSheet(state);
+      return;
+    }
+    if (_needsNewBowler(inn)) {
+      await _promptNewBowler(inn);
       return;
     }
 
@@ -906,7 +973,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
     _showSnack('Ball updated — scorecard recalculated');
   }
 
-  void _shareMatchSummary(DerivedMatchState state) {
+  Future<void> _shareMatchSummary(DerivedMatchState state) async {
+    await LocalEventStore.instance.syncPendingToSupabase(state.config.id);
     final inn = state.activeInnings;
     final lines = [
       '${state.config.title} (${state.config.formatLabel})',
@@ -914,9 +982,50 @@ class _ScoringScreenState extends State<ScoringScreen> {
       if (inn.runsNeeded != null && inn.runsNeeded! > 0)
         'Need ${inn.runsNeeded} from ${inn.ballsRemaining} balls',
       if (state.resultSummary != null) state.resultSummary!,
-      'Scored with Crease',
+      'Watch live: ${CreaseLinks.liveMatchUrl(state.config.id)}',
     ];
     Share.share(lines.join('\n'));
+  }
+
+  Future<void> _declareCurrentInnings(DerivedMatchState state) async {
+    final innNum = state.activeInnings.inningsNumber;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Declare innings?'),
+        content: Text(
+          'Declare ${state.activeInnings.battingTeam} at ${state.activeInnings.scoreText} (${state.activeInnings.oversText} ov)?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Declare'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final updatedDeclared = {...state.config.declaredInnings, innNum}.toList();
+    final updated = state.config.copyWith(declaredInnings: updatedDeclared);
+    await LocalEventStore.instance.saveMatch(updated);
+    if (!mounted) return;
+    setState(() => _config = updated);
+    LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+  }
+
+  Future<void> _enforceFollowOn(DerivedMatchState state) async {
+    final updated = state.config.copyWith(followOnEnforced: true);
+    await LocalEventStore.instance.saveMatch(updated);
+    if (!mounted) return;
+    setState(() {
+      _config = updated;
+      _forcedInnings = 3;
+    });
+    LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
   }
 
   void _showSnack(String message) {
@@ -993,7 +1102,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                   );
                   _load();
                 },
-                onUndo: _undoLastBall,
               ),
 
               // 2. Open Scoreboard Area (scrollable safeguard for large font scales)
@@ -1066,6 +1174,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
                                   _ChaseOrRateStack(
                                     innings: inn,
                                     status: state.status,
+                                    isTestMatch: state.config.isTestMatch,
+                                    leadTrailText: state.leadTrailText,
                                     resultSummary: state.resultSummary,
                                     onShare: () => _shareMatchSummary(state),
                                   ),
@@ -1104,42 +1214,61 @@ class _ScoringScreenState extends State<ScoringScreen> {
                               ],
                             ),
 
-                            // Centered bowler line (tappable to change bowler)
+                            // Centered bowler line (or green Select Next Bowler pill at over break)
                             Center(
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () => _promptNewBowler(inn),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  child: Text.rich(
-                                    TextSpan(
-                                      children: [
-                                        TextSpan(
-                                          text: '${bowlerStats.name}  ',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleMedium
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w500,
-                                              ),
+                              child: _needsNewBowler(inn)
+                                  ? FilledButton.icon(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: c.pitchGreen,
+                                        foregroundColor: Colors.white,
+                                        visualDensity: VisualDensity.compact,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(20),
                                         ),
-                                        TextSpan(
-                                          text: bowlerStats.figuresText,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodyLarge
-                                              ?.copyWith(
-                                                color: c.inkSecondary,
-                                              ),
+                                      ),
+                                      onPressed: () => _promptNewBowler(inn),
+                                      icon: const Icon(
+                                        Icons.sports_baseball_outlined,
+                                        size: 16,
+                                      ),
+                                      label: const Text('Select next bowler'),
+                                    )
+                                  : InkWell(
+                                      borderRadius: BorderRadius.circular(12),
+                                      onTap: () => _promptNewBowler(inn),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
                                         ),
-                                      ],
+                                        child: Text.rich(
+                                          TextSpan(
+                                            children: [
+                                              TextSpan(
+                                                text: '${bowlerStats.name}  ',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                              ),
+                                              TextSpan(
+                                                text: bowlerStats.figuresText,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodyLarge
+                                                    ?.copyWith(
+                                                      color: c.inkSecondary,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                              ),
                             ),
 
                             // Horizontal over timeline (previous faded + current over)
@@ -1150,16 +1279,57 @@ class _ScoringScreenState extends State<ScoringScreen> {
                               onBallTap: _openEditBallSheet,
                             ),
 
+                            if (state.config.isTestMatch &&
+                                state.status == MatchStatus.live &&
+                                inn.inningsNumber < 4)
+                              Align(
+                                alignment: Alignment.center,
+                                child: TextButton(
+                                  style: TextButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  onPressed: () => _declareCurrentInnings(state),
+                                  child: Text(
+                                    'Declare innings',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelMedium
+                                        ?.copyWith(color: c.pitchGreen),
+                                  ),
+                                ),
+                              ),
+
                             if (state.status == MatchStatus.inningsBreak)
                               Padding(
                                 padding: const EdgeInsets.only(top: 6),
-                                child: FilledButton(
-                                  onPressed: () {
-                                    setState(() => _forcedInnings = 2);
-                                  },
-                                  child: Text(
-                                    'Start 2nd innings (${state.config.battingSecondTeam})',
-                                  ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: c.pitchGreen,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        onPressed: () {
+                                          setState(
+                                            () => _forcedInnings =
+                                                state.activeInningsNumber + 1,
+                                          );
+                                        },
+                                        child: Text(
+                                          'Start Innings ${state.activeInningsNumber + 1}',
+                                        ),
+                                      ),
+                                    ),
+                                    if (state.canEnforceFollowOn) ...[
+                                      const SizedBox(width: 8),
+                                      OutlinedButton(
+                                        onPressed: () =>
+                                            _enforceFollowOn(state),
+                                        child: const Text('Follow-on'),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                           ],
@@ -1177,6 +1347,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                 onWicketTap: () => _openWicketSheet(),
                 onRunOutTap: () =>
                     _openWicketSheet(initialType: WicketType.runOut),
+                onUndoTap: _undoLastBall,
               ),
             ],
           ),
@@ -1193,7 +1364,6 @@ class _TopMatchBar extends StatelessWidget {
     required this.isLive,
     required this.onBack,
     required this.onScorecard,
-    required this.onUndo,
   });
 
   final String title;
@@ -1201,7 +1371,6 @@ class _TopMatchBar extends StatelessWidget {
   final bool isLive;
   final VoidCallback onBack;
   final VoidCallback onScorecard;
-  final VoidCallback onUndo;
 
   @override
   Widget build(BuildContext context) {
@@ -1268,9 +1437,9 @@ class _TopMatchBar extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: 'Undo last ball',
-            icon: const Icon(Icons.undo_rounded, size: 22),
-            onPressed: onUndo,
+            tooltip: 'Scorecard & charts',
+            icon: const Icon(Icons.bar_chart_rounded, size: 22),
+            onPressed: onScorecard,
           ),
         ],
       ),
@@ -1282,12 +1451,16 @@ class _ChaseOrRateStack extends StatelessWidget {
   const _ChaseOrRateStack({
     required this.innings,
     required this.status,
+    required this.isTestMatch,
+    required this.leadTrailText,
     required this.resultSummary,
     required this.onShare,
   });
 
   final DerivedInningsState innings;
   final MatchStatus status;
+  final bool isTestMatch;
+  final String? leadTrailText;
   final String? resultSummary;
   final VoidCallback onShare;
 
@@ -1323,6 +1496,36 @@ class _ChaseOrRateStack extends StatelessWidget {
             onPressed: onShare,
             icon: const Icon(Icons.share_rounded, size: 15),
             label: const Text('Share'),
+          ),
+        ],
+      );
+    }
+
+    if (isTestMatch) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            'Inn ${innings.inningsNumber}',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 2),
+          if (leadTrailText != null)
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 145),
+              child: Text(
+                leadTrailText!,
+                textAlign: TextAlign.right,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyLarge
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+          const SizedBox(height: 2),
+          Text(
+            'CRR ${innings.currentRunRate.toStringAsFixed(2)}',
+            style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
       );
@@ -1676,12 +1879,14 @@ class _GlassScoringSheet extends StatelessWidget {
     required this.onExtraTap,
     required this.onWicketTap,
     required this.onRunOutTap,
+    required this.onUndoTap,
   });
 
   final ValueChanged<int> onRunTap;
   final ValueChanged<ExtraType> onExtraTap;
   final VoidCallback onWicketTap;
   final VoidCallback onRunOutTap;
+  final VoidCallback onUndoTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1781,11 +1986,11 @@ class _GlassScoringSheet extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // Row 4: Wicket (red) + Run out?
+          // Row 4: Wicket (red) + Run out? + Undo (in thumb zone!)
           Row(
             children: [
               Expanded(
-                flex: 2,
+                flex: 3,
                 child: Material(
                   color: c.wicketRed,
                   borderRadius: BorderRadius.circular(26),
@@ -1799,7 +2004,7 @@ class _GlassScoringSheet extends StatelessWidget {
                         'Wicket',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 17,
+                          fontSize: 16.5,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1807,9 +2012,9 @@ class _GlassScoringSheet extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
-                flex: 1,
+                flex: 2,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
                   onTap: onRunOutTap,
@@ -1821,7 +2026,45 @@ class _GlassScoringSheet extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                             color: c.inkSecondary,
                             fontWeight: FontWeight.w500,
+                            fontSize: 14.5,
                           ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Material(
+                color: c.surfaceKey,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(26),
+                  side: BorderSide(color: c.hairline, width: 1),
+                ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(26),
+                  onTap: onUndoTap,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.undo_rounded,
+                          size: 18,
+                          color: c.inkPrimary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Undo',
+                          style:
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

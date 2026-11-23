@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -325,32 +326,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 errorText = null;
               });
               try {
+                const webClientId = String.fromEnvironment(
+                  'GOOGLE_WEB_CLIENT_ID',
+                  defaultValue:
+                      '232733391231-5ua6le5ihsadi54892ugm10j71uqt6mm.apps.googleusercontent.com',
+                );
+                final googleSignIn = GoogleSignIn(
+                  serverClientId: webClientId,
+                  scopes: const ['email', 'profile'],
+                );
+                final googleUser = await googleSignIn.signIn();
+                if (googleUser == null) {
+                  setModalState(() => submitting = false);
+                  return;
+                }
+                final googleAuth = await googleUser.authentication;
+                final idToken = googleAuth.idToken;
+                final accessToken = googleAuth.accessToken;
+                if (idToken == null) {
+                  setModalState(() {
+                    errorText =
+                        'Could not get Google ID token. Verify your Android OAuth Client ID (SHA-1) in Google Cloud Console.';
+                    submitting = false;
+                  });
+                  return;
+                }
+
                 final auth = Supabase.instance.client.auth;
-                const redirect = 'crease://login-callback';
-                final isGuest =
-                    auth.currentUser != null && (auth.currentUser!.isAnonymous);
-                if (!isSignInMode && isGuest) {
-                  await auth.linkIdentity(
-                    OAuthProvider.google,
-                    redirectTo: redirect,
-                  );
-                } else {
-                  await auth.signInWithOAuth(
-                    OAuthProvider.google,
-                    redirectTo: redirect,
+                await auth.signInWithIdToken(
+                  provider: OAuthProvider.google,
+                  idToken: idToken,
+                  accessToken: accessToken,
+                );
+
+                // Sync any local guest data + restore cloud teams/matches/profile
+                await LocalEventStore.instance.syncAllPendingToSupabase();
+                final restored = await LocalEventStore.instance
+                    .restoreAccountDataFromCloud();
+
+                // Auto-fill display name from Google profile if still empty
+                final currentProfile =
+                    await LocalEventStore.instance.getUserProfile();
+                final googleName = googleUser.displayName?.trim() ?? '';
+                if (currentProfile.displayName.trim().isEmpty &&
+                    googleName.isNotEmpty) {
+                  await LocalEventStore.instance.saveUserProfile(
+                    currentProfile.copyWith(displayName: googleName),
                   );
                 }
+
                 if (!ctx.mounted) return;
-                Navigator.of(ctx).pop('Continuing with Google…');
+                Navigator.of(ctx).pop(
+                  restored > 0
+                      ? 'Signed in as ${googleUser.email} & restored $restored matches.'
+                      : 'Signed in as ${googleUser.email}',
+                );
               } on AuthException catch (e) {
                 setModalState(() {
                   errorText = e.message;
                   submitting = false;
                 });
-              } catch (_) {
+              } catch (e) {
                 setModalState(() {
                   errorText =
-                      'Google sign-in is not enabled yet or you are offline.';
+                      'Google sign-in failed. Make sure the Android OAuth client (app.crease.crease + SHA-1) is added in Google Cloud Console.';
                   submitting = false;
                 });
               }
@@ -613,6 +652,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       await LocalEventStore.instance.syncAllPendingToSupabase();
       await LocalEventStore.instance.clearLocalUserDataOnSignOut();
+      try {
+        await GoogleSignIn().signOut();
+      } catch (_) {}
       final auth = Supabase.instance.client.auth;
       await auth.signOut();
       await auth.signInAnonymously();

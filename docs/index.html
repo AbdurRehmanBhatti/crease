@@ -637,7 +637,7 @@
       const clean = String(code || '').replace(/[^0-9]/g, '');
       const formatted = clean.length === 6 ? `${clean.slice(0, 3)} ${clean.slice(3)}` : clean;
       const fallback = encodeURIComponent(window.location.href);
-      const intentUrl = `intent://join-team/${encodeURIComponent(clean)}#Intent;scheme=crease;package=app.crease.crease;S.browser_fallback_url=${fallback};end`;
+      const intentUrl = `intent://join-team/${encodeURIComponent(clean)}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
       try {
         const { data, error } = await sb.rpc('preview_team_by_code', { p_join_code: clean });
         if (error || !data) throw error || new Error('Not found');
@@ -683,7 +683,7 @@
         const openBtn = document.getElementById('open-app-btn');
         if (openBtn) {
           const fallback = encodeURIComponent(window.location.href);
-          openBtn.href = `intent://match/${encodeURIComponent(matchId)}#Intent;scheme=crease;package=app.crease.crease;S.browser_fallback_url=${fallback};end`;
+          openBtn.href = `intent://match/${encodeURIComponent(matchId)}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
           openBtn.style.display = 'inline-flex';
         }
       }

@@ -1,48 +1,47 @@
-# Design System — Crease (Daylight Glass)
+# Design System — Crease
 
 ## Philosophy
-**Daylight Glass** is an outdoor-legible, minimal, layered Android Material 3 design system built for real cricket ground conditions. Rather than the dark-navy-and-neon-card template that washes out in direct sunlight, Crease places monumental score numerals directly on a cool near-white ground (`#EEF3F3`) with a whisper-soft sage top wash, paired with translucent frosted-white glass surfaces, 1px hairline borders, and diffuse shadows.
+Crease is an outdoor-legible, high-contrast cricket scoring interface modeled on architectural sports broadcasts rather than decorative glassmorphism. Clean cool-stone surfaces in daylight and true obsidian surfaces under lights keep match numerals effortless to read in direct sun while staying fast on budget Android hardware.
 
 ## Color Roles
 
-### Light Theme (Primary Outdoor Scheme)
+### Light Theme (Primary Daylight Scheme)
 | Role | Hex | Usage |
 |---|---|---|
-| Ground | `#EEF3F3` | Primary screen canvas |
-| Sage Wash Top | `#E3F0EA` | Subtle top gradient wash |
-| Frosted Glass | `#CCFFFFFF` | Cards, batter pills, dialogs (with 10–14px blur) |
-| Frosted Sheet | `#E8F6F8F8` | Raised bottom scoring sheet |
-| Key Surface | `#F2FFFFFF` | Scoring pad numeral & extra keys |
-| Ink Primary | `#0A0C0C` | Monumental score, active names, key numerals |
-| Ink Secondary | `#5B6560` | Overs, RRR, bowler figures, captions |
-| Hairline | `#D5DFDD` | 1px borders on glass surfaces & segmented controls |
-| Pitch Green (Accent) | `#098558` | Strictly reserved for LIVE dot, striker hairline, `4` & `6` keys, primary CTA |
-| Wicket Red | `#D74956` | Strictly reserved for `W` ball badge and `Wicket` key |
+| Ground | `#F4F6F7` | Primary screen canvas |
+| Elevated Surface | `#FFFFFF` | Match cards, crease table, bottom sheets |
+| Key / Control Fill | `#F6F8F9` | Keypad tiles, input fills, inset stat tiles |
+| Ink Primary | `#101315` | Score numerals, active player names, headings |
+| Ink Secondary | `#5D666E` | Overs, run rates, metadata, captions |
+| Hairline | `#E2E6E9` | 1px surface and control borders |
+| Hairline Subtle | `#ECEFF2` | Row dividers and nav bar rule |
+| Pitch Green (Accent) | `#0B7A4B` | Live status, striker bar, `4` & `6` keys, primary CTA |
+| Wicket Red | `#D63949` | `W` ball badge, `Wicket` and `Run out` controls |
+| Chart Secondary | `#3A5A78` | Multi-innings comparison series |
 
-### Dark Theme (First-Class Night-Match Scheme)
+### Dark Theme (Night-Match Obsidian Scheme)
 | Role | Hex |
 |---|---|
-| Ground | `#0E1413` |
-| Sage Wash Top | `#13221C` |
-| Frosted Glass | `#CC182220` |
-| Frosted Sheet | `#EB151D1B` |
-| Key Surface | `#1E2926` |
-| Ink Primary | `#F2F6F5` |
-| Ink Secondary | `#9AA8A2` |
-| Hairline | `#2B3834` |
+| Ground | `#0D0F11` |
+| Elevated Surface | `#15191C` |
+| Key / Control Fill | `#1E2327` |
+| Ink Primary | `#F4F6F8` |
+| Ink Secondary | `#8E98A1` |
+| Hairline | `#262C31` |
+| Pitch Green | `#19A96B` |
+| Wicket Red | `#EC5463` |
 
 ## Typography
-- **Font family:** Inter (`google_fonts`), with `FontFeature.tabularFigures()` enabled on all score, overs, run-rate, and scorecard numerals so digits never jitter mid-over.
-- **Monumental Score:** `64sp` — light (`w300`) for runs, medium (`w500`) for `/wickets`, tight `-2.2` tracking.
-- **Keypad Numerals:** `28sp`, regular (`w400`), centered inside `64dp` tall keys (`>= 48dp` Android touch target minimum).
-- **Body / Labels:** `14–16sp`, scales dynamically with Android system `font_scale`.
+- **UI & Headings:** `Plus Jakarta Sans` (`google_fonts`) in sentence case with crisp weight hierarchy (`w500`, `w600`, `w700`).
+- **Scoreboard & Numeric Figures:** `Barlow` (`google_fonts`) with `FontFeature.tabularFigures()` enabled on scores, overs, run rates, keypad digits, and codes so numerals never shift mid-over.
+- **Live Score:** `60sp` bold (`w700`) for runs paired with `46sp` medium (`w500`) muted `/wickets`.
 
-## Surfaces & Elevation
-- **Open Score:** No card container — sits directly on the ground for maximum contrast and breathing room.
-- **Glass Surfaces:** `GlassSurface` (`app/lib/widgets/glass_surface.dart`) combines `BackdropFilter(sigma: 10–14)`, translucent fill, `1px` hairline border, and a soft diffuse downward shadow (`blurRadius: 20, offset: (0, 6)`).
-- **Radii:** `28dp` top sheet, `24dp` batter pills & segmented bar, `20dp` cards, `18dp` keypad tiles.
+## Shape & Elevation Scale (`CreaseRadius`)
+- **Sheets (top):** `24dp`
+- **Cards:** `16dp`
+- **Controls, Inputs, Buttons & Keypad Tiles:** `12dp`
+- **Badges & Tags:** `8dp`
 
 ## Motion & Haptics
-- **Haptics:** `lightImpact` on normal runs, `mediumImpact` on `4` and `6`, `heavyImpact` on `Wicket`, `selectionClick` on undo/strike-swap/extras.
-- **Android Native Guarantees:** Edge-to-edge system bars with `SafeArea`, Material 3 bottom sheets, predictive Back support, and RTL-ready flex layouts for future Urdu support.
-
+- **Tactile Press:** `CreasePressable` applies subtle `0.94–0.985` scale feedback on tap and respects Android's Remove Animations accessibility setting.
+- **Haptics:** `lightImpact` on normal runs, `mediumImpact` on `4` and `6`, `heavyImpact` on `Wicket`, `selectionClick` on tab switches, undo, strike swap, and extras.

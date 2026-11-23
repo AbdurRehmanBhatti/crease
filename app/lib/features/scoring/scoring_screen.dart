@@ -7,6 +7,7 @@ import '../../data/local_event_store.dart';
 import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../scorecard/match_summary_poster.dart';
 import '../scorecard/scorecard_screen.dart';
 import 'scorer_handover_sheets.dart';
@@ -528,7 +529,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
     final updated = await LocalEventStore.instance.getBallEvents(widget.matchId);
     if (!mounted) return;
     setState(() => _events = updated);
-    _showSnack('Ball updated — scorecard recalculated');
+    _showSnack('Ball updated. Scorecard recalculated.');
   }
 
   Future<void> _shareMatchSummary(DerivedMatchState state) async {
@@ -571,7 +572,23 @@ class _ScoringScreenState extends State<ScoringScreen> {
     if (_loading) {
       return Scaffold(
         backgroundColor: c.ground,
-        body: const Center(child: CircularProgressIndicator()),
+        body: const SafeArea(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                CreaseSkeletonBox(height: 44),
+                SizedBox(height: 24),
+                CreaseSkeletonBox(height: 92),
+                SizedBox(height: 18),
+                CreaseSkeletonBox(height: 160),
+                Spacer(),
+                CreaseSkeletonBox(height: 240),
+              ],
+            ),
+          ),
+        ),
       );
     }
 
@@ -606,243 +623,249 @@ class _ScoringScreenState extends State<ScoringScreen> {
 
     return Scaffold(
       backgroundColor: c.ground,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: const Alignment(0, -0.25),
-            colors: [c.sageWashTop, c.ground],
-          ),
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              // 1. Top App Bar
-              TopMatchBar(
-                title: state.config.title,
-                formatLabel: state.config.formatLabel,
-                isLive: state.status == MatchStatus.live,
-                onBack: () => Navigator.of(context).maybePop(),
-                onOptions: () => _openMatchOptionsSheet(state),
-                onScorecard: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ScorecardScreen(matchId: widget.matchId),
-                    ),
-                  );
-                  _load();
-                },
-              ),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // 1. Top App Bar
+            TopMatchBar(
+              title: state.config.title,
+              formatLabel: state.config.formatLabel,
+              isLive: state.status == MatchStatus.live,
+              onBack: () => Navigator.of(context).maybePop(),
+              onOptions: () => _openMatchOptionsSheet(state),
+              onScorecard: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ScorecardScreen(matchId: widget.matchId),
+                  ),
+                );
+                _load();
+              },
+            ),
 
-              // 2. Open Scoreboard Area (scrollable safeguard for large font scales)
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight: constraints.maxHeight,
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Open monumental score + right-aligned chase stack
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4, bottom: 2),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          inn.battingTeam.toUpperCase(),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .labelMedium
-                                              ?.copyWith(
-                                                color: c.pitchGreen,
-                                                fontWeight: FontWeight.w700,
-                                                letterSpacing: 0.9,
-                                              ),
-                                        ),
-                                        FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          alignment: Alignment.centerLeft,
+            // 2. Scoreboard Area (scrollable safeguard for large font scales)
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Monumental scoreboard + right-aligned chase stack
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6, bottom: 2),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          CreaseTeamBadge(
+                                            name: inn.battingTeam,
+                                            size: 22,
+                                            highlighted: true,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Flexible(
+                                            child: Text(
+                                              inn.battingTeam,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleSmall
+                                                  ?.copyWith(
+                                                    color: c.pitchGreen,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerLeft,
+                                        child: AnimatedSwitcher(
+                                          duration: MediaQuery
+                                                  .disableAnimationsOf(context)
+                                              ? Duration.zero
+                                              : const Duration(
+                                                  milliseconds: 140,
+                                                ),
                                           child: Text.rich(
+                                            key: ValueKey(
+                                              '${inn.totalRuns}/${inn.wickets}',
+                                            ),
                                             TextSpan(
                                               children: [
                                                 TextSpan(
                                                   text: '${inn.totalRuns}',
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .displayLarge
-                                                      ?.copyWith(
-                                                        fontSize: 58,
-                                                        fontWeight:
-                                                            FontWeight.w300,
-                                                      ),
+                                                  style: creaseNumeralStyle(
+                                                    fontSize: 60,
+                                                    fontWeight: FontWeight.w700,
+                                                    letterSpacing: -1.6,
+                                                    height: 0.98,
+                                                    color: c.inkPrimary,
+                                                  ),
                                                 ),
                                                 TextSpan(
                                                   text: '/${inn.wickets}',
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .displayLarge
-                                                      ?.copyWith(
-                                                        fontSize: 58,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                      ),
+                                                  style: creaseNumeralStyle(
+                                                    fontSize: 46,
+                                                    fontWeight: FontWeight.w500,
+                                                    letterSpacing: -0.8,
+                                                    height: 0.98,
+                                                    color: c.inkSecondary,
+                                                  ),
                                                 ),
                                               ],
                                             ),
                                           ),
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${inn.oversText}${inn.oversLimit > 0 ? ' / ${inn.oversLimit}' : ''} ov · Extras ${inn.wides + inn.noBalls + inn.byes + inn.legByes}',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodyMedium
-                                              ?.copyWith(fontSize: 13.5),
-                                        ),
-                                      ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${inn.oversText}${inn.oversLimit > 0 ? ' / ${inn.oversLimit}' : ''} ov · Extras ${inn.wides + inn.noBalls + inn.byes + inn.legByes}',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                ChaseOrRateStack(
+                                  innings: inn,
+                                  status: state.status,
+                                  isTestMatch: state.config.isTestMatch,
+                                  leadTrailText: state.leadTrailText,
+                                  resultSummary: state.resultSummary,
+                                  onShare: () => _shareMatchSummary(state),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Live Crease Table (Batters + Bowler)
+                          LiveCreaseCard(
+                            strikerEmpty: inn.striker.isEmpty,
+                            nonStrikerEmpty: inn.nonStriker.isEmpty,
+                            striker: strikerStats,
+                            nonStriker: nonStrikerStats,
+                            bowler: bowlerStats,
+                            needsNewBowler: _needsNewBowler(inn),
+                            onSwapStrike: _swapStrike,
+                            onSelectNextBatter: () =>
+                                _openSelectNextBatterSheet(state),
+                            onSelectNextBowler: () => _promptNewBowler(inn),
+                          ),
+
+                          // Horizontal over timeline
+                          OverTimeline(
+                            previousOver: previousOver,
+                            currentOver: currentOver,
+                            recentWicket: recentWicket,
+                            onBallTap: _openEditBallSheet,
+                          ),
+
+                          if (state.config.isTestMatch &&
+                              state.status == MatchStatus.live &&
+                              inn.inningsNumber < 4)
+                            Align(
+                              alignment: Alignment.center,
+                              child: TextButton(
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed: () => _declareCurrentInnings(state),
+                                child: Text(
+                                  'Declare innings',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelMedium
+                                      ?.copyWith(color: c.pitchGreen),
+                                ),
+                              ),
+                            ),
+
+                          if (state.status == MatchStatus.inningsBreak &&
+                              !_handedOverToOther)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: () {
+                                        setState(
+                                          () => _forcedInnings =
+                                              state.activeInningsNumber + 1,
+                                        );
+                                      },
+                                      child: Text(
+                                        'Start Innings ${state.activeInningsNumber + 1}',
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
-                                  ChaseOrRateStack(
-                                    innings: inn,
-                                    status: state.status,
-                                    isTestMatch: state.config.isTestMatch,
-                                    leadTrailText: state.leadTrailText,
-                                    resultSummary: state.resultSummary,
-                                    onShare: () => _shareMatchSummary(state),
+                                  const SizedBox(width: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: () => showHandOverScoringSheet(
+                                      context,
+                                      state,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.swap_horiz_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Hand over'),
                                   ),
+                                  if (state.canEnforceFollowOn) ...[
+                                    const SizedBox(width: 8),
+                                    OutlinedButton(
+                                      onPressed: () => _enforceFollowOn(state),
+                                      child: const Text('Follow-on'),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
-
-                            // Daylight Glass Live Crease Card (Batters + Bowler tables)
-                            LiveCreaseCard(
-                              strikerEmpty: inn.striker.isEmpty,
-                              nonStrikerEmpty: inn.nonStriker.isEmpty,
-                              striker: strikerStats,
-                              nonStriker: nonStrikerStats,
-                              bowler: bowlerStats,
-                              needsNewBowler: _needsNewBowler(inn),
-                              onSwapStrike: _swapStrike,
-                              onSelectNextBatter: () =>
-                                  _openSelectNextBatterSheet(state),
-                              onSelectNextBowler: () => _promptNewBowler(inn),
-                            ),
-
-                            // Horizontal over timeline (previous faded + current over)
-                            OverTimeline(
-                              previousOver: previousOver,
-                              currentOver: currentOver,
-                              recentWicket: recentWicket,
-                              onBallTap: _openEditBallSheet,
-                            ),
-
-                            if (state.config.isTestMatch &&
-                                state.status == MatchStatus.live &&
-                                inn.inningsNumber < 4)
-                              Align(
-                                alignment: Alignment.center,
-                                child: TextButton(
-                                  style: TextButton.styleFrom(
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                  onPressed: () =>
-                                      _declareCurrentInnings(state),
-                                  child: Text(
-                                    'Declare innings',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelMedium
-                                        ?.copyWith(color: c.pitchGreen),
-                                  ),
-                                ),
-                              ),
-
-                            if (state.status == MatchStatus.inningsBreak &&
-                                !_handedOverToOther)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: FilledButton(
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor: c.pitchGreen,
-                                          foregroundColor: Colors.white,
-                                        ),
-                                        onPressed: () {
-                                          setState(
-                                            () => _forcedInnings =
-                                                state.activeInningsNumber + 1,
-                                          );
-                                        },
-                                        child: Text(
-                                          'Start Innings ${state.activeInningsNumber + 1}',
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    OutlinedButton.icon(
-                                      onPressed: () => showHandOverScoringSheet(
-                                        context,
-                                        state,
-                                      ),
-                                      icon: const Icon(
-                                        Icons.swap_horiz_rounded,
-                                        size: 18,
-                                      ),
-                                      label: const Text('Hand over'),
-                                    ),
-                                    if (state.canEnforceFollowOn) ...[
-                                      const SizedBox(width: 8),
-                                      OutlinedButton(
-                                        onPressed: () =>
-                                            _enforceFollowOn(state),
-                                        child: const Text('Follow-on'),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
+                        ],
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
               ),
+            ),
 
-              // 3. Raised Frosted-Glass Bottom Sheet Scoring Pad (or Live Viewer Banner)
-              if (_handedOverToOther)
-                HandedOverSheet(
-                  reclaiming: _reclaiming,
-                  onReclaim: _reclaimScoring,
-                )
-              else
-                GlassScoringSheet(
-                  onRunTap: (runs) => _recordBall(runsOffBat: runs),
-                  onExtraTap: _openExtrasSheet,
-                  onWicketTap: () => _openWicketSheet(),
-                  onRunOutTap: () =>
-                      _openWicketSheet(initialType: WicketType.runOut),
-                  onUndoTap: _undoLastBall,
-                ),
-            ],
-          ),
+            // 3. Raised Scoring Pad (or Live Viewer Banner)
+            if (_handedOverToOther)
+              HandedOverSheet(
+                reclaiming: _reclaiming,
+                onReclaim: _reclaimScoring,
+              )
+            else
+              GlassScoringSheet(
+                onRunTap: (runs) => _recordBall(runsOffBat: runs),
+                onExtraTap: _openExtrasSheet,
+                onWicketTap: () => _openWicketSheet(),
+                onRunOutTap: () =>
+                    _openWicketSheet(initialType: WicketType.runOut),
+                onUndoTap: _undoLastBall,
+              ),
+          ],
         ),
       ),
     );

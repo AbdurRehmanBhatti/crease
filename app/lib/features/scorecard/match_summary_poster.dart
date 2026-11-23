@@ -9,24 +9,22 @@ import '../../config/app_links.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/models.dart';
 
-/// Generates a crisp Daylight Glass Match Summary Poster PNG (WhatsApp-ready)
-/// and shares it together with the 1-line caption + live web scorecard URL.
+/// Generates an editorial sports Match Summary Poster PNG (WhatsApp-ready)
+/// and shares it together with the live web scorecard URL.
 class MatchSummaryPoster {
   MatchSummaryPoster._();
 
   static Future<void> shareMatch(DerivedMatchState state) async {
-    // Flush any pending balls so the live link is up to date.
     await LocalEventStore.instance.syncPendingToSupabase(state.config.id);
 
     final caption =
-        '${state.config.teamA} vs ${state.config.teamB} — Cricket Match Live Score & Stats on #Crease\n'
+        '${state.config.teamA} vs ${state.config.teamB} · Live Score & Stats on Crease\n'
         '${CreaseLinks.liveMatchUrl(state.config.id)}';
 
     try {
       final file = await _renderPosterPng(state);
       await Share.shareXFiles([XFile(file.path)], text: caption);
     } catch (_) {
-      // Fallback to link-only share if image export fails on any device.
       await Share.share(caption);
     }
   }
@@ -34,72 +32,103 @@ class MatchSummaryPoster {
   static Future<File> _renderPosterPng(DerivedMatchState state) async {
     const double width = 1080;
     final inningsToShow = state.allInnings
-        .where((i) => i.legalBalls > 0 || i.isDeclared || i.inningsNumber == state.activeInningsNumber)
+        .where(
+          (i) =>
+              i.legalBalls > 0 ||
+              i.isDeclared ||
+              i.inningsNumber == state.activeInningsNumber,
+        )
         .toList();
     final shown = inningsToShow.length > 2
         ? inningsToShow.sublist(inningsToShow.length - 2)
         : inningsToShow;
 
-    final double cardHeight = 290;
-    final double height = 180 + (shown.length * (cardHeight + 24)) + 150;
+    const double headerHeight = 168;
+    const double cardHeight = 286;
+    final double height =
+        headerHeight + 36 + (shown.length * (cardHeight + 22)) + 156;
 
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width, height));
 
-    // Background gradient (Daylight Glass)
-    final bgPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFFE3F0EA), Color(0xFFEEF3F3), Color(0xFFEEF3F3)],
-        stops: [0.0, 0.32, 1.0],
-      ).createShader(Rect.fromLTWH(0, 0, width, height));
-    canvas.drawRect(Rect.fromLTWH(0, 0, width, height), bgPaint);
+    // Crisp architectural cool-stone ground
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, width, height),
+      Paint()..color = const Color(0xFFF4F6F7),
+    );
 
-    // Header: Crease brand + Format pill
+    // Obsidian editorial top header band
+    canvas.drawRect(
+      const Rect.fromLTWH(0, 0, width, headerHeight),
+      Paint()..color = const Color(0xFF101315),
+    );
+
+    // Minimalist Crease emblem top-left
+    const emblemRect = Rect.fromLTWH(52, 46, 54, 54);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(emblemRect, const Radius.circular(14)),
+      Paint()..color = const Color(0xFF0B7A4B),
+    );
+    final emblemStroke = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 4.6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      const Offset(63, 83),
+      const Offset(95, 83),
+      emblemStroke,
+    );
+    for (final x in const [71.0, 79.0, 87.0]) {
+      canvas.drawLine(Offset(x, 59), Offset(x, 75), emblemStroke);
+    }
+
     _drawText(
       canvas,
       'Crease',
-      const Offset(56, 48),
-      fontSize: 42,
+      const Offset(122, 42),
+      fontSize: 36,
       weight: FontWeight.w700,
-      color: const Color(0xFF0A0C0C),
-      letterSpacing: -1.0,
+      color: Colors.white,
+      letterSpacing: -0.8,
     );
     _drawText(
       canvas,
-      'MATCH SUMMARY',
-      const Offset(56, 100),
-      fontSize: 18,
-      weight: FontWeight.w600,
-      color: const Color(0xFF5B6560),
-      letterSpacing: 1.4,
+      '${state.config.teamA} v ${state.config.teamB}',
+      const Offset(122, 86),
+      fontSize: 22,
+      weight: FontWeight.w500,
+      color: const Color(0xFF9AA4AD),
+      maxWidth: 680,
     );
 
-    // Format badge top-right
+    // Format tag top-right
     final badgeRect = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(width - 176, 54, 120, 44),
-      const Radius.circular(12),
+      const Rect.fromLTWH(width - 172, 54, 120, 44),
+      const Radius.circular(10),
     );
-    canvas.drawRRect(badgeRect, Paint()..color = const Color(0xFFDDF1E8));
+    canvas.drawRRect(badgeRect, Paint()..color = const Color(0xFF1E2327));
     _drawText(
       canvas,
       state.config.formatLabel,
-      const Offset(width - 116, 64),
+      const Offset(width - 112, 64),
       fontSize: 20,
       weight: FontWeight.w700,
-      color: const Color(0xFF098558),
+      color: const Color(0xFF19A96B),
       align: TextAlign.center,
     );
 
-    // Render each innings card
-    double y = 160;
+    // Innings cards
+    double y = headerHeight + 34;
     for (final inn in shown) {
-      _drawInningsCard(canvas, inn, Rect.fromLTWH(48, y, width - 96, cardHeight));
-      y += cardHeight + 24;
+      _drawInningsCard(
+        canvas,
+        inn,
+        Rect.fromLTWH(48, y, width - 96, cardHeight),
+      );
+      y += cardHeight + 22;
     }
 
-    // Bottom Result / Live Status Banner (Pitch Green)
+    // Bottom Result / Status Banner
     final bannerText = state.resultSummary ??
         state.leadTrailText ??
         (state.activeInnings.runsNeeded != null
@@ -107,29 +136,29 @@ class MatchSummaryPoster {
             : '${state.activeInnings.battingTeam} ${state.activeInnings.scoreText} (${state.activeInnings.oversText} ov)');
 
     final bannerRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(48, y + 4, width - 96, 76),
-      const Radius.circular(20),
+      Rect.fromLTWH(48, y + 4, width - 96, 74),
+      const Radius.circular(16),
     );
-    canvas.drawRRect(bannerRect, Paint()..color = const Color(0xFF098558));
+    canvas.drawRRect(bannerRect, Paint()..color = const Color(0xFF0B7A4B));
     _drawText(
       canvas,
       bannerText,
-      Offset(width / 2, y + 26),
-      fontSize: 26,
-      weight: FontWeight.w600,
+      Offset(width / 2, y + 25),
+      fontSize: 25,
+      weight: FontWeight.w700,
       color: Colors.white,
       align: TextAlign.center,
       maxWidth: width - 140,
     );
 
-    // Subtle footer
+    // Clean footer
     _drawText(
       canvas,
-      'Live ball-by-ball scorecard · abdurrehmanbhatti.github.io/crease',
+      'Live scorecard · abdurrehmanbhatti.github.io/crease',
       Offset(width / 2, height - 46),
       fontSize: 18,
       weight: FontWeight.w500,
-      color: const Color(0xFF5B6560),
+      color: const Color(0xFF5D666E),
       align: TextAlign.center,
     );
 
@@ -150,21 +179,14 @@ class MatchSummaryPoster {
     DerivedInningsState inn,
     Rect rect,
   ) {
-    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(24));
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(18));
 
-    // Soft shadow
-    canvas.drawRRect(
-      rrect.shift(const Offset(0, 6)),
-      Paint()
-        ..color = const Color(0x120A0C0C)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
-    );
-    // Frosted white fill + 1px hairline
-    canvas.drawRRect(rrect, Paint()..color = const Color(0xF5FFFFFF));
+    // Crisp white surface + hairline border
+    canvas.drawRRect(rrect, Paint()..color = Colors.white);
     canvas.drawRRect(
       rrect,
       Paint()
-        ..color = const Color(0xFFD5DFDD)
+        ..color = const Color(0xFFE2E6E9)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );
@@ -172,28 +194,29 @@ class MatchSummaryPoster {
     // Top row: Team Name | Overs | Score
     _drawText(
       canvas,
-      inn.battingTeam.toUpperCase(),
-      Offset(rect.left + 28, rect.top + 24),
-      fontSize: 26,
+      inn.battingTeam,
+      Offset(rect.left + 28, rect.top + 22),
+      fontSize: 27,
       weight: FontWeight.w700,
-      color: const Color(0xFF098558),
+      color: const Color(0xFF101315),
       maxWidth: 460,
     );
     _drawText(
       canvas,
-      'Overs ${inn.oversText}',
-      Offset(rect.left + 520, rect.top + 28),
+      '${inn.oversText} ov',
+      Offset(rect.right - 196, rect.top + 28),
       fontSize: 21,
       weight: FontWeight.w500,
-      color: const Color(0xFF5B6560),
+      color: const Color(0xFF5D666E),
+      align: TextAlign.right,
     );
     _drawText(
       canvas,
       inn.scoreText,
-      Offset(rect.right - 28, rect.top + 20),
-      fontSize: 34,
+      Offset(rect.right - 28, rect.top + 18),
+      fontSize: 36,
       weight: FontWeight.w700,
-      color: const Color(0xFF0A0C0C),
+      color: const Color(0xFF0B7A4B),
       align: TextAlign.right,
     );
 
@@ -203,7 +226,7 @@ class MatchSummaryPoster {
       Offset(rect.left + 28, divY),
       Offset(rect.right - 28, divY),
       Paint()
-        ..color = const Color(0xFFE3EAE8)
+        ..color = const Color(0xFFECEFF2)
         ..strokeWidth = 1.5,
     );
 
@@ -221,7 +244,7 @@ class MatchSummaryPoster {
       Offset(midX, divY + 14),
       Offset(midX, rect.bottom - 22),
       Paint()
-        ..color = const Color(0xFFE3EAE8)
+        ..color = const Color(0xFFECEFF2)
         ..strokeWidth = 1.5,
     );
 
@@ -234,8 +257,8 @@ class MatchSummaryPoster {
           b.isOut ? b.name : '${b.name}*',
           Offset(rect.left + 28, rowY),
           fontSize: 22,
-          weight: FontWeight.w500,
-          color: const Color(0xFF0A0C0C),
+          weight: FontWeight.w600,
+          color: const Color(0xFF101315),
           maxWidth: 270,
         );
         _drawText(
@@ -243,8 +266,8 @@ class MatchSummaryPoster {
           '${b.runs} (${b.balls})',
           Offset(midX - 24, rowY),
           fontSize: 22,
-          weight: FontWeight.w600,
-          color: const Color(0xFF0A0C0C),
+          weight: FontWeight.w700,
+          color: const Color(0xFF101315),
           align: TextAlign.right,
         );
       }
@@ -256,8 +279,8 @@ class MatchSummaryPoster {
           bw.name,
           Offset(midX + 24, rowY),
           fontSize: 22,
-          weight: FontWeight.w500,
-          color: const Color(0xFF0A0C0C),
+          weight: FontWeight.w600,
+          color: const Color(0xFF101315),
           maxWidth: 270,
         );
         _drawText(
@@ -265,8 +288,8 @@ class MatchSummaryPoster {
           '${bw.wickets}-${bw.runsConceded} (${bw.oversText})',
           Offset(rect.right - 28, rowY),
           fontSize: 22,
-          weight: FontWeight.w600,
-          color: const Color(0xFF0A0C0C),
+          weight: FontWeight.w700,
+          color: const Color(0xFF101315),
           align: TextAlign.right,
         );
       }

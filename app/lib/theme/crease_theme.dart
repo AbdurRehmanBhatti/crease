@@ -2,43 +2,61 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Daylight Glass design tokens for Crease.
-/// Light theme is the primary outdoor-sunlight scheme; dark theme is a
-/// first-class scheme for night matches under lights.
+/// Strict corner-radius scale locked across Crease so surfaces feel coherent.
+class CreaseRadius {
+  CreaseRadius._();
+
+  static const double badge = 8;
+  static const double control = 12;
+  static const double card = 16;
+  static const double sheet = 24;
+  static const double pill = 999;
+}
+
+/// Architectural outdoor-legible palette for Crease.
+/// Light mode uses crisp cool-stone canvas + pure white surfaces for bright
+/// daylight contrast; dark mode uses true obsidian surfaces for night matches.
 class CreaseColors {
   CreaseColors._();
 
-  // Light palette (sampled from approved Comp B)
-  static const Color groundLight = Color(0xFFEEF3F3);
-  static const Color sageWashTop = Color(0xFFE3F0EA);
-  static const Color surfaceGlassLight = Color(0xCCFFFFFF); // 80% white
-  static const Color surfaceSheetLight = Color(0xE8F6F8F8); // 91% frosted sheet
-  static const Color surfaceKeyLight = Color(0xF2FFFFFF);
-  static const Color inkPrimaryLight = Color(0xFF0A0C0C);
-  static const Color inkSecondaryLight = Color(0xFF5B6560);
-  static const Color hairlineLight = Color(0xFFD5DFDD);
-  static const Color hairlineSubtleLight = Color(0xFFE3EAE8);
-  static const Color pillMutedBgLight = Color(0xFFE4EAE9);
+  // Light palette (high-contrast daylight scheme)
+  static const Color groundLight = Color(0xFFF4F6F7);
+  static const Color sageWashTop = Color(0xFFF4F6F7);
+  static const Color surfaceGlassLight = Color(0xFFFFFFFF);
+  static const Color surfaceSheetLight = Color(0xFFFFFFFF);
+  static const Color surfaceKeyLight = Color(0xFFF6F8F9);
+  static const Color inkPrimaryLight = Color(0xFF101315);
+  static const Color inkSecondaryLight = Color(0xFF5D666E);
+  static const Color hairlineLight = Color(0xFFE2E6E9);
+  static const Color hairlineSubtleLight = Color(0xFFECEFF2);
+  static const Color pillMutedBgLight = Color(0xFFEBEEF0);
 
-  // Dark palette (first-class night-match scheme)
-  static const Color groundDark = Color(0xFF0E1413);
-  static const Color sageWashTopDark = Color(0xFF13221C);
-  static const Color surfaceGlassDark = Color(0xCC182220);
-  static const Color surfaceSheetDark = Color(0xEB151D1B);
-  static const Color surfaceKeyDark = Color(0xFF1E2926);
-  static const Color inkPrimaryDark = Color(0xFFF2F6F5);
-  static const Color inkSecondaryDark = Color(0xFF9AA8A2);
-  static const Color hairlineDark = Color(0xFF2B3834);
-  static const Color hairlineSubtleDark = Color(0xFF222E2B);
-  static const Color pillMutedBgDark = Color(0xFF202B28);
+  // Dark palette (crisp night-match obsidian scheme)
+  static const Color groundDark = Color(0xFF0D0F11);
+  static const Color sageWashTopDark = Color(0xFF0D0F11);
+  static const Color surfaceGlassDark = Color(0xFF15191C);
+  static const Color surfaceSheetDark = Color(0xFF15191C);
+  static const Color surfaceKeyDark = Color(0xFF1E2327);
+  static const Color inkPrimaryDark = Color(0xFFF4F6F8);
+  static const Color inkSecondaryDark = Color(0xFF8E98A1);
+  static const Color hairlineDark = Color(0xFF262C31);
+  static const Color hairlineSubtleDark = Color(0xFF1E2328);
+  static const Color pillMutedBgDark = Color(0xFF20252A);
 
   // Semantic accents (strictly reserved)
-  static const Color pitchGreen = Color(0xFF098558);
-  static const Color pitchGreenSoftLight = Color(0xFFDDF1E8);
-  static const Color pitchGreenSoftDark = Color(0xFF143528);
-  static const Color wicketRed = Color(0xFFD74956);
-  static const Color wicketRedSoftLight = Color(0xFFFBE5E7);
-  static const Color wicketRedSoftDark = Color(0xFF3A1A1E);
+  static const Color pitchGreen = Color(0xFF0B7A4B);
+  static const Color pitchGreenDark = Color(0xFF19A96B);
+  static const Color pitchGreenSoftLight = Color(0xFFE6F4ED);
+  static const Color pitchGreenSoftDark = Color(0xFF132D22);
+
+  static const Color wicketRed = Color(0xFFD63949);
+  static const Color wicketRedDark = Color(0xFFEC5463);
+  static const Color wicketRedSoftLight = Color(0xFFFCEAEB);
+  static const Color wicketRedSoftDark = Color(0xFF34181C);
+
+  // Secondary chart ink (harmonized steel slate for multi-innings comparison)
+  static const Color chartSecondaryLight = Color(0xFF3A5A78);
+  static const Color chartSecondaryDark = Color(0xFF6B9AC4);
 }
 
 class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
@@ -57,6 +75,7 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
     required this.pitchGreenSoft,
     required this.wicketRed,
     required this.wicketRedSoft,
+    required this.chartSecondary,
   });
 
   final Color ground;
@@ -73,6 +92,7 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
   final Color pitchGreenSoft;
   final Color wicketRed;
   final Color wicketRedSoft;
+  final Color chartSecondary;
 
   static const CreaseThemeExtension light = CreaseThemeExtension(
     ground: CreaseColors.groundLight,
@@ -89,6 +109,7 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
     pitchGreenSoft: CreaseColors.pitchGreenSoftLight,
     wicketRed: CreaseColors.wicketRed,
     wicketRedSoft: CreaseColors.wicketRedSoftLight,
+    chartSecondary: CreaseColors.chartSecondaryLight,
   );
 
   static const CreaseThemeExtension dark = CreaseThemeExtension(
@@ -102,10 +123,11 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
     hairline: CreaseColors.hairlineDark,
     hairlineSubtle: CreaseColors.hairlineSubtleDark,
     pillMutedBg: CreaseColors.pillMutedBgDark,
-    pitchGreen: CreaseColors.pitchGreen,
+    pitchGreen: CreaseColors.pitchGreenDark,
     pitchGreenSoft: CreaseColors.pitchGreenSoftDark,
-    wicketRed: CreaseColors.wicketRed,
+    wicketRed: CreaseColors.wicketRedDark,
     wicketRedSoft: CreaseColors.wicketRedSoftDark,
+    chartSecondary: CreaseColors.chartSecondaryDark,
   );
 
   @override
@@ -124,6 +146,7 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
     Color? pitchGreenSoft,
     Color? wicketRed,
     Color? wicketRedSoft,
+    Color? chartSecondary,
   }) {
     return CreaseThemeExtension(
       ground: ground ?? this.ground,
@@ -140,6 +163,7 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
       pitchGreenSoft: pitchGreenSoft ?? this.pitchGreenSoft,
       wicketRed: wicketRed ?? this.wicketRed,
       wicketRedSoft: wicketRedSoft ?? this.wicketRedSoft,
+      chartSecondary: chartSecondary ?? this.chartSecondary,
     );
   }
 
@@ -161,6 +185,7 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
       pitchGreenSoft: Color.lerp(pitchGreenSoft, other.pitchGreenSoft, t)!,
       wicketRed: Color.lerp(wicketRed, other.wicketRed, t)!,
       wicketRedSoft: Color.lerp(wicketRedSoft, other.wicketRedSoft, t)!,
+      chartSecondary: Color.lerp(chartSecondary, other.chartSecondary, t)!,
     );
   }
 }
@@ -171,63 +196,275 @@ extension CreaseThemeContext on BuildContext {
       CreaseThemeExtension.light;
 }
 
+/// Shared athletic numeric style using Barlow + tabular figures for scores,
+/// keypad digits, overs, and match figures.
+TextStyle creaseNumeralStyle({
+  required double fontSize,
+  FontWeight fontWeight = FontWeight.w700,
+  Color? color,
+  double? letterSpacing,
+  double? height,
+}) {
+  return GoogleFonts.barlow(
+    fontSize: fontSize,
+    fontWeight: fontWeight,
+    color: color,
+    letterSpacing: letterSpacing,
+    height: height,
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
+}
+
 class CreaseTheme {
   CreaseTheme._();
 
   static TextTheme _buildTextTheme(Color primary, Color secondary) {
-    final base = GoogleFonts.interTextTheme().apply(
+    final base = GoogleFonts.plusJakartaSansTextTheme().apply(
       bodyColor: primary,
       displayColor: primary,
     );
     return base.copyWith(
-      displayLarge: GoogleFonts.inter(
+      displayLarge: GoogleFonts.barlow(
         fontSize: 64,
-        fontWeight: FontWeight.w300,
-        letterSpacing: -2.2,
-        height: 1.0,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -1.8,
+        height: 0.96,
         color: primary,
         fontFeatures: const [FontFeature.tabularFigures()],
       ),
-      headlineMedium: GoogleFonts.inter(
+      displayMedium: GoogleFonts.barlow(
+        fontSize: 40,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.8,
+        height: 1.04,
+        color: primary,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+      headlineMedium: GoogleFonts.plusJakartaSans(
         fontSize: 22,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.4,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.5,
+        height: 1.18,
         color: primary,
       ),
-      titleMedium: GoogleFonts.inter(
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
+      headlineSmall: GoogleFonts.barlow(
+        fontSize: 24,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.3,
+        color: primary,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+      titleLarge: GoogleFonts.plusJakartaSans(
+        fontSize: 19,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.3,
+        color: primary,
+      ),
+      titleMedium: GoogleFonts.plusJakartaSans(
+        fontSize: 15.5,
+        fontWeight: FontWeight.w600,
         letterSpacing: -0.2,
         color: primary,
       ),
-      titleSmall: GoogleFonts.inter(
-        fontSize: 14,
+      titleSmall: GoogleFonts.plusJakartaSans(
+        fontSize: 13.5,
         fontWeight: FontWeight.w600,
+        letterSpacing: -0.1,
         color: primary,
         fontFeatures: const [FontFeature.tabularFigures()],
       ),
-      bodyLarge: GoogleFonts.inter(
+      bodyLarge: GoogleFonts.plusJakartaSans(
         fontSize: 15,
-        fontWeight: FontWeight.w400,
+        fontWeight: FontWeight.w500,
+        height: 1.35,
         color: primary,
         fontFeatures: const [FontFeature.tabularFigures()],
       ),
-      bodyMedium: GoogleFonts.inter(
-        fontSize: 14,
+      bodyMedium: GoogleFonts.plusJakartaSans(
+        fontSize: 13.5,
         fontWeight: FontWeight.w400,
+        height: 1.4,
         color: secondary,
         fontFeatures: const [FontFeature.tabularFigures()],
       ),
-      labelLarge: GoogleFonts.inter(
+      bodySmall: GoogleFonts.plusJakartaSans(
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
+        height: 1.35,
+        color: secondary,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+      labelLarge: GoogleFonts.plusJakartaSans(
         fontSize: 14,
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.1,
         color: primary,
       ),
-      labelMedium: GoogleFonts.inter(
+      labelMedium: GoogleFonts.plusJakartaSans(
         fontSize: 12,
         fontWeight: FontWeight.w600,
         color: secondary,
         fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+  }
+
+  static InputDecorationTheme _inputTheme(CreaseThemeExtension ext) {
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(CreaseRadius.control),
+      borderSide: BorderSide(color: ext.hairline, width: 1),
+    );
+    return InputDecorationTheme(
+      filled: true,
+      fillColor: ext.surfaceKey,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: border,
+      enabledBorder: border,
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(CreaseRadius.control),
+        borderSide: BorderSide(color: ext.pitchGreen, width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(CreaseRadius.control),
+        borderSide: BorderSide(color: ext.wicketRed, width: 1.2),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(CreaseRadius.control),
+        borderSide: BorderSide(color: ext.wicketRed, width: 1.5),
+      ),
+      labelStyle: GoogleFonts.plusJakartaSans(
+        color: ext.inkSecondary,
+        fontSize: 13.5,
+        fontWeight: FontWeight.w500,
+      ),
+      hintStyle: GoogleFonts.plusJakartaSans(
+        color: ext.inkSecondary.withValues(alpha: 0.72),
+        fontSize: 14,
+      ),
+    );
+  }
+
+  static ThemeData _buildTheme({
+    required Brightness brightness,
+    required ColorScheme scheme,
+    required CreaseThemeExtension ext,
+  }) {
+    final isDark = brightness == Brightness.dark;
+    final textTheme = _buildTextTheme(ext.inkPrimary, ext.inkSecondary);
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: brightness,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: ext.ground,
+      textTheme: textTheme,
+      extensions: [ext],
+      splashFactory: InkSparkle.splashFactory,
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        titleTextStyle: textTheme.titleLarge,
+        foregroundColor: ext.inkPrimary,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarIconBrightness:
+              isDark ? Brightness.light : Brightness.dark,
+        ),
+      ),
+      inputDecorationTheme: _inputTheme(ext),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: ext.pitchGreen,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          textStyle: GoogleFonts.plusJakartaSans(
+            fontSize: 14.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.1,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(CreaseRadius.control),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: ext.inkPrimary,
+          side: BorderSide(color: ext.hairline, width: 1),
+          backgroundColor: ext.surfaceGlass,
+          minimumSize: const Size(0, 46),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          textStyle: GoogleFonts.plusJakartaSans(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(CreaseRadius.control),
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: ext.pitchGreen,
+          textStyle: GoogleFonts.plusJakartaSans(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(CreaseRadius.badge),
+          ),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: ext.surfaceKey,
+        selectedColor: ext.pitchGreen,
+        disabledColor: ext.pillMutedBg,
+        side: BorderSide(color: ext.hairline, width: 1),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(CreaseRadius.badge + 2),
+        ),
+        labelStyle: GoogleFonts.plusJakartaSans(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          color: ext.inkPrimary,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        showCheckmark: false,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: ext.surfaceSheet,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: ext.hairline, width: 1),
+        ),
+        titleTextStyle: textTheme.titleLarge,
+        contentTextStyle: textTheme.bodyMedium,
+      ),
+      dividerTheme: DividerThemeData(
+        color: ext.hairlineSubtle,
+        thickness: 1,
+        space: 1,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        elevation: 0,
+        backgroundColor: isDark ? ext.inkPrimary : CreaseColors.inkPrimaryLight,
+        contentTextStyle: GoogleFonts.plusJakartaSans(
+          color: isDark ? CreaseColors.groundDark : Colors.white,
+          fontSize: 13.5,
+          fontWeight: FontWeight.w500,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(CreaseRadius.control),
+        ),
       ),
     );
   }
@@ -244,93 +481,29 @@ class CreaseTheme {
       onSurface: CreaseColors.inkPrimaryLight,
       outline: CreaseColors.hairlineLight,
     );
-    return ThemeData(
-      useMaterial3: true,
+    return _buildTheme(
       brightness: Brightness.light,
-      colorScheme: scheme,
-      scaffoldBackgroundColor: CreaseColors.groundLight,
-      textTheme: _buildTextTheme(
-        CreaseColors.inkPrimaryLight,
-        CreaseColors.inkSecondaryLight,
-      ),
-      extensions: const [CreaseThemeExtension.light],
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        foregroundColor: CreaseColors.inkPrimaryLight,
-        systemOverlayStyle: SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.dark,
-          statusBarBrightness: Brightness.light,
-          systemNavigationBarColor: Colors.transparent,
-          systemNavigationBarIconBrightness: Brightness.dark,
-        ),
-      ),
-      dividerTheme: const DividerThemeData(
-        color: CreaseColors.hairlineSubtleLight,
-        thickness: 1,
-        space: 1,
-      ),
-      snackBarTheme: SnackBarThemeData(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: CreaseColors.inkPrimaryLight,
-        contentTextStyle: GoogleFonts.inter(color: Colors.white, fontSize: 13),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
+      scheme: scheme,
+      ext: CreaseThemeExtension.light,
     );
   }
 
   static ThemeData dark() {
     const scheme = ColorScheme.dark(
-      primary: CreaseColors.pitchGreen,
+      primary: CreaseColors.pitchGreenDark,
       onPrimary: Colors.white,
-      secondary: CreaseColors.pitchGreen,
+      secondary: CreaseColors.pitchGreenDark,
       onSecondary: Colors.white,
-      error: CreaseColors.wicketRed,
+      error: CreaseColors.wicketRedDark,
       onError: Colors.white,
       surface: CreaseColors.groundDark,
       onSurface: CreaseColors.inkPrimaryDark,
       outline: CreaseColors.hairlineDark,
     );
-    return ThemeData(
-      useMaterial3: true,
+    return _buildTheme(
       brightness: Brightness.dark,
-      colorScheme: scheme,
-      scaffoldBackgroundColor: CreaseColors.groundDark,
-      textTheme: _buildTextTheme(
-        CreaseColors.inkPrimaryDark,
-        CreaseColors.inkSecondaryDark,
-      ),
-      extensions: const [CreaseThemeExtension.dark],
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        foregroundColor: CreaseColors.inkPrimaryDark,
-        systemOverlayStyle: SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
-          statusBarBrightness: Brightness.dark,
-          systemNavigationBarColor: Colors.transparent,
-          systemNavigationBarIconBrightness: Brightness.light,
-        ),
-      ),
-      dividerTheme: const DividerThemeData(
-        color: CreaseColors.hairlineSubtleDark,
-        thickness: 1,
-        space: 1,
-      ),
-      snackBarTheme: SnackBarThemeData(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: CreaseColors.surfaceKeyDark,
-        contentTextStyle: GoogleFonts.inter(
-          color: CreaseColors.inkPrimaryDark,
-          fontSize: 13,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
+      scheme: scheme,
+      ext: CreaseThemeExtension.dark,
     );
   }
 }
-

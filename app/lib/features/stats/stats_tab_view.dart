@@ -6,6 +6,7 @@ import '../../domain/stats_engine.dart';
 import '../../domain/team_profile.dart';
 import '../../domain/tournament_engine.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 
 enum _StatsBoard { mvp, batting, bowling, boundaries }
@@ -41,7 +42,9 @@ class _StatsTabViewState extends State<StatsTabView> {
   @override
   void didUpdateWidget(covariant StatsTabView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_userChangedScope && _selectedTeamName == null && _selectedTournamentId == null) {
+    if (!_userChangedScope &&
+        _selectedTeamName == null &&
+        _selectedTournamentId == null) {
       _applyDefaultScope();
     }
   }
@@ -55,8 +58,9 @@ class _StatsTabViewState extends State<StatsTabView> {
 
   List<PlayerCareerStats> get _ranked {
     final hasRealMatches = widget.matches.any((m) => !m.config.isDemo);
-    final excludeDemo =
-        hasRealMatches || _selectedTeamName != null || _selectedTournamentId != null;
+    final excludeDemo = hasRealMatches ||
+        _selectedTeamName != null ||
+        _selectedTournamentId != null;
     final all = StatsEngine.derive(
       widget.matches,
       tournamentId: _selectedTournamentId,
@@ -86,7 +90,7 @@ class _StatsTabViewState extends State<StatsTabView> {
         _StatsBoard.bowling =>
           '${p.oversBowledText} ov · Econ ${p.economy.toStringAsFixed(1)} · Best ${p.bestBowlingText}',
         _StatsBoard.boundaries =>
-          '${p.runs} runs (${p.ballsFaced} balls) · SR ${p.strikeRate.toStringAsFixed(0)}',
+          '${p.runs} runs (${p.ballsFaced}b) · SR ${p.strikeRate.toStringAsFixed(0)}',
       };
 
   void _openPlayerCard(PlayerCareerStats p) {
@@ -96,7 +100,9 @@ class _StatsTabViewState extends State<StatsTabView> {
       builder: (ctx) {
         final c = ctx.crease;
         return GlassSurface(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(CreaseRadius.sheet),
+          ),
           fillColor: c.surfaceSheet,
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
           child: Column(
@@ -105,7 +111,7 @@ class _StatsTabViewState extends State<StatsTabView> {
             children: [
               Center(
                 child: Container(
-                  width: 40,
+                  width: 36,
                   height: 4,
                   decoration: BoxDecoration(
                     color: c.hairline,
@@ -116,13 +122,15 @@ class _StatsTabViewState extends State<StatsTabView> {
               const SizedBox(height: 16),
               Row(
                 children: [
+                  CreaseTeamBadge(name: p.name, size: 46, highlighted: true),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           p.name,
-                          style: Theme.of(ctx).textTheme.headlineMedium,
+                          style: Theme.of(ctx).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -137,10 +145,10 @@ class _StatsTabViewState extends State<StatsTabView> {
                   ),
                   IconButton(
                     tooltip: 'Share player stats',
-                    icon: const Icon(Icons.share_rounded),
+                    icon: const Icon(Icons.share_rounded, size: 20),
                     onPressed: () {
                       Share.share(
-                        '${p.name} — Crease Career Stats\n'
+                        '${p.name} · Crease Career Stats\n'
                         'Batting: ${p.runs} runs (${p.ballsFaced}b), HS ${p.highestScoreText}, SR ${p.strikeRate.toStringAsFixed(0)}, 4s:${p.fours} 6s:${p.sixes}\n'
                         'Bowling: ${p.wickets} wkts (${p.oversBowledText} ov), Econ ${p.economy.toStringAsFixed(1)}, Best ${p.bestBowlingText}\n'
                         'MVP: ${p.mvpPoints} pts',
@@ -164,12 +172,12 @@ class _StatsTabViewState extends State<StatsTabView> {
                   _StatBox(
                     label: 'Econ',
                     value: p.legalBallsBowled == 0
-                        ? '—'
+                        ? '-'
                         : p.economy.toStringAsFixed(1),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   _StatBox(label: 'High', value: p.highestScoreText),
@@ -195,7 +203,7 @@ class _StatsTabViewState extends State<StatsTabView> {
       builder: (ctx) {
         final c = ctx.crease;
         Widget row(String label, String pts) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 5),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: [
                   Expanded(
@@ -208,42 +216,29 @@ class _StatsTabViewState extends State<StatsTabView> {
                   ),
                   Text(
                     pts,
-                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                          color: c.pitchGreen,
-                          fontWeight: FontWeight.w600,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                    style: creaseNumeralStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: c.pitchGreen,
+                    ),
                   ),
                 ],
               ),
             );
         return GlassSurface(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(CreaseRadius.sheet),
+          ),
           fillColor: c.surfaceSheet,
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: c.hairline,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'How MVP points work',
-                style: Theme.of(ctx).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Most Valuable Player ranks all-round match impact across batting, bowling, and fielding.',
-                style: Theme.of(ctx).textTheme.bodyMedium,
+              const CreaseSheetHeader(
+                title: 'MVP scoring',
+                subtitle:
+                    'All-round match impact across batting, bowling, and fielding.',
               ),
               const SizedBox(height: 14),
               row('Every run scored', '+1 pt'),
@@ -270,74 +265,47 @@ class _StatsTabViewState extends State<StatsTabView> {
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
       sliver: SliverList(
         delegate: SliverChildListDelegate([
-          // Board selector segmented bar (fits cleanly with zero horizontal clipping)
-          GlassSurface(
-            borderRadius: BorderRadius.circular(14),
-            padding: const EdgeInsets.all(3),
-            child: Row(
-              children: [
-                for (final entry in const [
-                  (_StatsBoard.mvp, 'MVP'),
-                  (_StatsBoard.batting, 'Batting'),
-                  (_StatsBoard.bowling, 'Bowling'),
-                  (_StatsBoard.boundaries, '4s & 6s'),
-                ])
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _board = entry.$1),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOutCubic,
-                        padding: const EdgeInsets.symmetric(vertical: 9),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: _board == entry.$1
-                              ? c.pitchGreen
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(11),
-                        ),
-                        child: Text(
-                          entry.$2,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.labelMedium?.copyWith(
-                                    color: _board == entry.$1
-                                        ? Colors.white
-                                        : c.inkPrimary,
-                                    fontWeight: _board == entry.$1
-                                        ? FontWeight.w600
-                                        : FontWeight.w500,
-                                  ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+          CreaseSegmentedControl<_StatsBoard>(
+            selected: _board,
+            onChanged: (v) => setState(() => _board = v),
+            items: const [
+              (value: _StatsBoard.mvp, label: 'MVP', icon: null),
+              (value: _StatsBoard.batting, label: 'Batting', icon: null),
+              (value: _StatsBoard.bowling, label: 'Bowling', icon: null),
+              (value: _StatsBoard.boundaries, label: '4s & 6s', icon: null),
+            ],
           ),
 
           if (_board == _StatsBoard.mvp)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.only(top: 10),
               child: InkWell(
                 borderRadius: BorderRadius.circular(8),
                 onTap: _showMvpInfoSheet,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 3,
+                    horizontal: 2,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
-                          'Most Valuable Player · all-round impact score',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: c.inkSecondary,
-                              ),
+                          'All-round impact across batting, bowling & fielding',
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Formula',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              color: c.pitchGreen,
+                            ),
+                      ),
+                      const SizedBox(width: 3),
                       Icon(
                         Icons.info_outline_rounded,
-                        size: 16,
+                        size: 15,
                         color: c.pitchGreen,
                       ),
                     ],
@@ -346,7 +314,6 @@ class _StatsTabViewState extends State<StatsTabView> {
               ),
             ),
 
-          // Scope filter: My Teams first (default), then Tournaments, then All
           Builder(
             builder: (context) {
               final myTeams =
@@ -355,63 +322,40 @@ class _StatsTabViewState extends State<StatsTabView> {
                 return const SizedBox.shrink();
               }
               return Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 10),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
                       for (final team in myTeams)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: FilterChip(
-                            avatar: Icon(
-                              Icons.star_rounded,
-                              size: 16,
-                              color: _selectedTeamName == team.name
-                                  ? Colors.white
-                                  : c.pitchGreen,
-                            ),
-                            label: Text(team.name),
-                            selected: _selectedTeamName == team.name,
-                            selectedColor: c.pitchGreen,
-                            checkmarkColor: Colors.white,
-                            labelStyle: TextStyle(
-                              color: _selectedTeamName == team.name
-                                  ? Colors.white
-                                  : c.inkPrimary,
-                            ),
-                            onSelected: (_) => setState(() {
-                              _userChangedScope = true;
-                              _selectedTeamName = team.name;
-                              _selectedTournamentId = null;
-                            }),
-                          ),
+                        _ScopePill(
+                          label: team.name,
+                          selected: _selectedTeamName == team.name,
+                          onTap: () => setState(() {
+                            _userChangedScope = true;
+                            _selectedTeamName = team.name;
+                            _selectedTournamentId = null;
+                          }),
                         ),
                       for (final t in widget.tournaments)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: FilterChip(
-                            label: Text(t.name),
-                            selected: _selectedTournamentId == t.id,
-                            onSelected: (_) => setState(() {
-                              _userChangedScope = true;
-                              _selectedTournamentId = t.id;
-                              _selectedTeamName = null;
-                            }),
-                          ),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: FilterChip(
-                          label: const Text('All'),
-                          selected: _selectedTournamentId == null &&
-                              _selectedTeamName == null,
-                          onSelected: (_) => setState(() {
+                        _ScopePill(
+                          label: t.name,
+                          selected: _selectedTournamentId == t.id,
+                          onTap: () => setState(() {
                             _userChangedScope = true;
-                            _selectedTournamentId = null;
+                            _selectedTournamentId = t.id;
                             _selectedTeamName = null;
                           }),
                         ),
+                      _ScopePill(
+                        label: 'All matches',
+                        selected: _selectedTournamentId == null &&
+                            _selectedTeamName == null,
+                        onTap: () => setState(() {
+                          _userChangedScope = true;
+                          _selectedTournamentId = null;
+                          _selectedTeamName = null;
+                        }),
                       ),
                     ],
                   ),
@@ -427,15 +371,27 @@ class _StatsTabViewState extends State<StatsTabView> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  Icon(Icons.insights_rounded, size: 30, color: c.pitchGreen),
-                  const SizedBox(height: 10),
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: c.pitchGreenSoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.bar_chart_rounded,
+                      size: 22,
+                      color: c.pitchGreen,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Text(
                     'No player stats yet',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Score a few balls and leaderboards will populate automatically.',
+                    'Completed deliveries will appear here as batting, bowling, and MVP rankings.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
@@ -443,29 +399,28 @@ class _StatsTabViewState extends State<StatsTabView> {
               ),
             )
           else ...[
-            // Leader hero card (#1)
-            GestureDetector(
+            // Leader feature card (#1)
+            CreasePressable(
               onTap: () => _openPlayerCard(ranked.first),
               child: GlassSurface(
-                borderColor: c.pitchGreen,
-                borderWidth: 1.2,
-                padding: const EdgeInsets.all(18),
+                borderColor: c.pitchGreen.withValues(alpha: 0.45),
+                padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
                     Container(
-                      width: 40,
-                      height: 40,
+                      width: 38,
+                      height: 38,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: c.pitchGreen,
-                        shape: BoxShape.circle,
+                        borderRadius: BorderRadius.circular(11),
                       ),
-                      child: const Text(
-                        '#1',
-                        style: TextStyle(
-                          color: Colors.white,
+                      child: Text(
+                        '1',
+                        style: creaseNumeralStyle(
+                          fontSize: 18,
                           fontWeight: FontWeight.w700,
-                          fontSize: 14,
+                          color: Colors.white,
                         ),
                       ),
                     ),
@@ -476,112 +431,162 @@ class _StatsTabViewState extends State<StatsTabView> {
                         children: [
                           Text(
                             ranked.first.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: Theme.of(context)
                                 .textTheme
                                 .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w600),
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             _secondaryMetric(ranked.first),
-                            style: Theme.of(context).textTheme.bodyMedium,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Text(
                       _primaryMetric(ranked.first),
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            color: c.pitchGreen,
-                            fontSize: 22,
-                          ),
+                      style: creaseNumeralStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.w700,
+                        color: c.pitchGreen,
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
 
-            const SizedBox(height: 14),
-
-            // Full ranked list
-            GlassSurface(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Column(
-                children: [
-                  for (var i = 0; i < ranked.length; i++) ...[
-                    InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () => _openPlayerCard(ranked[i]),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 10,
-                          horizontal: 4,
-                        ),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 24,
-                              child: Text(
-                                '${i + 1}',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelMedium
-                                    ?.copyWith(
-                                      color: i == 0
-                                          ? c.pitchGreen
-                                          : c.inkSecondary,
+            if (ranked.length > 1) ...[
+              const SizedBox(height: 12),
+              GlassSurface(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                child: Column(
+                  children: [
+                    for (var i = 1; i < ranked.length; i++) ...[
+                      InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => _openPlayerCard(ranked[i]),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 10,
+                            horizontal: 2,
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 26,
+                                child: Text(
+                                  '${i + 1}',
+                                  style: creaseNumeralStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    color: c.inkSecondary,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _selectedTeamName == null &&
+                                              ranked[i].teamName != null
+                                          ? '${ranked[i].name} · ${ranked[i].teamName}'
+                                          : ranked[i].name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                     ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _secondaryMetric(ranked[i]),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _selectedTeamName == null &&
-                                            ranked[i].teamName != null
-                                        ? '${ranked[i].name} · ${ranked[i].teamName}'
-                                        : ranked[i].name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyLarge
-                                        ?.copyWith(fontWeight: FontWeight.w500),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _secondaryMetric(ranked[i]),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style:
-                                        Theme.of(context).textTheme.labelMedium,
-                                  ),
-                                ],
+                              const SizedBox(width: 8),
+                              Text(
+                                _primaryMetric(ranked[i]),
+                                style: creaseNumeralStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                  color: c.inkPrimary,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _primaryMetric(ranked[i]),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(
-                                    color: i == 0 ? c.pitchGreen : c.inkPrimary,
-                                  ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    if (i != ranked.length - 1) const Divider(height: 1),
+                      if (i != ranked.length - 1)
+                        Divider(height: 1, color: c.hairlineSubtle),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
+            ],
           ],
         ]),
+      ),
+    );
+  }
+}
+
+class _ScopePill extends StatelessWidget {
+  const _ScopePill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(CreaseRadius.pill),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: selected ? c.inkPrimary : c.surfaceGlass,
+            borderRadius: BorderRadius.circular(CreaseRadius.pill),
+            border: Border.all(
+              color: selected ? c.inkPrimary : c.hairline,
+            ),
+          ),
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  fontSize: 12,
+                  color: selected ? c.ground : c.inkPrimary,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+          ),
+        ),
       ),
     );
   }
@@ -600,21 +605,23 @@ class _StatBox extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
         decoration: BoxDecoration(
           color: c.surfaceKey,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: c.hairline),
+          borderRadius: BorderRadius.circular(CreaseRadius.control),
+          border: Border.all(color: c.hairlineSubtle),
         ),
         child: Column(
           children: [
             Text(
               value,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontSize: 15,
-                  ),
+              style: creaseNumeralStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: c.inkPrimary,
+              ),
             ),
             const SizedBox(height: 2),
             Text(
               label,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontSize: 11,
                   ),
             ),

@@ -6,10 +6,11 @@ import '../../config/app_links.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/models.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 
-/// Displays a Daylight Glass bottom sheet with a 6-digit handover code so the
-/// other team's scorer can take over scoring seamlessly on their own phone.
+/// Displays a sheet with a 6-digit handover code so the other team's scorer
+/// can take over scoring on their own phone.
 Future<void> showHandOverScoringSheet(
   BuildContext context,
   DerivedMatchState state,
@@ -61,7 +62,7 @@ class _HandOverSheetState extends State<_HandOverSheet> {
       final raw = e.toString();
       final msg = raw.contains('Not authorized')
           ? 'This match belongs to an earlier guest session. Start a new match under your current account to hand over scoring.'
-          : 'Go online to generate a scorer handover code.';
+          : 'Connect to the internet to generate a scorer handover code.';
       setState(() {
         _error = msg;
         _loading = false;
@@ -80,45 +81,29 @@ class _HandOverSheetState extends State<_HandOverSheet> {
   Widget build(BuildContext context) {
     final c = context.crease;
     return GlassSurface(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(CreaseRadius.sheet),
+      ),
       fillColor: c.surfaceSheet,
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: c.hairline,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Hand over scoring',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Share this 6-digit code with the next scorer. When they join, scoring transfers to their device automatically so no duplicate balls are recorded.',
-            style: Theme.of(context).textTheme.bodyMedium,
+          const CreaseSheetHeader(
+            title: 'Hand over scoring',
+            subtitle:
+                'Share this 6-digit code with the next scorer so scoring transfers to their device without duplicate balls.',
           ),
           const SizedBox(height: 18),
           if (_loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Center(child: CircularProgressIndicator()),
-            )
+            const CreaseSkeletonBox(height: 98)
           else if (_error != null)
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: c.wicketRedSoft,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(CreaseRadius.card),
               ),
               child: Column(
                 children: [
@@ -143,28 +128,27 @@ class _HandOverSheetState extends State<_HandOverSheet> {
               padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
               decoration: BoxDecoration(
                 color: c.pitchGreenSoft,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: c.pitchGreen.withValues(alpha: 0.25)),
+                borderRadius: BorderRadius.circular(CreaseRadius.card),
+                border: Border.all(color: c.pitchGreen.withValues(alpha: 0.28)),
               ),
               child: Column(
                 children: [
                   Text(
-                    'SCORER CODE',
+                    'Scorer code',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                           color: c.pitchGreen,
-                          letterSpacing: 1.2,
                           fontWeight: FontWeight.w700,
                         ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
                     _formatCode(_code!),
-                    style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                          color: c.pitchGreen,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 6,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                    style: creaseNumeralStyle(
+                      fontSize: 40,
+                      fontWeight: FontWeight.w700,
+                      color: c.pitchGreen,
+                      letterSpacing: 6,
+                    ),
                   ),
                 ],
               ),
@@ -188,15 +172,11 @@ class _HandOverSheetState extends State<_HandOverSheet> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: c.pitchGreen,
-                      foregroundColor: Colors.white,
-                    ),
                     onPressed: () {
                       final codeFormatted = _formatCode(_code!);
                       final text =
-                          'Take over scoring for ${widget.state.config.title} on Crease!\n'
-                          'Open Crease → Matches → Join as scorer and enter code: $codeFormatted\n'
+                          'Take over scoring for ${widget.state.config.title} on Crease.\n'
+                          'Open Crease -> Matches -> Join scorer and enter code: $codeFormatted\n'
                           'Live scorecard: ${CreaseLinks.liveMatchUrl(widget.state.config.id)}';
                       Share.share(text);
                     },
@@ -260,7 +240,7 @@ class _JoinScorerSheetState extends State<_JoinScorerSheet> {
       if (!mounted) return;
       final msg = e.toString().contains('Invalid scorer code')
           ? 'Code not found. Check the 6 digits with the current scorer.'
-          : 'Could not join right now. Check your internet connection and try again.';
+          : 'Could not join right now. Check your connection and try again.';
       setState(() {
         _error = msg;
         _submitting = false;
@@ -274,32 +254,19 @@ class _JoinScorerSheetState extends State<_JoinScorerSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: GlassSurface(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(CreaseRadius.sheet),
+        ),
         fillColor: c.surfaceSheet,
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: c.hairline,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Join as scorer',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Enter the 6-digit handover code from the current scorer to take over scoring on this device.',
-              style: Theme.of(context).textTheme.bodyMedium,
+            const CreaseSheetHeader(
+              title: 'Join as scorer',
+              subtitle:
+                  'Enter the 6-digit handover code from the current scorer.',
             ),
             const SizedBox(height: 16),
             TextField(
@@ -308,11 +275,12 @@ class _JoinScorerSheetState extends State<_JoinScorerSheet> {
               keyboardType: TextInputType.number,
               maxLength: 7,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    letterSpacing: 6,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+              style: creaseNumeralStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                color: c.inkPrimary,
+                letterSpacing: 6,
+              ),
               decoration: InputDecoration(
                 counterText: '',
                 hintText: '000 000',
@@ -322,11 +290,6 @@ class _JoinScorerSheetState extends State<_JoinScorerSheet> {
             ),
             const SizedBox(height: 16),
             FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: c.pitchGreen,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(50),
-              ),
               onPressed: _submitting ? null : _submit,
               child: _submitting
                   ? const SizedBox(

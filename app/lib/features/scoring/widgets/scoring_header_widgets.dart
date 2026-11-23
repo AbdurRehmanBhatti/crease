@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/models.dart';
 import '../../../theme/crease_theme.dart';
+import '../../../widgets/crease_ui.dart';
 
 class TopMatchBar extends StatelessWidget {
   const TopMatchBar({
@@ -25,41 +26,33 @@ class TopMatchBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.crease;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+      padding: const EdgeInsets.fromLTRB(6, 4, 8, 4),
       child: Row(
         children: [
           IconButton(
             tooltip: 'Back',
-            icon: const Icon(Icons.chevron_left_rounded, size: 28),
+            icon: const Icon(Icons.arrow_back_rounded, size: 22),
             onPressed: onBack,
           ),
           Expanded(
             child: InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CreaseRadius.control),
               onTap: onScorecard,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     if (isLive) ...[
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: c.pitchGreen,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
+                      const CreaseLiveDot(size: 7),
+                      const SizedBox(width: 7),
                     ],
                     Flexible(
                       child: Text(
                         title,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -75,8 +68,9 @@ class TopMatchBar extends StatelessWidget {
                       child: Text(
                         formatLabel,
                         style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                              fontSize: 11,
+                              fontSize: 10.5,
                               color: c.inkPrimary,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                     ),
@@ -87,7 +81,7 @@ class TopMatchBar extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Scorecard & charts',
-            icon: const Icon(Icons.bar_chart_rounded, size: 22),
+            icon: const Icon(Icons.table_chart_outlined, size: 20),
             onPressed: onScorecard,
           ),
           IconButton(
@@ -126,25 +120,34 @@ class ChaseOrRateStack extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(
-            'FINAL',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: c.pitchGreen,
-                  letterSpacing: 0.8,
-                ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: c.pitchGreenSoft,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              'Final',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: c.pitchGreen,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+            ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 5),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 145),
+            constraints: const BoxConstraints(maxWidth: 148),
             child: Text(
               resultSummary!,
               textAlign: TextAlign.right,
               style: Theme.of(context).textTheme.titleSmall,
             ),
           ),
+          const SizedBox(height: 2),
           TextButton.icon(
             style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               minimumSize: const Size(0, 32),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
@@ -161,13 +164,13 @@ class ChaseOrRateStack extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Text(
-            'Inn ${innings.inningsNumber}',
+            'Innings ${innings.inningsNumber}',
             style: Theme.of(context).textTheme.labelMedium,
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           if (leadTrailText != null)
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 145),
+              constraints: const BoxConstraints(maxWidth: 148),
               child: Text(
                 leadTrailText!,
                 textAlign: TextAlign.right,
@@ -177,10 +180,10 @@ class ChaseOrRateStack extends StatelessWidget {
                     ?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           Text(
             'CRR ${innings.currentRunRate.toStringAsFixed(2)}',
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
       );
@@ -196,14 +199,15 @@ class ChaseOrRateStack extends StatelessWidget {
               children: [
                 TextSpan(
                   text: 'Need ',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 TextSpan(
                   text: '${innings.runsNeeded}',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyLarge
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                  style: creaseNumeralStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                    color: c.inkPrimary,
+                  ),
                 ),
               ],
             ),
@@ -212,27 +216,38 @@ class ChaseOrRateStack extends StatelessWidget {
             TextSpan(
               children: [
                 TextSpan(
-                  text: 'from ',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  text: 'off ',
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 TextSpan(
                   text: '${innings.ballsRemaining}',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyLarge
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                  style: creaseNumeralStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: c.inkPrimary,
+                  ),
                 ),
                 TextSpan(
                   text: ' balls',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            rrr == null ? 'RRR —' : 'RRR ${rrr.toStringAsFixed(1)}',
-            style: Theme.of(context).textTheme.bodyMedium,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: c.pillMutedBg,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              rrr == null ? 'RRR -' : 'RRR ${rrr.toStringAsFixed(1)}',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: c.inkPrimary,
+                    fontSize: 11.5,
+                  ),
+            ),
           ),
         ],
       );
@@ -242,21 +257,33 @@ class ChaseOrRateStack extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Text(
-          '1st Innings',
-          style: Theme.of(context).textTheme.bodyMedium,
+          '1st innings',
+          style: Theme.of(context).textTheme.labelMedium,
         ),
         const SizedBox(height: 2),
-        Text(
-          'CRR ${innings.currentRunRate.toStringAsFixed(2)}',
-          style: Theme.of(context)
-              .textTheme
-              .bodyLarge
-              ?.copyWith(fontWeight: FontWeight.w600),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              'CRR ',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Text(
+              innings.currentRunRate.toStringAsFixed(2),
+              style: creaseNumeralStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: c.inkPrimary,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 2),
         Text(
           '${innings.ballsRemaining} balls left',
-          style: Theme.of(context).textTheme.bodyMedium,
+          style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
     );
@@ -294,12 +321,14 @@ class OverTimeline extends StatelessWidget {
             children: [
               if (previousOver != null) ...[
                 Opacity(
-                  opacity: 0.4,
+                  opacity: 0.45,
                   child: Row(
                     children: [
                       Text(
-                        '${previousOver!.overNumber}',
-                        style: Theme.of(context).textTheme.labelMedium,
+                        'Ov ${previousOver!.overNumber}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                       const SizedBox(width: 6),
                       for (final b in previousOver!.balls.length > 2
@@ -316,20 +345,37 @@ class OverTimeline extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
+                Container(
+                  width: 1,
+                  height: 18,
+                  margin: const EdgeInsets.only(left: 2, right: 10),
+                  color: c.hairline,
+                ),
               ],
               if (currentOver != null) ...[
-                Text(
-                  '${currentOver!.overNumber}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: c.pillMutedBg,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Ov ${currentOver!.overNumber}',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: c.inkPrimary,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
               ],
               for (final b in currentBalls)
                 Padding(
-                  padding: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: 7),
                   child: _BallCircle(
                     ball: b,
                     onTap: () => onBallTap(b),
@@ -337,12 +383,13 @@ class OverTimeline extends StatelessWidget {
                 ),
               for (var i = 0; i < emptySlots; i++)
                 Padding(
-                  padding: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: 7),
                   child: Container(
-                    width: 36,
-                    height: 36,
+                    width: 34,
+                    height: 34,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
+                      color: c.surfaceGlass.withValues(alpha: 0.5),
                       border: Border.all(color: c.hairline, width: 1),
                     ),
                   ),
@@ -351,18 +398,18 @@ class OverTimeline extends StatelessWidget {
           ),
         ),
         if (recentWicket?.dismissalSummary != null) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: c.pillMutedBg,
-              borderRadius: BorderRadius.circular(10),
+              color: c.wicketRedSoft,
+              borderRadius: BorderRadius.circular(CreaseRadius.badge),
             ),
             child: Text(
               recentWicket!.dismissalSummary!,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: c.inkPrimary,
-                    fontWeight: FontWeight.w500,
+                    color: c.wicketRed,
+                    fontWeight: FontWeight.w600,
                   ),
             ),
           ),
@@ -398,24 +445,26 @@ class _BallCircle extends StatelessWidget {
       fg = c.pitchGreen;
     }
 
-    return GestureDetector(
+    return CreasePressable(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      scale: 0.9,
       child: Container(
-        width: 36,
-        height: 36,
+        width: 34,
+        height: 34,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: bg,
           shape: BoxShape.circle,
-          border: Border.all(color: border, width: 1),
+          border: Border.all(color: border, width: 1.1),
         ),
         child: Text(
           ball.shortMark,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: fg,
-                fontSize: ball.shortMark.length > 2 ? 10 : 13,
-                fontWeight: FontWeight.w600,
-              ),
+          style: creaseNumeralStyle(
+            fontSize: ball.shortMark.length > 2 ? 10.5 : 14,
+            fontWeight: FontWeight.w700,
+            color: fg,
+          ),
         ),
       ),
     );

@@ -6,10 +6,11 @@ import '../../config/app_links.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/team_profile.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 
-/// Displays a Daylight Glass sheet with a 6-digit Team Code + WhatsApp invite
-/// link so teammates can join the team and claim their player profile.
+/// Displays a sheet with a 6-digit Team Code and invite link so teammates
+/// can join the team and claim their player spot.
 Future<void> showInviteTeammatesSheet(
   BuildContext context,
   TeamProfile team,
@@ -59,7 +60,7 @@ class _InviteTeammatesSheetState extends State<_InviteTeammatesSheet> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = 'Go online to generate a team invite code.';
+        _error = 'Connect to the internet to generate a team invite code.';
         _loading = false;
       });
     }
@@ -95,39 +96,23 @@ class _InviteTeammatesSheetState extends State<_InviteTeammatesSheet> {
   Widget build(BuildContext context) {
     final c = context.crease;
     return GlassSurface(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(CreaseRadius.sheet),
+      ),
       fillColor: c.surfaceSheet,
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: c.hairline,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Invite to ${widget.team.name}',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Share this link or code in your team group. Teammates pick their name from the squad to unlock their career stats automatically.',
-            style: Theme.of(context).textTheme.bodyMedium,
+          CreaseSheetHeader(
+            title: 'Invite to ${widget.team.name}',
+            subtitle:
+                'Share this link or code with teammates so they can claim their squad name and link career stats.',
           ),
           const SizedBox(height: 18),
           if (_loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Center(child: CircularProgressIndicator()),
-            )
+            const CreaseSkeletonBox(height: 98)
           else if (_error != null)
             Column(
               children: [
@@ -148,28 +133,27 @@ class _InviteTeammatesSheetState extends State<_InviteTeammatesSheet> {
               padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
               decoration: BoxDecoration(
                 color: c.pitchGreenSoft,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: c.pitchGreen.withValues(alpha: 0.25)),
+                borderRadius: BorderRadius.circular(CreaseRadius.card),
+                border: Border.all(color: c.pitchGreen.withValues(alpha: 0.28)),
               ),
               child: Column(
                 children: [
                   Text(
-                    'TEAM CODE',
+                    'Team code',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                           color: c.pitchGreen,
-                          letterSpacing: 1.2,
                           fontWeight: FontWeight.w700,
                         ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
                     _formatCode(_code!),
-                    style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                          color: c.pitchGreen,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 6,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                    style: creaseNumeralStyle(
+                      fontSize: 40,
+                      fontWeight: FontWeight.w700,
+                      color: c.pitchGreen,
+                      letterSpacing: 6,
+                    ),
                   ),
                 ],
               ),
@@ -193,17 +177,13 @@ class _InviteTeammatesSheetState extends State<_InviteTeammatesSheet> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: c.pitchGreen,
-                      foregroundColor: Colors.white,
-                    ),
                     onPressed: () {
                       final formatted = _formatCode(_code!);
                       final link = CreaseLinks.teamInviteUrl(_code!);
                       Share.share(
-                        'Join ${widget.team.name} on Crease and claim your player stats!\n'
+                        'Join ${widget.team.name} on Crease to link your player stats.\n'
                         '$link\n'
-                        'Or open Crease → Teams → Join team and enter code: $formatted',
+                        'Or open Crease -> Teams -> Join and enter code: $formatted',
                       );
                     },
                     icon: const Icon(Icons.share_rounded, size: 18),
@@ -229,8 +209,7 @@ class _InviteTeammatesSheetState extends State<_InviteTeammatesSheet> {
   }
 }
 
-/// 2-step Daylight Glass sheet: enter 6-digit Team Code (or pre-filled via deep
-/// link) → pick your name from the squad → claims player & pulls team matches.
+/// 2-step sheet: enter 6-digit Team Code -> pick your name from the squad.
 Future<bool> showJoinTeamSheet(
   BuildContext context, {
   String? initialCode,
@@ -317,7 +296,9 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
         ? _newNameCtrl.text.trim()
         : (_selectedPlayer ?? '').trim();
     if (playerName.isEmpty) {
-      setState(() => _error = 'Pick your name from the squad or enter a new name.');
+      setState(
+        () => _error = 'Pick your name from the squad or enter a new name.',
+      );
       return;
     }
     setState(() {
@@ -348,7 +329,9 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: GlassSurface(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(CreaseRadius.sheet),
+        ),
         fillColor: c.surfaceSheet,
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
         child: SingleChildScrollView(
@@ -356,26 +339,11 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: c.hairline,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
               if (preview == null) ...[
-                Text(
-                  'Join a team',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Enter the 6-digit invite code from your captain to claim your player spot and sync your team stats.',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                const CreaseSheetHeader(
+                  title: 'Join a team',
+                  subtitle:
+                      'Enter the 6-digit invite code from your captain to claim your player spot.',
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -384,11 +352,12 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                   keyboardType: TextInputType.number,
                   maxLength: 7,
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        letterSpacing: 6,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
+                  style: creaseNumeralStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    color: c.inkPrimary,
+                    letterSpacing: 6,
+                  ),
                   decoration: InputDecoration(
                     counterText: '',
                     hintText: '000 000',
@@ -398,11 +367,6 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: c.pitchGreen,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(48),
-                  ),
                   onPressed: _busy ? null : () => _lookupCode(),
                   child: _busy
                       ? const SizedBox(
@@ -416,14 +380,10 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                       : const Text('Find team'),
                 ),
               ] else ...[
-                Text(
-                  'Who are you in ${preview.teamName}?',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Pick your name from the squad to link your profile and pull all of ${preview.teamName}\'s matches.',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                CreaseSheetHeader(
+                  title: 'Who are you in ${preview.teamName}?',
+                  subtitle:
+                      'Pick your name from the squad to link your profile and pull ${preview.teamName}\'s matches.',
                 ),
                 const SizedBox(height: 14),
                 Wrap(
@@ -447,7 +407,6 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                             ),
                             selected: selected,
                             selectedColor: c.pitchGreen,
-                            checkmarkColor: Colors.white,
                             labelStyle: TextStyle(
                               color: claimedByOther
                                   ? c.inkSecondary
@@ -472,10 +431,9 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                         },
                       ),
                     ChoiceChip(
-                      label: const Text('+ I\'m a new player'),
+                      label: const Text('+ New player'),
                       selected: _addingNew,
                       selectedColor: c.pitchGreen,
-                      checkmarkColor: Colors.white,
                       labelStyle: TextStyle(
                         color: _addingNew ? Colors.white : c.pitchGreen,
                         fontWeight: FontWeight.w600,
@@ -513,11 +471,6 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                 ],
                 const SizedBox(height: 18),
                 FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: c.pitchGreen,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(48),
-                  ),
                   onPressed: _busy ? null : _claim,
                   child: _busy
                       ? const SizedBox(
@@ -528,7 +481,7 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Join & link my stats'),
+                      : const Text('Join & link stats'),
                 ),
               ],
             ],

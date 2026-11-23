@@ -4,9 +4,10 @@ import 'package:uuid/uuid.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/models.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 
-/// 3-tap Quick Match creator: teams, overs preset, and instant start.
+/// Quick Match creator: teams, overs preset, and instant start.
 Future<MatchConfig?> showQuickMatchSheet(BuildContext context) {
   return showModalBottomSheet<MatchConfig>(
     context: context,
@@ -73,8 +74,9 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                 bottom: MediaQuery.of(ctx).viewInsets.bottom,
               ),
               child: GlassSurface(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(CreaseRadius.sheet),
+                ),
                 fillColor: c.surfaceSheet,
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
                 child: ConstrainedBox(
@@ -85,34 +87,19 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: c.hairline,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        isBatting
+                      CreaseSheetHeader(
+                        title: isBatting
                             ? 'Select batting team'
                             : 'Select bowling team',
-                        style: Theme.of(ctx).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: searchCtrl,
                         onChanged: (_) => setModalState(() {}),
-                        decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                          hintText: 'Search saved teams...',
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search_rounded, size: 20),
+                          hintText: 'Search saved teams',
                           isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -140,6 +127,10 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                                     enabled: !disabled,
                                     contentPadding: const EdgeInsets.symmetric(
                                       horizontal: 4,
+                                    ),
+                                    leading: CreaseTeamBadge(
+                                      name: e.key,
+                                      size: 34,
                                     ),
                                     title: Text(e.key),
                                     subtitle: Text(
@@ -263,7 +254,9 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: GlassSurface(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(CreaseRadius.sheet),
+        ),
         fillColor: c.surfaceSheet,
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
         child: SingleChildScrollView(
@@ -271,25 +264,9 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: c.hairline,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Quick Match',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Start scoring in seconds. Works completely offline.',
-                style: Theme.of(context).textTheme.bodyMedium,
+              const CreaseSheetHeader(
+                title: 'New match',
+                subtitle: 'Set teams and overs to open the scoring pad.',
               ),
               const SizedBox(height: 16),
               Row(
@@ -310,15 +287,15 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                                 onPressed: () =>
                                     _openTeamPicker(isBatting: true),
                               ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
                       ),
                     ),
                   ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('v'),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(
+                      'v',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
                   ),
                   Expanded(
                     child: TextField(
@@ -336,17 +313,16 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                                 onPressed: () =>
                                     _openTeamPicker(isBatting: false),
                               ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
                       ),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-              Text('Format / Overs',
-                  style: Theme.of(context).textTheme.labelMedium),
+              Text(
+                'Format / overs',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -366,7 +342,6 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                           !_isCustomOvers &&
                           _overs == entry.$1,
                       selectedColor: c.pitchGreen,
-                      checkmarkColor: Colors.white,
                       labelStyle: TextStyle(
                         color: (!_isTestMatch &&
                                 !_isCustomOvers &&
@@ -396,7 +371,6 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                     label: const Text('Test (4 inn)'),
                     selected: _isTestMatch,
                     selectedColor: c.pitchGreen,
-                    checkmarkColor: Colors.white,
                     labelStyle: TextStyle(
                       color: _isTestMatch ? Colors.white : c.inkPrimary,
                       fontWeight:
@@ -414,7 +388,6 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                     label: const Text('Custom'),
                     selected: !_isTestMatch && _isCustomOvers,
                     selectedColor: c.pitchGreen,
-                    checkmarkColor: Colors.white,
                     labelStyle: TextStyle(
                       color: (!_isTestMatch && _isCustomOvers)
                           ? Colors.white
@@ -440,12 +413,9 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                 TextField(
                   controller: _customOversCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Custom overs per innings',
                     hintText: 'e.g. 15, 25, 40',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
                   ),
                 ),
               ],
@@ -465,51 +435,28 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                 TextField(
                   controller: _strikerCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(
-                    labelText: 'Striker',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Striker'),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _nonStrikerCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(
-                    labelText: 'Non-striker',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Non-striker'),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _bowlerCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(
-                    labelText: 'Opening bowler',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Opening bowler'),
                 ),
               ],
               const SizedBox(height: 18),
               FilledButton(
                 style: FilledButton.styleFrom(
-                  backgroundColor: c.pitchGreen,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
+                  minimumSize: const Size.fromHeight(52),
                 ),
                 onPressed: _start,
-                child: const Text(
-                  'Start Scoring',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
+                child: const Text('Start scoring'),
               ),
             ],
           ),
@@ -518,4 +465,3 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     );
   }
 }
-

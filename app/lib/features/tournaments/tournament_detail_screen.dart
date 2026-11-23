@@ -6,6 +6,7 @@ import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
 import '../../domain/tournament_engine.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 import '../scoring/scoring_screen.dart';
 
@@ -64,32 +65,21 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
             return GlassSurface(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(CreaseRadius.sheet),
+              ),
               fillColor: c.surfaceSheet,
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: c.hairline,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
+                  const CreaseSheetHeader(title: 'Start tournament match'),
                   const SizedBox(height: 16),
                   Text(
-                    'Start Tournament Match',
-                    style: Theme.of(ctx).textTheme.titleMedium,
+                    'Batting first',
+                    style: Theme.of(ctx).textTheme.labelMedium,
                   ),
-                  const SizedBox(height: 14),
-                  Text('Batting first',
-                      style: Theme.of(ctx).textTheme.labelMedium),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -100,9 +90,11 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                           label: Text(team),
                           selected: teamA == team,
                           selectedColor: c.pitchGreen,
-                          checkmarkColor: Colors.white,
                           labelStyle: TextStyle(
                             color: teamA == team ? Colors.white : c.inkPrimary,
+                            fontWeight: teamA == team
+                                ? FontWeight.w600
+                                : FontWeight.w500,
                           ),
                           side: BorderSide(
                             color: teamA == team ? c.pitchGreen : c.hairline,
@@ -117,8 +109,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  Text('Bowling first',
-                      style: Theme.of(ctx).textTheme.labelMedium),
+                  Text(
+                    'Bowling first',
+                    style: Theme.of(ctx).textTheme.labelMedium,
+                  ),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -129,9 +123,11 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                           label: Text(team),
                           selected: teamB == team,
                           selectedColor: c.pitchGreen,
-                          checkmarkColor: Colors.white,
                           labelStyle: TextStyle(
                             color: teamB == team ? Colors.white : c.inkPrimary,
+                            fontWeight: teamB == team
+                                ? FontWeight.w600
+                                : FontWeight.w500,
                           ),
                           side: BorderSide(
                             color: teamB == team ? c.pitchGreen : c.hairline,
@@ -142,14 +138,6 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                   ),
                   const SizedBox(height: 20),
                   FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: c.pitchGreen,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(52),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
                     onPressed: () => Navigator.pop(ctx, true),
                     child: Text('Start ${t.formatLabel} · $teamA v $teamB'),
                   ),
@@ -254,7 +242,17 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     if (_loading) {
       return Scaffold(
         backgroundColor: c.ground,
-        body: const Center(child: CircularProgressIndicator()),
+        appBar: AppBar(),
+        body: const Padding(
+          padding: EdgeInsets.all(20),
+          child: Column(
+            children: [
+              CreaseSkeletonBox(height: 220),
+              SizedBox(height: 12),
+              CreaseSkeletonBox(height: 96),
+            ],
+          ),
+        ),
       );
     }
 
@@ -276,10 +274,12 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         appBar: AppBar(
           title: Text(t.name),
           bottom: TabBar(
-            labelColor: c.pitchGreen,
+            labelColor: c.inkPrimary,
             indicatorColor: c.pitchGreen,
+            indicatorWeight: 2.5,
             unselectedLabelColor: c.inkSecondary,
             dividerColor: c.hairlineSubtle,
+            labelStyle: Theme.of(context).textTheme.titleSmall,
             tabs: const [
               Tab(text: 'Standings'),
               Tab(text: 'Matches'),
@@ -290,23 +290,30 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         floatingActionButton: FloatingActionButton.extended(
           backgroundColor: c.pitchGreen,
           foregroundColor: Colors.white,
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(CreaseRadius.control + 2),
+          ),
           onPressed: _startTournamentMatch,
           icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Start Match'),
+          label: const Text('Start match'),
         ),
         body: TabBarView(
           children: [
-            // Tab 1: Auto-derived Points Table & NRR
+            // Tab 1: Points Table & NRR
             ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
               children: [
                 GlassSurface(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
                   child: Column(
                     children: [
                       Row(
                         children: [
+                          const SizedBox(width: 11),
                           Expanded(
                             flex: 4,
                             child: Text(
@@ -340,10 +347,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                 ),
                 const SizedBox(height: 10),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'Standings & ICC Net Run Rate are auto-derived from the ball-by-ball log after every completed match.',
-                    style: Theme.of(context).textTheme.labelMedium,
+                    'Net Run Rate follows ICC tournament calculation after each completed match.',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
               ],
@@ -355,24 +362,25 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                     child: Padding(
                       padding: const EdgeInsets.all(32),
                       child: Text(
-                        'No matches played yet.\nTap "Start Match" to begin.',
+                        'No fixtures played yet.\nStart a match to record the first result.',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
                     itemCount: _matches.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final m = _matches[index];
                       final inn = m.activeInnings;
-                      return GestureDetector(
+                      return CreasePressable(
                         onTap: () async {
                           await Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => ScoringScreen(matchId: m.config.id),
+                              builder: (_) =>
+                                  ScoringScreen(matchId: m.config.id),
                             ),
                           );
                           _load();
@@ -385,14 +393,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                               Row(
                                 children: [
                                   if (m.status == MatchStatus.live) ...[
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: c.pitchGreen,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
+                                    const CreaseLiveDot(size: 7),
                                     const SizedBox(width: 8),
                                   ],
                                   Expanded(
@@ -405,8 +406,11 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                                   ),
                                   Text(
                                     '${inn.scoreText} (${inn.oversText})',
-                                    style:
-                                        Theme.of(context).textTheme.titleSmall,
+                                    style: creaseNumeralStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: c.inkPrimary,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -416,8 +420,11 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                                   m.resultSummary!,
                                   style: Theme.of(context)
                                       .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(color: c.pitchGreen),
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: c.pitchGreen,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                 ),
                               ],
                             ],
@@ -429,9 +436,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
 
             // Tab 3: Teams & Rosters
             ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
               itemCount: t.teams.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final team = t.teams[index];
                 final roster = t.teamRosters[team] ?? const [];
@@ -441,23 +448,29 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            team,
-                            style: Theme.of(context).textTheme.titleMedium,
+                          CreaseTeamBadge(name: team, size: 32),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              team,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
                           ),
                           TextButton.icon(
                             onPressed: () => _addPlayerToRoster(team),
-                            icon: const Icon(Icons.person_add_alt_1_rounded,
-                                size: 17),
+                            icon: const Icon(
+                              Icons.person_add_alt_1_rounded,
+                              size: 16,
+                            ),
                             label: const Text('Add player'),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 6),
                       if (roster.isEmpty)
                         Text(
-                          'No players added yet — players you add while scoring will also appear here.',
+                          'No players added yet. Players entered during a match will appear here.',
                           style: Theme.of(context).textTheme.bodyMedium,
                         )
                       else
@@ -508,6 +521,15 @@ class _StandingsRowWidget extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
+          Container(
+            width: 3,
+            height: 20,
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: isTopTwo ? c.pitchGreen : Colors.transparent,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
           Expanded(
             flex: 4,
             child: Row(
@@ -516,9 +538,11 @@ class _StandingsRowWidget extends StatelessWidget {
                   width: 18,
                   child: Text(
                     '$rank',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: isTopTwo ? c.pitchGreen : c.inkSecondary,
-                        ),
+                    style: creaseNumeralStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: isTopTwo ? c.pitchGreen : c.inkSecondary,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -538,25 +562,44 @@ class _StandingsRowWidget extends StatelessWidget {
           ),
           Expanded(
             flex: 1,
-            child: Text('${row.played}', textAlign: TextAlign.right),
+            child: Text(
+              '${row.played}',
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: c.inkPrimary,
+                  ),
+            ),
           ),
           Expanded(
             flex: 1,
-            child: Text('${row.won}', textAlign: TextAlign.right),
+            child: Text(
+              '${row.won}',
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: c.inkPrimary,
+                  ),
+            ),
           ),
           Expanded(
             flex: 1,
-            child: Text('${row.lost}', textAlign: TextAlign.right),
+            child: Text(
+              '${row.lost}',
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: c.inkSecondary,
+                  ),
+            ),
           ),
           Expanded(
             flex: 1,
             child: Text(
               '${row.points}',
               textAlign: TextAlign.right,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyLarge
-                  ?.copyWith(fontWeight: FontWeight.w700),
+              style: creaseNumeralStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: c.inkPrimary,
+              ),
             ),
           ),
           Expanded(
@@ -564,11 +607,11 @@ class _StandingsRowWidget extends StatelessWidget {
             child: Text(
               row.nrrText,
               textAlign: TextAlign.right,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: nrrColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
+              style: creaseNumeralStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: nrrColor,
+              ),
             ),
           ),
         ],

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../data/local_event_store.dart';
 import '../../domain/tournament_engine.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 
 Future<Tournament?> showCreateTournamentSheet(BuildContext context) {
@@ -25,8 +27,21 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
   static const _uuid = Uuid();
   final _nameCtrl = TextEditingController();
   final _teamCtrl = TextEditingController();
-  final List<String> _teams = ['Lahore Lions', 'Karachi Kites', 'Islamabad Stars'];
+  final List<String> _teams = [];
+  Map<String, List<String>> _knownRosters = {};
   int _overs = 10;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedTeams();
+  }
+
+  Future<void> _loadSavedTeams() async {
+    final rosters = await LocalEventStore.instance.listKnownTeamRosters();
+    if (!mounted) return;
+    setState(() => _knownRosters = rosters);
+  }
 
   @override
   void dispose() {
@@ -41,6 +56,18 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
         50 => 'ODI',
         _ => '${overs}OV',
       };
+
+  void _toggleSavedTeam(String teamName) {
+    final idx =
+        _teams.indexWhere((t) => t.toLowerCase() == teamName.toLowerCase());
+    setState(() {
+      if (idx >= 0) {
+        _teams.removeAt(idx);
+      } else {
+        _teams.add(teamName);
+      }
+    });
+  }
 
   void _addTeam() {
     final name = _teamCtrl.text.trim();
@@ -58,20 +85,29 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
   void _create() {
     if (_teams.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add at least 2 teams to create a tournament.')),
+        const SnackBar(
+          content: Text('Select or add at least 2 teams to create a tournament.'),
+        ),
       );
       return;
     }
     final name = _nameCtrl.text.trim().isEmpty
-        ? 'Sunday Tape-Ball Cup'
+        ? 'Sunday Cup'
         : _nameCtrl.text.trim();
+    final rosters = <String, List<String>>{};
+    for (final t in _teams) {
+      final matched = _knownRosters.entries
+          .where((e) => e.key.toLowerCase() == t.toLowerCase())
+          .firstOrNull;
+      rosters[t] = List<String>.from(matched?.value ?? const <String>[]);
+    }
     final tournament = Tournament(
       id: _uuid.v4(),
       name: name,
       oversLimit: _overs,
       playersPerSide: 11,
       formatLabel: _formatForOvers(_overs),
-      teamRosters: {for (final t in _teams) t: <String>[]},
+      teamRosters: rosters,
       createdAt: DateTime.now(),
     );
     Navigator.pop(context, tournament);
@@ -80,10 +116,20 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
+    final savedNames = _knownRosters.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final customTeams = _teams
+        .where(
+          (t) => !savedNames.any((s) => s.toLowerCase() == t.toLowerCase()),
+        )
+        .toList();
+
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: GlassSurface(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(CreaseRadius.sheet),
+        ),
         fillColor: c.surfaceSheet,
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
         child: SingleChildScrollView(
@@ -91,40 +137,24 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: c.hairline,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'New Tournament',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Points table & NRR update automatically from every ball.',
-                style: Theme.of(context).textTheme.bodyMedium,
+              const CreaseSheetHeader(
+                title: 'New tournament',
+                subtitle: 'Set overs and pick participating teams.',
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: _nameCtrl,
                 textCapitalization: TextCapitalization.words,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'Tournament name',
                   hintText: 'e.g. Ramadan Night Cup',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
                 ),
               ),
               const SizedBox(height: 16),
-              Text('Overs per match', style: Theme.of(context).textTheme.labelMedium),
+              Text(
+                'Overs per match',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -135,7 +165,6 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
                       label: Text('$ov'),
                       selected: _overs == ov,
                       selectedColor: c.pitchGreen,
-                      checkmarkColor: Colors.white,
                       labelStyle: TextStyle(
                         color: _overs == ov ? Colors.white : c.inkPrimary,
                         fontWeight:
@@ -150,21 +179,54 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
               ),
               const SizedBox(height: 16),
               Text(
-                'Teams (${_teams.length})',
+                'Teams (${_teams.length} selected)',
                 style: Theme.of(context).textTheme.labelMedium,
               ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final team in _teams)
-                    InputChip(
-                      label: Text(team),
-                      onDeleted: () => setState(() => _teams.remove(team)),
-                    ),
-                ],
-              ),
+              if (savedNames.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final team in savedNames)
+                      Builder(
+                        builder: (context) {
+                          final selected = _teams.any(
+                            (t) => t.toLowerCase() == team.toLowerCase(),
+                          );
+                          return ChoiceChip(
+                            label: Text(team),
+                            selected: selected,
+                            selectedColor: c.pitchGreen,
+                            labelStyle: TextStyle(
+                              color: selected ? Colors.white : c.inkPrimary,
+                              fontWeight:
+                                  selected ? FontWeight.w600 : FontWeight.w500,
+                            ),
+                            side: BorderSide(
+                              color: selected ? c.pitchGreen : c.hairline,
+                            ),
+                            onSelected: (_) => _toggleSavedTeam(team),
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ],
+              if (customTeams.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final team in customTeams)
+                      InputChip(
+                        label: Text(team),
+                        onDeleted: () => setState(() => _teams.remove(team)),
+                      ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -172,22 +234,16 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
                     child: TextField(
                       controller: _teamCtrl,
                       textCapitalization: TextCapitalization.words,
-                      decoration: InputDecoration(
-                        hintText: '+ Add team name',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
+                      decoration: const InputDecoration(
+                        hintText: 'Add another team',
                       ),
                       onSubmitted: (_) => _addTeam(),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  FilledButton.tonal(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(0, 52),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 50),
                     ),
                     onPressed: _addTeam,
                     child: const Text('Add'),
@@ -196,19 +252,8 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
               ),
               const SizedBox(height: 18),
               FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: c.pitchGreen,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                ),
                 onPressed: _create,
-                child: const Text(
-                  'Create Tournament',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
+                child: const Text('Create tournament'),
               ),
             ],
           ),

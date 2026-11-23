@@ -7,6 +7,7 @@ import '../../domain/match_insights.dart';
 import '../../domain/models.dart';
 import '../../domain/stats_engine.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 import 'match_summary_poster.dart';
 
@@ -141,7 +142,19 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
     if (_loading) {
       return Scaffold(
         backgroundColor: c.ground,
-        body: const Center(child: CircularProgressIndicator()),
+        appBar: AppBar(title: const Text('Match Center')),
+        body: const Padding(
+          padding: EdgeInsets.all(20),
+          child: Column(
+            children: [
+              CreaseSkeletonBox(height: 140),
+              SizedBox(height: 14),
+              CreaseSkeletonBox(height: 92),
+              SizedBox(height: 14),
+              CreaseSkeletonBox(height: 180),
+            ],
+          ),
+        ),
       );
     }
 
@@ -186,14 +199,20 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
                     color: c.pitchGreenSoft,
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  child: Text(
-                    'LIVE',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: c.pitchGreen,
-                      letterSpacing: 0.6,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CreaseLiveDot(size: 6),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Live',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: c.pitchGreen,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -207,10 +226,12 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
             ),
           ],
           bottom: TabBar(
-            labelColor: c.pitchGreen,
+            labelColor: c.inkPrimary,
             indicatorColor: c.pitchGreen,
+            indicatorWeight: 2.5,
             unselectedLabelColor: c.inkSecondary,
             dividerColor: c.hairlineSubtle,
+            labelStyle: Theme.of(context).textTheme.titleSmall,
             labelPadding: const EdgeInsets.symmetric(horizontal: 6),
             tabs: const [
               Tab(text: 'Overview'),
@@ -323,15 +344,17 @@ class _OverviewTab extends StatelessWidget {
                 )
               else if (innings.runsNeeded != null)
                 Text(
-                  '${innings.battingTeam} need ${innings.runsNeeded} from ${innings.ballsRemaining} balls · RRR ${innings.requiredRunRate?.toStringAsFixed(1) ?? '—'}',
+                  '${innings.battingTeam} need ${innings.runsNeeded} from ${innings.ballsRemaining} balls · RRR ${innings.requiredRunRate?.toStringAsFixed(1) ?? '-'}',
                   style: Theme.of(context)
                       .textTheme
                       .bodyMedium
-                      ?.copyWith(color: c.pitchGreen),
+                      ?.copyWith(color: c.pitchGreen, fontWeight: FontWeight.w600),
                 )
               else
                 Text(
-                  'CRR ${innings.currentRunRate.toStringAsFixed(2)} · ${innings.ballsRemaining} balls left',
+                  state.config.isTestMatch || innings.oversLimit <= 0
+                      ? 'CRR ${innings.currentRunRate.toStringAsFixed(2)}'
+                      : 'CRR ${innings.currentRunRate.toStringAsFixed(2)} · ${innings.ballsRemaining} balls left',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
             ],
@@ -342,24 +365,13 @@ class _OverviewTab extends StatelessWidget {
           const SizedBox(height: 16),
           const _SectionTitle('Match MVP'),
           GlassSurface(
-            borderColor: c.pitchGreen,
-            borderWidth: 1.2,
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: c.pitchGreen,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.star_rounded,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                CreaseTeamBadge(
+                  name: mvp.name,
+                  size: 40,
+                  highlighted: true,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -371,7 +383,7 @@ class _OverviewTab extends StatelessWidget {
                         style: Theme.of(context)
                             .textTheme
                             .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       Text(
                         '${mvp.runs} (${mvp.ballsFaced}) · ${mvp.wickets} wkts · ${mvp.fieldingDismissals} fielding',
@@ -382,13 +394,11 @@ class _OverviewTab extends StatelessWidget {
                 ),
                 Text(
                   '${mvp.mvpPoints} pts',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(
-                        color: c.pitchGreen,
-                        fontWeight: FontWeight.w700,
-                      ),
+                  style: creaseNumeralStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: c.pitchGreen,
+                  ),
                 ),
               ],
             ),
@@ -452,7 +462,12 @@ class _OverviewTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _InfoRow('Format', '${state.config.formatLabel} (${state.config.oversLimit} overs)'),
+              _InfoRow(
+                'Format',
+                state.config.isTestMatch || state.config.oversLimit <= 0
+                    ? '${state.config.formatLabel} (Unlimited overs)'
+                    : '${state.config.formatLabel} (${state.config.oversLimit} overs)',
+              ),
               const Divider(height: 14),
               _InfoRow('Players / side', '${state.config.playersPerSide}'),
               const Divider(height: 14),
@@ -511,19 +526,10 @@ class _ScorecardTab extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
       children: [
         if (hasBothInnings) ...[
-          SegmentedButton<int>(
-            segments: [
-              ButtonSegment(
-                value: 1,
-                label: Text('${state.innings1.battingTeam} (${state.innings1.scoreText})'),
-              ),
-              ButtonSegment(
-                value: 2,
-                label: Text('${state.innings2!.battingTeam} (${state.innings2!.scoreText})'),
-              ),
-            ],
-            selected: {selectedInnings},
-            onSelectionChanged: (s) => onSelectInnings(s.first),
+          _InningsSwitcher(
+            state: state,
+            selectedInnings: selectedInnings,
+            onSelect: onSelectInnings,
           ),
           const SizedBox(height: 14),
         ],
@@ -735,7 +741,7 @@ class _ChartsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
       children: [
-        // 1. Worm Graph (overlays both innings with high-contrast Blue vs Pitch Green)
+        // 1. Worm Graph (overlays both innings with Steel Slate vs Pitch Green)
         const _SectionTitle('Worm graph (cumulative runs)'),
         GlassSurface(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
@@ -745,7 +751,7 @@ class _ChartsTab extends StatelessWidget {
                 children: [
                   if (worm1.isNotEmpty) ...[
                     _LegendDot(
-                      color: const Color(0xFF2563EB),
+                      color: c.chartSecondary,
                       label: state.innings1.battingTeam,
                     ),
                     const SizedBox(width: 14),
@@ -759,12 +765,12 @@ class _ChartsTab extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               SizedBox(
-                height: 160,
+                height: 168,
                 child: CustomPaint(
                   painter: _WormPainter(
                     series1: worm1,
                     series2: worm2,
-                    color1: const Color(0xFF2563EB),
+                    color1: c.chartSecondary,
                     color2: c.pitchGreen,
                     wicketColor: c.wicketRed,
                     gridColor: c.hairlineSubtle,
@@ -799,6 +805,7 @@ class _ChartsTab extends StatelessWidget {
                 overs: innings.overs,
                 barColor: c.pitchGreen,
                 wicketColor: c.wicketRed,
+                gridColor: c.hairlineSubtle,
                 labelColor: c.inkSecondary,
               ),
               size: Size.infinite,
@@ -1011,20 +1018,17 @@ class _InningsSwitcher extends StatelessWidget {
         .toList();
 
     if (list.length == 2) {
-      return SegmentedButton<int>(
-        segments: [
+      return CreaseSegmentedControl<int>(
+        items: [
           for (final inn in list)
-            ButtonSegment(
+            (
               value: inn.inningsNumber,
-              label: Text(
-                '${inn.battingTeam} (${inn.scoreText})',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              label: '${inn.battingTeam} (${inn.scoreText})',
+              icon: null,
             ),
         ],
-        selected: {selectedInnings},
-        onSelectionChanged: (s) => onSelect(s.first),
+        selected: selectedInnings,
+        onChanged: onSelect,
       );
     }
 
@@ -1067,85 +1071,120 @@ class _PartnershipContributionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
+    final total = (segment.runsA + segment.runsB).clamp(1, 9999);
+    final ratioA = (segment.runsA / total).clamp(0.0, 1.0);
+    final ratioB = (segment.runsB / total).clamp(0.0, 1.0);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  segment.batterA,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        fontSize: 13.5,
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      segment.batterA,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13.5,
+                          ),
+                    ),
+                    Text(
+                      '${segment.runsA} (${segment.ballsA})',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Column(
+                  children: [
+                    Text(
+                      '${segment.runs}${segment.isActive ? '*' : ''}',
+                      style: creaseNumeralStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: segment.isActive ? c.pitchGreen : c.inkPrimary,
                       ),
+                    ),
+                    Text(
+                      '${segment.balls}b',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(fontSize: 11),
+                    ),
+                  ],
                 ),
-                Text(
-                  '${segment.runsA} (${segment.ballsA})',
-                  style: Theme.of(context).textTheme.labelMedium,
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      segment.batterB,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13.5,
+                          ),
+                    ),
+                    Text(
+                      '${segment.runsB} (${segment.ballsB})',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Column(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: segment.isActive ? c.pitchGreenSoft : c.surfaceKey,
-                    border: Border.all(
-                      color: segment.isActive ? c.pitchGreen : c.hairline,
-                      width: 1.2,
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FractionallySizedBox(
+                    widthFactor: ratioA,
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: c.pitchGreen,
+                        borderRadius: const BorderRadius.horizontal(
+                          left: Radius.circular(2),
+                        ),
+                      ),
                     ),
                   ),
-                  child: Text(
-                    '${segment.runs}${segment.isActive ? '*' : ''}',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: c.pitchGreen,
-                          fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: ratioB,
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: c.chartSecondary,
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(2),
                         ),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  '${segment.balls} balls',
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelMedium
-                      ?.copyWith(fontSize: 10.5),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  segment.batterB,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        fontSize: 13.5,
-                      ),
-                ),
-                Text(
-                  '${segment.runsB} (${segment.ballsB})',
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1236,19 +1275,18 @@ class _MiniMetric extends StatelessWidget {
     final c = context.crease;
     return Expanded(
       child: GlassSurface(
-        borderRadius: BorderRadius.circular(18),
-        borderColor: highlight ? c.pitchGreen : c.hairline,
-        borderWidth: highlight ? 1.2 : 1.0,
+        borderRadius: BorderRadius.circular(CreaseRadius.card),
+        borderColor: c.hairline,
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
         child: Column(
           children: [
             Text(
               value,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: highlight ? c.pitchGreen : c.inkPrimary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                  ),
+              style: creaseNumeralStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: highlight ? c.pitchGreen : c.inkPrimary,
+              ),
             ),
             const SizedBox(height: 3),
             Text(label, style: Theme.of(context).textTheme.labelMedium),
@@ -1466,11 +1504,30 @@ class _WormPainter extends CustomPainter {
       final wktPaint = Paint()..color = wicketColor;
 
       final path = Path()..moveTo(leftPad, topPad + chartH);
+      final fillPath = Path()..moveTo(leftPad, topPad + chartH);
+      double lastX = leftPad;
       for (final p in pts) {
         final x = leftPad + (p.over / maxOvers) * chartW;
         final y = topPad + chartH - ((p.cumulativeRuns / maxRuns) * chartH);
         path.lineTo(x, y);
+        fillPath.lineTo(x, y);
+        lastX = x;
       }
+      fillPath
+        ..lineTo(lastX, topPad + chartH)
+        ..close();
+      canvas.drawPath(
+        fillPath,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              color.withValues(alpha: 0.14),
+              color.withValues(alpha: 0.0),
+            ],
+          ).createShader(Rect.fromLTWH(leftPad, topPad, chartW, chartH)),
+      );
       canvas.drawPath(path, linePaint);
 
       for (final p in pts) {
@@ -1479,10 +1536,10 @@ class _WormPainter extends CustomPainter {
           final y = topPad + chartH - ((p.cumulativeRuns / maxRuns) * chartH);
           canvas.drawCircle(
             Offset(x, y),
-            5.0,
-            Paint()..color = color,
+            5.2,
+            Paint()..color = Colors.white,
           );
-          canvas.drawCircle(Offset(x, y), 3.0, wktPaint);
+          canvas.drawCircle(Offset(x, y), 3.4, wktPaint);
         }
       }
     }
@@ -1502,12 +1559,14 @@ class _ManhattanPainter extends CustomPainter {
     required this.overs,
     required this.barColor,
     required this.wicketColor,
+    required this.gridColor,
     required this.labelColor,
   });
 
   final List<OverSummary> overs;
   final Color barColor;
   final Color wicketColor;
+  final Color gridColor;
   final Color labelColor;
 
   void _drawLabel(Canvas canvas, String text, Offset offset,
@@ -1542,10 +1601,19 @@ class _ManhattanPainter extends CustomPainter {
       (prev, o) => o.runsInOver > prev ? o.runsInOver : prev,
     );
 
-    _drawLabel(canvas, '$maxRuns', Offset(leftPad - 6, topPad - 4),
-        align: TextAlign.right);
-    _drawLabel(canvas, '0', Offset(leftPad - 6, topPad + chartH - 6),
-        align: TextAlign.right);
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+    for (final frac in const [0.0, 0.5, 1.0]) {
+      final y = topPad + chartH * (1 - frac);
+      canvas.drawLine(Offset(leftPad, y), Offset(size.width, y), gridPaint);
+      _drawLabel(
+        canvas,
+        '${(maxRuns * frac).round()}',
+        Offset(leftPad - 6, y - 6),
+        align: TextAlign.right,
+      );
+    }
     _drawLabel(
       canvas,
       'Ov ${overs.first.overNumber}',

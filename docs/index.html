@@ -3,50 +3,51 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Crease — Live Cricket Scorecard</title>
+  <title>Crease · Live Cricket Scorecard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
-      --ground: #eef3f3;
-      --sage-top: #e3f0ea;
-      --glass: rgba(255, 255, 255, 0.82);
-      --ink: #0a0c0c;
-      --ink-muted: #5b6560;
-      --hairline: #d5dfdd;
-      --hairline-subtle: #e3eae8;
-      --pill-muted: #e4eae9;
-      --green: #098558;
-      --green-soft: #ddf1e8;
-      --red: #d74956;
-      --shadow: 0 6px 24px -4px rgba(10, 12, 12, 0.06);
+      --ground: #f4f6f7;
+      --surface: #ffffff;
+      --surface-key: #f6f8f9;
+      --ink: #101315;
+      --ink-muted: #5d666e;
+      --hairline: #e2e6e9;
+      --hairline-subtle: #eceff2;
+      --pill-muted: #ebeef0;
+      --green: #0b7a4b;
+      --green-soft: #e6f4ed;
+      --red: #d63949;
+      --shadow: 0 2px 10px -2px rgba(16, 19, 21, 0.04);
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --ground: #0e1413;
-        --sage-top: #13221c;
-        --glass: rgba(24, 34, 32, 0.85);
-        --ink: #f2f6f5;
-        --ink-muted: #9aa8a2;
-        --hairline: #2b3834;
-        --hairline-subtle: #222e2b;
-        --pill-muted: #202b28;
-        --green-soft: #143528;
-        --shadow: 0 8px 28px -4px rgba(0, 0, 0, 0.35);
+        --ground: #0d0f11;
+        --surface: #15191c;
+        --surface-key: #1e2327;
+        --ink: #f4f6f8;
+        --ink-muted: #8e98a1;
+        --hairline: #262c31;
+        --hairline-subtle: #1e2328;
+        --pill-muted: #20252a;
+        --green: #19a96b;
+        --green-soft: #132d22;
+        --red: #ec5463;
+        --shadow: 0 2px 12px -2px rgba(0, 0, 0, 0.35);
       }
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: linear-gradient(180deg, var(--sage-top) 0%, var(--ground) 280px);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       background-color: var(--ground);
       color: var(--ink);
-      min-height: 100vh;
+      min-height: 100dvh;
       font-variant-numeric: tabular-nums;
       -webkit-font-smoothing: antialiased;
     }
@@ -101,11 +102,9 @@
     }
 
     .glass {
-      background: var(--glass);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      background: var(--surface);
       border: 1px solid var(--hairline);
-      border-radius: 20px;
+      border-radius: 16px;
       box-shadow: var(--shadow);
       padding: 18px;
       margin-bottom: 14px;
@@ -120,13 +119,18 @@
     }
 
     .score-num {
-      font-size: 56px;
-      line-height: 1;
-      letter-spacing: -2px;
-      font-weight: 300;
+      font-family: 'Barlow', sans-serif;
+      font-size: 58px;
+      line-height: 0.98;
+      letter-spacing: -1.6px;
+      font-weight: 700;
     }
 
-    .score-num .wkts { font-weight: 600; }
+    .score-num .wkts {
+      font-weight: 500;
+      font-size: 44px;
+      color: var(--ink-muted);
+    }
 
     .muted { color: var(--ink-muted); font-size: 13.5px; }
     .green { color: var(--green); font-weight: 600; }
@@ -136,7 +140,7 @@
       background: var(--pill-muted);
       color: var(--ink);
       font-size: 11px;
-      font-weight: 600;
+      font-weight: 700;
       padding: 2px 8px;
       border-radius: 6px;
       margin-left: 6px;
@@ -150,9 +154,9 @@
     }
 
     .batter-pill {
-      background: var(--glass);
+      background: var(--surface-key);
       border: 1px solid var(--hairline);
-      border-radius: 20px;
+      border-radius: 12px;
       padding: 11px 14px;
       font-size: 14px;
       display: flex;
@@ -161,7 +165,7 @@
       gap: 6px;
     }
 
-    .batter-pill.striker { border-color: var(--green); border-width: 1.4px; }
+    .batter-pill.striker { border-color: var(--green); border-width: 1.5px; }
 
     .over-strip {
       display: flex;
@@ -172,16 +176,17 @@
     }
 
     .ball-dot {
+      font-family: 'Barlow', sans-serif;
       width: 34px;
       height: 34px;
       border-radius: 50%;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 12.5px;
-      font-weight: 600;
+      font-size: 13.5px;
+      font-weight: 700;
       border: 1px solid var(--hairline);
-      background: var(--glass);
+      background: var(--surface-key);
     }
 
     .ball-dot.boundary {
@@ -197,12 +202,10 @@
     }
 
     .section-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--ink-muted);
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--ink);
       margin: 18px 4px 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     table {
@@ -246,12 +249,12 @@
 
     .inn-btn {
       border: 1px solid var(--hairline);
-      background: var(--glass);
+      background: var(--surface);
       color: var(--ink);
       padding: 8px 14px;
-      border-radius: 999px;
+      border-radius: 10px;
       font-size: 13px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
     }
 

@@ -13,6 +13,7 @@ import '../../domain/stats_engine.dart';
 import '../../domain/team_profile.dart';
 import '../../domain/user_profile.dart';
 import '../../theme/crease_theme.dart';
+import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 
 /// Daylight Glass Profile & Account screen:
@@ -152,7 +153,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       setState(() {
         _syncing = false;
-        _syncNote = 'Offline — saved locally and will back up when online.';
+        _syncNote = 'Offline. Saved locally and will back up when online.';
       });
     }
   }
@@ -448,7 +449,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   await LocalEventStore.instance.syncAllPendingToSupabase();
                   if (!ctx.mounted) return;
                   Navigator.of(ctx).pop(
-                    'Account created & backed up! Check $email if confirmation is enabled.',
+                    'Account created and backed up. Check $email if confirmation is enabled.',
                   );
                 }
               } on AuthException catch (e) {
@@ -512,13 +513,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              'G',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                            GoogleGMark(size: 18),
                             SizedBox(width: 10),
                             Text('Continue with Google'),
                           ],
@@ -801,527 +796,481 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final c = context.crease;
     return Scaffold(
       backgroundColor: c.ground,
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
         title: const Text('Profile'),
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: const Alignment(0, -0.35),
-            colors: [c.sageWashTop, c.ground],
-          ),
-        ),
-        child: SafeArea(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
                   children: [
-                    // 1. Cricketer Identity Hero (tappable to edit)
-                    GestureDetector(
-                      onTap: _editProfile,
-                      child: GlassSurface(
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          children: [
-                            GestureDetector(
-                              onTap: _uploadingAvatar ? null : _openAvatarSheet,
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  Container(
-                                    width: 60,
-                                    height: 60,
+                    CreaseSkeletonBox(height: 98),
+                    SizedBox(height: 16),
+                    CreaseSkeletonBox(height: 164),
+                    SizedBox(height: 16),
+                    CreaseSkeletonBox(height: 56),
+                  ],
+                ),
+              )
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+                children: [
+                  // 1. Cricketer Identity Hero (tappable to edit)
+                  CreasePressable(
+                    onTap: _editProfile,
+                    child: GlassSurface(
+                      padding: const EdgeInsets.all(18),
+                      child: Row(
+                        children: [
+                          GestureDetector(
+                            onTap: _uploadingAvatar ? null : _openAvatarSheet,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Container(
+                                  width: 58,
+                                  height: 58,
+                                  decoration: BoxDecoration(
+                                    color: c.pitchGreenSoft,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: c.pitchGreen.withValues(alpha: 0.25),
+                                    ),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: _uploadingAvatar
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : (_profile.avatarUrl != null &&
+                                              _profile.avatarUrl!.isNotEmpty)
+                                          ? ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(15),
+                                              child: Image.network(
+                                                _profile.avatarUrl!,
+                                                width: double.infinity,
+                                                height: double.infinity,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, _, _) =>
+                                                    _profile
+                                                            .initials.isNotEmpty
+                                                        ? Center(
+                                                            child: Text(
+                                                              _profile.initials,
+                                                              style: creaseNumeralStyle(
+                                                                fontSize: 22,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700,
+                                                                color:
+                                                                    c.pitchGreen,
+                                                              ),
+                                                            ),
+                                                          )
+                                                        : Icon(
+                                                            Icons
+                                                                .person_outline_rounded,
+                                                            color: c.pitchGreen,
+                                                            size: 26,
+                                                          ),
+                                              ),
+                                            )
+                                          : _profile.initials.isNotEmpty
+                                              ? Text(
+                                                  _profile.initials,
+                                                  style: creaseNumeralStyle(
+                                                    fontSize: 22,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: c.pitchGreen,
+                                                  ),
+                                                )
+                                              : Icon(
+                                                  Icons.person_outline_rounded,
+                                                  color: c.pitchGreen,
+                                                  size: 26,
+                                                ),
+                                ),
+                                Positioned(
+                                  right: -3,
+                                  bottom: -3,
+                                  child: Container(
+                                    width: 22,
+                                    height: 22,
                                     decoration: BoxDecoration(
-                                      color: c.pitchGreenSoft,
+                                      color: c.pitchGreen,
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                        color: c.pitchGreen
-                                            .withValues(alpha: 0.25),
+                                        color: c.surfaceGlass,
+                                        width: 2,
                                       ),
                                     ),
-                                    alignment: Alignment.center,
-                                    child: _uploadingAvatar
-                                        ? const SizedBox(
-                                            width: 22,
-                                            height: 22,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          )
-                                        : (_profile.avatarUrl != null &&
-                                                _profile.avatarUrl!.isNotEmpty)
-                                            ? ClipOval(
-                                                child: Image.network(
-                                                  _profile.avatarUrl!,
-                                                  width: double.infinity,
-                                                  height: double.infinity,
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (_, _, _) =>
-                                                      _profile
-                                                              .initials.isNotEmpty
-                                                          ? Center(
-                                                              child: Text(
-                                                                _profile
-                                                                    .initials,
-                                                                style: Theme.of(
-                                                                        context)
-                                                                    .textTheme
-                                                                    .titleLarge
-                                                                    ?.copyWith(
-                                                                      color: c
-                                                                          .pitchGreen,
-                                                                      fontWeight:
-                                                                          FontWeight
-                                                                              .w700,
-                                                                    ),
-                                                              ),
-                                                            )
-                                                          : Icon(
-                                                              Icons
-                                                                  .person_outline_rounded,
-                                                              color:
-                                                                  c.pitchGreen,
-                                                              size: 28,
-                                                            ),
-                                                ),
-                                              )
-                                            : _profile.initials.isNotEmpty
-                                                ? Text(
-                                                    _profile.initials,
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .titleLarge
-                                                        ?.copyWith(
-                                                          color: c.pitchGreen,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                        ),
-                                                  )
-                                                : Icon(
-                                                    Icons.person_outline_rounded,
-                                                    color: c.pitchGreen,
-                                                    size: 28,
-                                                  ),
+                                    child: const Icon(
+                                      Icons.camera_alt_rounded,
+                                      size: 11,
+                                      color: Colors.white,
+                                    ),
                                   ),
-                                  Positioned(
-                                    right: -2,
-                                    bottom: -2,
-                                    child: Container(
-                                      width: 22,
-                                      height: 22,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _profile.effectiveName,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                const SizedBox(height: 5),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
                                       decoration: BoxDecoration(
-                                        color: c.pitchGreen,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: c.surfaceGlass,
-                                          width: 1.5,
+                                        color: c.pillMutedBg,
+                                        borderRadius: BorderRadius.circular(
+                                          CreaseRadius.badge,
                                         ),
                                       ),
-                                      child: const Icon(
-                                        Icons.camera_alt_rounded,
-                                        size: 12,
-                                        color: Colors.white,
+                                      child: Text(
+                                        _profile.role,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelMedium
+                                            ?.copyWith(color: c.inkPrimary),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _profile.effectiveName,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(fontWeight: FontWeight.w600),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 4,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
+                                    if (_myTeam != null)
                                       Container(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 8,
                                           vertical: 3,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: c.pillMutedBg,
-                                          borderRadius:
-                                              BorderRadius.circular(8),
+                                          color: c.pitchGreenSoft,
+                                          borderRadius: BorderRadius.circular(
+                                            CreaseRadius.badge,
+                                          ),
                                         ),
                                         child: Text(
-                                          _profile.role,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .labelMedium
-                                              ?.copyWith(color: c.inkPrimary),
-                                        ),
-                                      ),
-                                      if (_myTeam != null)
-                                        Text(
-                                          '★ ${_myTeam!.name}',
+                                          _myTeam!.name,
                                           style: Theme.of(context)
                                               .textTheme
                                               .labelMedium
                                               ?.copyWith(
                                                 color: c.pitchGreen,
-                                                fontWeight: FontWeight.w600,
+                                                fontWeight: FontWeight.w700,
                                               ),
                                         ),
-                                    ],
-                                  ),
-                                  if (_profile.displayName.trim().isEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Tap to set your name & role',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(color: c.inkSecondary),
-                                    ),
+                                      ),
                                   ],
-                                ],
-                              ),
-                            ),
-                            Icon(
-                              Icons.chevron_right_rounded,
-                              color: c.inkSecondary,
-                              size: 20,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 22),
-
-                    // 2. My Career Stats
-                    Row(
-                      children: [
-                        Text(
-                          'MY CAREER STATS',
-                          style:
-                              Theme.of(context).textTheme.labelMedium?.copyWith(
-                                    letterSpacing: 0.8,
+                                ),
+                                if (_profile.displayName.trim().isEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Tap to set your name and playing role',
+                                    style: Theme.of(context).textTheme.bodySmall,
                                   ),
-                        ),
-                        const Spacer(),
-                        if (_myStats != null)
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              foregroundColor: c.pitchGreen,
-                              visualDensity: VisualDensity.compact,
+                                ],
+                              ],
                             ),
-                            onPressed: () => _shareMyCard(_myStats!),
-                            icon: const Icon(Icons.share_rounded, size: 16),
-                            label: const Text('Share card'),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (_myStats != null)
-                      GridView.count(
-                        crossAxisCount: 2,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        mainAxisSpacing: 10,
-                        crossAxisSpacing: 10,
-                        childAspectRatio: 1.85,
-                        children: [
-                          _StatTile(
-                            label: 'Runs',
-                            value: '${_myStats!.runs}',
-                            sub:
-                                'SR ${_myStats!.strikeRate.toStringAsFixed(1)} · HS ${_myStats!.highestScoreText}',
-                          ),
-                          _StatTile(
-                            label: 'Wickets',
-                            value: '${_myStats!.wickets}',
-                            sub: 'Econ ${_myStats!.economy.toStringAsFixed(1)}',
-                          ),
-                          _StatTile(
-                            label: 'Matches',
-                            value: '${_myStats!.matchesPlayed}',
-                            sub:
-                                '${_myStats!.fours} fours · ${_myStats!.sixes} sixes',
-                          ),
-                          _StatTile(
-                            label: 'MVP Points',
-                            value: '${_myStats!.mvpPoints}',
-                            sub: '${_myStats!.fieldingDismissals} fielding',
-                            highlight: true,
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: c.inkSecondary,
+                            size: 20,
                           ),
                         ],
-                      )
-                    else
-                      GlassSurface(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Link your player name',
-                                    style:
-                                        Theme.of(context).textTheme.titleMedium,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _knownPlayers.isEmpty
-                                        ? 'Score your first match to see your personal career stats here.'
-                                        : 'Pick your name from your squad so your runs, wickets, and MVP appear here.',
-                                    style:
-                                        Theme.of(context).textTheme.bodyMedium,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (_knownPlayers.isNotEmpty) ...[
-                              const SizedBox(width: 12),
-                              OutlinedButton(
-                                onPressed: _editProfile,
-                                child: const Text('Link'),
-                              ),
-                            ],
-                          ],
-                        ),
                       ),
-
-                    const SizedBox(height: 22),
-
-                    // 3. Appearance (single-layer pill directly on ground, symmetrical icons)
-                    Text(
-                      'APPEARANCE',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            letterSpacing: 0.8,
-                          ),
                     ),
-                    const SizedBox(height: 10),
-                    SegmentedButton<ThemeMode>(
-                      showSelectedIcon: false,
-                      style: ButtonStyle(
-                        backgroundColor:
-                            WidgetStateProperty.resolveWith((states) {
-                          if (states.contains(WidgetState.selected)) {
-                            return c.pitchGreen;
-                          }
-                          return c.surfaceGlass;
-                        }),
-                        foregroundColor:
-                            WidgetStateProperty.resolveWith((states) {
-                          if (states.contains(WidgetState.selected)) {
-                            return Colors.white;
-                          }
-                          return c.inkPrimary;
-                        }),
-                        side: WidgetStateProperty.all(
-                          BorderSide(color: c.hairline, width: 1),
-                        ),
-                        padding: WidgetStateProperty.all(
-                          const EdgeInsets.symmetric(vertical: 12),
-                        ),
+                  ),
+
+                  const SizedBox(height: 22),
+
+                  // 2. Career stats
+                  Row(
+                    children: [
+                      Text(
+                        'Career stats',
+                        style: Theme.of(context).textTheme.titleSmall,
                       ),
-                      segments: const [
-                        ButtonSegment(
-                          value: ThemeMode.system,
-                          label: Text('System'),
-                          icon: Icon(Icons.brightness_auto_rounded, size: 17),
+                      const Spacer(),
+                      if (_myStats != null)
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          onPressed: () => _shareMyCard(_myStats!),
+                          icon: const Icon(Icons.share_rounded, size: 16),
+                          label: const Text('Share card'),
                         ),
-                        ButtonSegment(
-                          value: ThemeMode.light,
-                          label: Text('Light'),
-                          icon: Icon(Icons.light_mode_rounded, size: 17),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (_myStats != null)
+                    GridView.count(
+                      crossAxisCount: 2,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: 1.85,
+                      children: [
+                        _StatTile(
+                          label: 'Runs',
+                          value: '${_myStats!.runs}',
+                          sub:
+                              'SR ${_myStats!.strikeRate.toStringAsFixed(1)} · HS ${_myStats!.highestScoreText}',
                         ),
-                        ButtonSegment(
-                          value: ThemeMode.dark,
-                          label: Text('Dark'),
-                          icon: Icon(Icons.dark_mode_rounded, size: 17),
+                        _StatTile(
+                          label: 'Wickets',
+                          value: '${_myStats!.wickets}',
+                          sub: 'Econ ${_myStats!.economy.toStringAsFixed(1)}',
+                        ),
+                        _StatTile(
+                          label: 'Matches',
+                          value: '${_myStats!.matchesPlayed}',
+                          sub:
+                              '${_myStats!.fours} fours · ${_myStats!.sixes} sixes',
+                        ),
+                        _StatTile(
+                          label: 'MVP points',
+                          value: '${_myStats!.mvpPoints}',
+                          sub: '${_myStats!.fieldingDismissals} fielding',
+                          highlight: true,
                         ),
                       ],
-                      selected: {_profile.themeMode},
-                      onSelectionChanged: (set) => _updateThemeMode(set.first),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // 4. Account & Cloud Backup
-                    Text(
-                      'ACCOUNT & BACKUP',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            letterSpacing: 0.8,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
+                    )
+                  else
                     GlassSurface(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
                         children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Link your player name',
+                                  style: Theme.of(context).textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _knownPlayers.isEmpty
+                                      ? 'Score your first match to see personal career stats here.'
+                                      : 'Pick your name from your squad to connect runs, wickets, and MVP points.',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_knownPlayers.isNotEmpty) ...[
+                            const SizedBox(width: 12),
+                            OutlinedButton(
+                              onPressed: _editProfile,
+                              child: const Text('Link'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(height: 22),
+
+                  // 3. Appearance
+                  Text(
+                    'Appearance',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 10),
+                  CreaseSegmentedControl<ThemeMode>(
+                    selected: _profile.themeMode,
+                    onChanged: _updateThemeMode,
+                    items: const [
+                      (
+                        value: ThemeMode.system,
+                        label: 'System',
+                        icon: Icons.brightness_auto_rounded,
+                      ),
+                      (
+                        value: ThemeMode.light,
+                        label: 'Light',
+                        icon: Icons.light_mode_outlined,
+                      ),
+                      (
+                        value: ThemeMode.dark,
+                        label: 'Dark',
+                        icon: Icons.dark_mode_outlined,
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // 4. Account & backup
+                  Text(
+                    'Account & backup',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  GlassSurface(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              _isLinkedEmail
+                                  ? Icons.verified_user_outlined
+                                  : Icons.cloud_done_outlined,
+                              size: 20,
+                              color: _isLinkedEmail
+                                  ? c.pitchGreen
+                                  : c.inkSecondary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _isLinkedEmail
+                                    ? _profile.effectiveName
+                                    : 'Local guest session',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ),
+                            if (!_isLinkedEmail)
+                              IconButton(
+                                tooltip: 'Sync now',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: _syncing ? null : _syncNow,
+                                icon: _syncing
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.sync_rounded,
+                                        size: 20,
+                                        color: c.inkSecondary,
+                                      ),
+                              ),
+                          ],
+                        ),
+                        if (_isLinkedEmail) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            _currentUser!.email!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(fontSize: 13),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$_matchCount match${_matchCount == 1 ? '' : 'es'} and teams backed up.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Sign in to restore an existing account, or create one to back up your teams and matches.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                        if (_syncNote != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _syncNote!,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(color: c.pitchGreen),
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        if (_isLinkedEmail)
                           Row(
                             children: [
-                              Icon(
-                                _isLinkedEmail
-                                    ? Icons.verified_user_outlined
-                                    : Icons.cloud_done_outlined,
-                                size: 20,
-                                color: _isLinkedEmail
-                                    ? c.pitchGreen
-                                    : c.inkSecondary,
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _syncing ? null : _syncNow,
+                                  icon: const Icon(Icons.sync_rounded, size: 18),
+                                  label: const Text('Sync now'),
+                                ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
-                                child: Text(
-                                  _isLinkedEmail
-                                      ? _profile.effectiveName
-                                      : 'Guest cloud backup',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium,
+                                child: OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: c.wicketRed,
+                                    side: BorderSide(
+                                      color: c.wicketRed.withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                                  onPressed: _signOut,
+                                  child: const Text('Sign out'),
                                 ),
                               ),
-                              if (!_isLinkedEmail)
-                                IconButton(
-                                  tooltip: 'Sync now',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: _syncing ? null : _syncNow,
-                                  icon: _syncing
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : Icon(
-                                          Icons.sync_rounded,
-                                          size: 20,
-                                          color: c.inkSecondary,
-                                        ),
+                            ],
+                          )
+                        else
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () =>
+                                      _openAuthSheet(initialSignIn: true),
+                                  child: const Text(
+                                    'Sign in',
+                                    maxLines: 1,
+                                    softWrap: false,
+                                  ),
                                 ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: () =>
+                                      _openAuthSheet(initialSignIn: false),
+                                  child: const Text(
+                                    'Create account',
+                                    maxLines: 1,
+                                    softWrap: false,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                          if (_isLinkedEmail) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              _currentUser!.email!,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    color: c.inkSecondary,
-                                    fontSize: 13,
-                                  ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '$_matchCount match${_matchCount == 1 ? '' : 'es'} & teams backed up.',
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                          ] else ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'Sign in to restore an existing account, or create one to keep your teams and stats backed up.',
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                          ],
-                          if (_syncNote != null) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              _syncNote!,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelMedium
-                                  ?.copyWith(color: c.pitchGreen),
-                            ),
-                          ],
-                          const SizedBox(height: 14),
-                          if (_isLinkedEmail)
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: _syncing ? null : _syncNow,
-                                    icon: const Icon(Icons.sync_rounded, size: 18),
-                                    label: const Text('Sync now'),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: OutlinedButton(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: c.wicketRed,
-                                      side: BorderSide(
-                                        color: c.wicketRed.withValues(alpha: 0.4),
-                                      ),
-                                    ),
-                                    onPressed: _signOut,
-                                    child: const Text('Sign out'),
-                                  ),
-                                ),
-                              ],
-                            )
-                          else
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                      ),
-                                    ),
-                                    onPressed: () =>
-                                        _openAuthSheet(initialSignIn: true),
-                                    child: const Text(
-                                      'Sign in',
-                                      maxLines: 1,
-                                      softWrap: false,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: FilledButton(
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: c.pitchGreen,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                      ),
-                                    ),
-                                    onPressed: () =>
-                                        _openAuthSheet(initialSignIn: false),
-                                    child: const Text(
-                                      'Sign up',
-                                      maxLines: 1,
-                                      softWrap: false,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
+                      ],
                     ),
-                  ],
-                ),
-        ),
+                  ),
+                ],
+              ),
       ),
     );
   }

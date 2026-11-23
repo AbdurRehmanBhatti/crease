@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/models.dart';
 import '../../../theme/crease_theme.dart';
+import '../../../widgets/crease_ui.dart';
 import '../../../widgets/glass_surface.dart';
 
 Future<MatchConfig?> showReviseMatchSheet(
@@ -25,34 +26,21 @@ Future<MatchConfig?> showReviseMatchSheet(
       return Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: GlassSurface(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(CreaseRadius.sheet),
+          ),
           fillColor: c.surfaceSheet,
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: c.hairline,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+              const CreaseSheetHeader(
+                title: 'Revise overs or target',
+                subtitle:
+                    'Adjust overs limit or set a revised 2nd-innings target if rain shortens the match.',
               ),
               const SizedBox(height: 16),
-              Text(
-                'Revise overs / target (Rain / DLS)',
-                style: Theme.of(ctx).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Adjust overs limit or set a revised 2nd-innings target if rain shortens the match.',
-                style: Theme.of(ctx).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 14),
               TextField(
                 controller: oversCtrl,
                 keyboardType: TextInputType.number,
@@ -72,11 +60,6 @@ Future<MatchConfig?> showReviseMatchSheet(
               ),
               const SizedBox(height: 18),
               FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: c.pitchGreen,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(48),
-                ),
                 onPressed: () {
                   final newOvers = int.tryParse(oversCtrl.text.trim()) ??
                       state.config.oversLimit;
@@ -118,28 +101,16 @@ Future<void> showMatchOptionsSheet(
     builder: (ctx) {
       final c = ctx.crease;
       return GlassSurface(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(CreaseRadius.sheet),
+        ),
         fillColor: c.surfaceSheet,
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 26),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: c.hairline,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Match options',
-              style: Theme.of(ctx).textTheme.titleLarge,
-            ),
+            const CreaseSheetHeader(title: 'Match options'),
             const SizedBox(height: 14),
             GridView.count(
               crossAxisCount: 2,
@@ -179,7 +150,7 @@ Future<void> showMatchOptionsSheet(
                 _OptionTile(
                   icon: Icons.stop_circle_outlined,
                   title: 'End innings',
-                  subtitle: 'Close / declare',
+                  subtitle: 'Close or declare',
                   onTap: () {
                     Navigator.pop(ctx);
                     onEndInnings();
@@ -188,7 +159,7 @@ Future<void> showMatchOptionsSheet(
                 _OptionTile(
                   icon: Icons.thunderstorm_outlined,
                   title: 'Revise rules',
-                  subtitle: 'Rain / target',
+                  subtitle: 'Rain or target',
                   onTap: () {
                     Navigator.pop(ctx);
                     onReviseRules();
@@ -210,7 +181,6 @@ Future<void> showMatchOptionsSheet(
               style: OutlinedButton.styleFrom(
                 foregroundColor: c.wicketRed,
                 side: BorderSide(color: c.wicketRed.withValues(alpha: 0.35)),
-                minimumSize: const Size.fromHeight(44),
               ),
               onPressed: () {
                 Navigator.pop(ctx);
@@ -322,50 +292,47 @@ class _OptionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
-    return Material(
-      color: c.surfaceKey,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: c.hairlineSubtle),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, size: 20, color: c.pitchGreen),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: c.inkPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: c.inkSecondary,
-                            fontSize: 11,
-                          ),
-                    ),
-                  ],
-                ),
+    return CreasePressable(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(CreaseRadius.control),
+      scale: 0.96,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: c.surfaceKey,
+          borderRadius: BorderRadius.circular(CreaseRadius.control),
+          border: Border.all(color: c.hairline),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 19, color: c.pitchGreen),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: c.inkPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: 11,
+                        ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

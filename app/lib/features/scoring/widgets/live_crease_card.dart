@@ -4,9 +4,8 @@ import '../../../domain/models.dart';
 import '../../../theme/crease_theme.dart';
 import '../../../widgets/glass_surface.dart';
 
-/// Single-layer Daylight Glass live crease table showing full batter names
-/// (R, B, 4s, 6s, SR) and active bowler figures (O, M, R, W, Eco) with zero
-/// truncation and tabular alignment.
+/// Broadcast-grade live crease table showing active batters (R, B, 4s, 6s, SR)
+/// and current bowler figures (O, M, R, W, Eco) with crisp tabular alignment.
 class LiveCreaseCard extends StatelessWidget {
   const LiveCreaseCard({
     super.key,
@@ -41,7 +40,7 @@ class LiveCreaseCard extends StatelessWidget {
         );
 
     return GlassSurface(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(CreaseRadius.card),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -52,7 +51,7 @@ class LiveCreaseCard extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(child: Text('Batter', style: headerStyle)),
-                _ColHeader('R', width: 30, style: headerStyle),
+                _ColHeader('R', width: 32, style: headerStyle),
                 _ColHeader('B', width: 30, style: headerStyle),
                 _ColHeader('4s', width: 26, style: headerStyle),
                 _ColHeader('6s', width: 26, style: headerStyle),
@@ -60,7 +59,7 @@ class LiveCreaseCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 5),
           if (strikerEmpty)
             _ActionCreaseRow(
               icon: Icons.person_add_alt_1_rounded,
@@ -86,14 +85,14 @@ class LiveCreaseCard extends StatelessWidget {
               isStriker: false,
               onTap: onSwapStrike,
             ),
-          Divider(height: 14, color: c.hairlineSubtle),
+          Divider(height: 16, color: c.hairlineSubtle),
           // Bowler header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             child: Row(
               children: [
                 Expanded(child: Text('Bowler', style: headerStyle)),
-                _ColHeader('O', width: 30, style: headerStyle),
+                _ColHeader('O', width: 32, style: headerStyle),
                 _ColHeader('M', width: 26, style: headerStyle),
                 _ColHeader('R', width: 30, style: headerStyle),
                 _ColHeader('W', width: 26, style: headerStyle),
@@ -101,7 +100,7 @@ class LiveCreaseCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 5),
           if (needsNewBowler)
             _ActionCreaseRow(
               icon: Icons.sports_baseball_outlined,
@@ -113,7 +112,7 @@ class LiveCreaseCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               onTap: onSelectNextBowler,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                 child: Row(
                   children: [
                     Expanded(
@@ -123,11 +122,11 @@ class LiveCreaseCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: c.inkPrimary,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                             ),
                       ),
                     ),
-                    _NumCell(bowler.oversText, width: 30),
+                    _NumCell(bowler.oversText, width: 32),
                     _NumCell('${bowler.maidens}', width: 26, muted: true),
                     _NumCell('${bowler.runsConceded}', width: 30),
                     _NumCell('${bowler.wickets}', width: 26, bold: true),
@@ -161,15 +160,24 @@ class _BatterTableRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.crease;
     return Material(
-      color: isStriker ? c.pitchGreenSoft : Colors.transparent,
+      color: isStriker ? c.surfaceKey : Colors.transparent,
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          padding: const EdgeInsets.fromLTRB(4, 7, 6, 7),
           child: Row(
             children: [
+              Container(
+                width: 3,
+                height: 16,
+                margin: const EdgeInsets.only(right: 7),
+                decoration: BoxDecoration(
+                  color: isStriker ? c.pitchGreen : Colors.transparent,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
               Expanded(
                 child: Row(
                   children: [
@@ -181,22 +189,22 @@ class _BatterTableRow extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: c.inkPrimary,
                               fontWeight:
-                                  isStriker ? FontWeight.w600 : FontWeight.w500,
+                                  isStriker ? FontWeight.w700 : FontWeight.w500,
                             ),
                       ),
                     ),
-                    if (isStriker)
-                      Text(
-                        ' *',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: c.pitchGreen,
-                              fontWeight: FontWeight.w700,
-                            ),
+                    if (isStriker) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.sports_cricket_rounded,
+                        size: 13,
+                        color: c.pitchGreen,
                       ),
+                    ],
                   ],
                 ),
               ),
-              _NumCell('${batter.runs}', width: 30, bold: true),
+              _NumCell('${batter.runs}', width: 32, bold: true),
               _NumCell('${batter.balls}', width: 30, muted: true),
               _NumCell('${batter.fours}', width: 26, muted: true),
               _NumCell('${batter.sixes}', width: 26, muted: true),
@@ -228,23 +236,26 @@ class _ActionCreaseRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.crease;
     return Material(
-      color: c.pitchGreen,
-      borderRadius: BorderRadius.circular(10),
+      color: c.pitchGreenSoft,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: c.pitchGreen.withValues(alpha: 0.3), width: 1),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 16, color: Colors.white),
+              Icon(icon, size: 16, color: c.pitchGreen),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
+                      color: c.pitchGreen,
+                      fontWeight: FontWeight.w700,
                       fontSize: 13,
                     ),
               ),
@@ -292,12 +303,11 @@ class _NumCell extends StatelessWidget {
       child: Text(
         text,
         textAlign: TextAlign.right,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontSize: 13,
-              fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
-              color: muted ? c.inkSecondary : c.inkPrimary,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+        style: creaseNumeralStyle(
+          fontSize: 14,
+          fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+          color: muted ? c.inkSecondary : c.inkPrimary,
+        ),
       ),
     );
   }

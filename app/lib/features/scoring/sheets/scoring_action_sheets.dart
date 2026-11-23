@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/models.dart';
 import '../../../theme/crease_theme.dart';
+import '../../../widgets/crease_ui.dart';
 import '../../../widgets/glass_surface.dart';
 import '../widgets/scoring_keypad_sheet.dart';
 
@@ -199,8 +200,8 @@ Future<int?> showExtrasRunsSheet(BuildContext context, ExtraType type) {
             const SizedBox(height: 14),
             Text(
               isPenaltyExtra
-                  ? '${type.displayLabel} (+1 penalty) — additional runs?'
-                  : '${type.displayLabel} — how many runs?',
+                  ? '${type.displayLabel} (+1 penalty): additional runs?'
+                  : '${type.displayLabel}: how many runs?',
               style: Theme.of(ctx).textTheme.titleMedium,
             ),
             const SizedBox(height: 16),
@@ -370,20 +371,17 @@ Future<WicketSheetResult?> showRecordWicketSheet(
                     ),
                     if (canPickBatter) ...[
                       const SizedBox(height: 14),
-                      SegmentedButton<String>(
-                        segments: [
-                          ButtonSegment(
-                            value: inn.striker,
-                            label: Text(inn.striker),
-                          ),
-                          ButtonSegment(
+                      CreaseSegmentedControl<String>(
+                        items: [
+                          (value: inn.striker, label: inn.striker, icon: null),
+                          (
                             value: inn.nonStriker,
-                            label: Text(inn.nonStriker),
+                            label: inn.nonStriker,
+                            icon: null,
                           ),
                         ],
-                        selected: {dismissed},
-                        onSelectionChanged: (s) =>
-                            setModalState(() => dismissed = s.first),
+                        selected: dismissed,
+                        onChanged: (v) => setModalState(() => dismissed = v),
                       ),
                     ],
                     if (canHaveExtra) ...[

@@ -614,7 +614,7 @@
     }
 
     async function loadRecentMatches() {
-      const { data: matches } = await sb.from('matches').select('*').order('created_at', { ascending: false }).limit(20);
+      const { data: matches } = await sb.from('matches').select('*').eq('is_demo', false).order('created_at', { ascending: false }).limit(20);
       if (!matches || matches.length === 0) {
         document.getElementById('app').innerHTML = `<div class="glass muted">No synced matches yet. Score a match in the Crease Android app to see it live here.</div>`;
         return;

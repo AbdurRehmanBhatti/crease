@@ -7,7 +7,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'config/app_links.dart';
 import 'data/local_event_store.dart';
-import 'data/sample_match.dart';
 import 'domain/user_profile.dart';
 import 'features/home/home_screen.dart';
 import 'features/scorecard/scorecard_screen.dart';
@@ -45,30 +44,8 @@ Future<void> main() async {
     unawaited(_ensureAnonymousSessionAndSync());
   }
 
-  // Seed synthetic demo match on first launch so the live scoring experience
-  // is immediately testable.
   final store = LocalEventStore.instance;
-  final existing = await store.getMatch(SampleMatchSeed.demoMatchId);
-  if (existing == null) {
-    await store.saveMatch(SampleMatchSeed.config());
-    await store.appendBallEventsBatch(SampleMatchSeed.events());
-  } else {
-    if (existing.teamAPlayers.isEmpty) {
-      final seed = SampleMatchSeed.config();
-      await store.saveMatch(
-        existing.copyWith(
-          teamAPlayers: seed.teamAPlayers,
-          teamBPlayers: seed.teamBPlayers,
-        ),
-      );
-    }
-    final existingEvents =
-        await store.getBallEvents(SampleMatchSeed.demoMatchId);
-    final hasInn1 = existingEvents.any((e) => e.inningsNumber == 1);
-    if (!hasInn1) {
-      await store.appendBallEventsBatch(SampleMatchSeed.innings1Events());
-    }
-  }
+  await store.deleteDemoMatches();
 
   // Load persisted theme preference before first frame
   final savedProfile = await store.getUserProfile();

@@ -228,18 +228,25 @@ class LocalEventStore {
     }
   }
 
+  /// Removes any legacy pre-seeded demo matches locally.
+  Future<void> deleteDemoMatches() async {
+    final db = await database;
+    await db.delete(
+      'ball_events',
+      where: 'match_id IN (SELECT id FROM matches WHERE is_demo = 1)',
+    );
+    await db.delete('matches', where: 'is_demo = 1');
+  }
+
   /// Clears user-specific local teams, tournaments, matches, and profile name
-  /// on Sign Out (keeping only the demo match and the user's theme preference).
+  /// on Sign Out (keeping only the user's theme preference).
   Future<void> clearLocalUserDataOnSignOut() async {
     final db = await database;
     final current = await getUserProfile();
     await db.delete('teams');
     await db.delete('tournaments');
-    await db.delete(
-      'ball_events',
-      where: 'match_id NOT IN (SELECT id FROM matches WHERE is_demo = 1)',
-    );
-    await db.delete('matches', where: 'is_demo = 0');
+    await db.delete('ball_events');
+    await db.delete('matches');
     await saveUserProfile(
       UserProfile(themeMode: current.themeMode),
       syncCloud: false,

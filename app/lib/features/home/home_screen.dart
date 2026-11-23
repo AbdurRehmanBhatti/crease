@@ -156,6 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refreshAndSync() async {
     await LocalEventStore.instance.syncAllPendingToSupabase();
+    await LocalEventStore.instance.pullLatestForMyTeams();
     await _loadMatches();
   }
 

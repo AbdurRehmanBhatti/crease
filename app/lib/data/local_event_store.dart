@@ -23,7 +23,7 @@ class LocalEventStore {
     final fullPath = p.join(dbPath, 'crease_events.db');
     _db = await openDatabase(
       fullPath,
-      version: 7,
+      version: 8,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE app_settings (
@@ -36,6 +36,7 @@ class LocalEventStore {
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             is_my_team INTEGER NOT NULL DEFAULT 0,
+            is_owner INTEGER NOT NULL DEFAULT 1,
             players TEXT NOT NULL DEFAULT '[]',
             player_meta TEXT NOT NULL DEFAULT '{}',
             synced INTEGER NOT NULL DEFAULT 0,
@@ -175,6 +176,11 @@ class LocalEventStore {
         if (oldVersion < 7) {
           await db.execute(
             "ALTER TABLE teams ADD COLUMN player_meta TEXT NOT NULL DEFAULT '{}'",
+          );
+        }
+        if (oldVersion < 8) {
+          await db.execute(
+            'ALTER TABLE teams ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 1',
           );
         }
       },
@@ -798,6 +804,30 @@ class LocalEventStore {
     return code.toString();
   }
 
+  /// Rotates a team's 6-digit invite code, immediately invalidating any old link/code.
+  Future<String> resetTeamInviteCode(String teamId) async {
+    final client = Supabase.instance.client;
+    if (client.auth.currentUser == null) {
+      await client.auth.signInAnonymously();
+    }
+    final code = await client.rpc(
+      'reset_team_invite_code',
+      params: {'p_team_id': teamId},
+    );
+    return code.toString();
+  }
+
+  /// Pulls any newly scored cloud matches for all pinned `My Team` squads so
+  /// teammates automatically receive fresh matches & career stats.
+  Future<int> pullLatestForMyTeams() async {
+    final teams = await listTeams();
+    var pulled = 0;
+    for (final t in teams.where((t) => t.isMyTeam)) {
+      pulled += await pullMatchesForTeamName(t.name);
+    }
+    return pulled;
+  }
+
   Future<TeamInvitePreview> previewTeamByCode(String joinCode) async {
     final client = Supabase.instance.client;
     if (client.auth.currentUser == null) {
@@ -853,6 +883,7 @@ class LocalEventStore {
         id: teamId,
         name: teamName,
         isMyTeam: true,
+        isOwner: false,
         players: players,
         synced: true,
         createdAt: DateTime.now(),
@@ -874,20 +905,34 @@ class LocalEventStore {
     return teamName;
   }
 
-  /// Fetches all cloud matches where [teamName] played and stores them locally.
+  /// Fetches cloud matches where [teamName] played and stores them locally.
+  /// Never overwrites a match that already exists locally and is owned by this user
+  /// (so local rule revisions / declarations are never clobbered by a stale pull).
   Future<int> pullMatchesForTeamName(String teamName) async {
     try {
       final client = Supabase.instance.client;
+      final myUid = client.auth.currentUser?.id;
       final rows = await client
           .from('matches')
-          .select('id')
+          .select('id, owner_id')
           .or('team_a.ilike.$teamName,team_b.ilike.$teamName')
           .order('created_at', ascending: false)
           .limit(50);
       var pulled = 0;
       for (final r in (rows as List)) {
-        final id = (r as Map)['id'] as String?;
-        if (id != null && await pullRemoteMatchToLocal(id)) {
+        final row = r as Map;
+        final id = row['id'] as String?;
+        final ownerId = row['owner_id'] as String?;
+        if (id == null) continue;
+        final localExists = (await getMatch(id)) != null;
+        if (localExists && myUid != null && ownerId == myUid) {
+          // Local copy is authoritative for the match owner; push local rules instead.
+          try {
+            await ensureMatchSyncedToSupabase(id);
+          } catch (_) {}
+          continue;
+        }
+        if (await pullRemoteMatchToLocal(id)) {
           pulled++;
         }
       }
@@ -986,9 +1031,12 @@ class LocalEventStore {
               .maybeSingle();
           if (tRow != null) {
             final team = TeamProfile.fromMap(Map<String, Object?>.from(tRow));
+            final ownsTeam = (tRow['owner_id'] as String?) == uid;
             await db.insert(
               'teams',
-              team.copyWith(isMyTeam: true, synced: true).toMap(),
+              team
+                  .copyWith(isMyTeam: true, isOwner: ownsTeam, synced: true)
+                  .toMap(),
               conflictAlgorithm: ConflictAlgorithm.replace,
             );
             teamNamesToPull.add(team.name);

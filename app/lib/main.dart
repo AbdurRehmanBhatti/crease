@@ -84,7 +84,8 @@ Future<void> _ensureAnonymousSessionAndSync() async {
       await auth.signInAnonymously();
     }
     final synced = await LocalEventStore.instance.syncAllPendingToSupabase();
-    debugPrint('[Crease Sync] Auth ready (${auth.currentUser?.id}), synced $synced events.');
+    final pulled = await LocalEventStore.instance.pullLatestForMyTeams();
+    debugPrint('[Crease Sync] Auth ready (${auth.currentUser?.id}), synced $synced events, pulled $pulled team matches.');
   } catch (e) {
     debugPrint('[Crease Sync] Startup auth/sync skipped: $e');
   }

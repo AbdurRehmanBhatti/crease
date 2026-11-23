@@ -326,6 +326,7 @@
     const params = new URLSearchParams(window.location.search);
     const matchId = params.get('match');
     const authCode = params.get('code');
+    const teamCode = params.get('team-code');
     let selectedInnings = null;
     let currentMatch = null;
     let currentEvents = [];
@@ -632,7 +633,43 @@
       `;
     }
 
-    if (authCode && !matchId) {
+    async function loadTeamInvite(code) {
+      const clean = String(code || '').replace(/[^0-9]/g, '');
+      const formatted = clean.length === 6 ? `${clean.slice(0, 3)} ${clean.slice(3)}` : clean;
+      const fallback = encodeURIComponent(window.location.href);
+      const intentUrl = `intent://join-team/${encodeURIComponent(clean)}#Intent;scheme=crease;package=app.crease.crease;S.browser_fallback_url=${fallback};end`;
+      try {
+        const { data, error } = await sb.rpc('preview_team_by_code', { p_join_code: clean });
+        if (error || !data) throw error || new Error('Not found');
+        const players = Array.isArray(data.players) ? data.players : [];
+        document.getElementById('app').innerHTML = `
+          <div class="glass">
+            <div class="muted" style="font-size:12px;font-weight:600;letter-spacing:0.8px;color:var(--green);">TEAM INVITATION</div>
+            <h1 style="font-size:24px;font-weight:700;margin:6px 0 4px;">Join ${esc(data.team_name)}</h1>
+            <p class="muted">${players.length} squad players · Claim your name in Crease to unlock your career stats.</p>
+            <div style="margin:18px 0;padding:16px;border-radius:16px;background:var(--green-soft);text-align:center;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;color:var(--green);">TEAM CODE</div>
+              <div style="font-size:34px;font-weight:700;letter-spacing:6px;color:var(--green);margin-top:4px;">${esc(formatted)}</div>
+            </div>
+            ${/Android/i.test(navigator.userAgent)
+              ? `<a href="${intentUrl}" style="display:block;text-align:center;background:var(--green);color:#fff;padding:13px 16px;border-radius:999px;font-weight:600;text-decoration:none;">Open in Crease App</a>`
+              : `<p class="muted" style="text-align:center;">Open Crease on Android → Teams → Join and enter <strong>${esc(formatted)}</strong>.</p>`
+            }
+          </div>
+        `;
+      } catch (_) {
+        document.getElementById('app').innerHTML = `
+          <div class="glass">
+            <div class="section-title">Invalid or expired team code</div>
+            <p class="muted" style="margin-top:8px;">Ask your team captain for the latest 6-digit Crease team code.</p>
+          </div>
+        `;
+      }
+    }
+
+    if (teamCode) {
+      loadTeamInvite(teamCode);
+    } else if (authCode && !matchId) {
       document.getElementById('app').innerHTML = `
         <div class="glass">
           <div class="section-title" style="color:var(--green);">Email verified</div>

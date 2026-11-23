@@ -63,6 +63,7 @@ class TeamProfile {
     required this.id,
     required this.name,
     this.isMyTeam = false,
+    this.isOwner = true,
     this.players = const [],
     this.playerMeta = const {},
     this.synced = false,
@@ -72,6 +73,7 @@ class TeamProfile {
   final String id;
   final String name;
   final bool isMyTeam;
+  final bool isOwner;
   final List<String> players;
   final Map<String, SquadPlayerMeta> playerMeta;
   final bool synced;
@@ -112,6 +114,7 @@ class TeamProfile {
   TeamProfile copyWith({
     String? name,
     bool? isMyTeam,
+    bool? isOwner,
     List<String>? players,
     Map<String, SquadPlayerMeta>? playerMeta,
     bool? synced,
@@ -120,6 +123,7 @@ class TeamProfile {
         id: id,
         name: name ?? this.name,
         isMyTeam: isMyTeam ?? this.isMyTeam,
+        isOwner: isOwner ?? this.isOwner,
         players: players ?? this.players,
         playerMeta: playerMeta ?? this.playerMeta,
         synced: synced ?? this.synced,
@@ -135,6 +139,7 @@ class TeamProfile {
         'id': id,
         'name': name,
         'is_my_team': isMyTeam ? 1 : 0,
+        'is_owner': isOwner ? 1 : 0,
         'players': jsonEncode(players),
         'player_meta': jsonEncode(toJsonMetaMap()),
         'synced': synced ? 1 : 0,
@@ -183,6 +188,7 @@ class TeamProfile {
         id: map['id']! as String,
         name: map['name']! as String,
         isMyTeam: _decodeBool(map['is_my_team']),
+        isOwner: map.containsKey('is_owner') ? _decodeBool(map['is_owner']) : true,
         players: _decodePlayers(map['players']),
         playerMeta: _decodeMeta(map['player_meta']),
         synced: _decodeBool(map['synced']),

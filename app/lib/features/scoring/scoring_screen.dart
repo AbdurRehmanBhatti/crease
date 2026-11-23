@@ -997,10 +997,12 @@ class _ScoringScreenState extends State<ScoringScreen> {
 
     if (updated == null) return;
     await LocalEventStore.instance.saveMatch(updated);
-    LocalEventStore.instance.ensureMatchSyncedToSupabase(updated.id);
     if (!mounted) return;
     setState(() => _config = updated);
     _showSnack('Updated match to ${updated.oversLimit} overs.');
+    try {
+      await LocalEventStore.instance.ensureMatchSyncedToSupabase(updated.id);
+    } catch (_) {}
   }
 
   Future<void> _endCurrentInnings(DerivedMatchState state) async {
@@ -1028,10 +1030,12 @@ class _ScoringScreenState extends State<ScoringScreen> {
     final nextDeclared = {...state.config.declaredInnings, innNum}.toList();
     final updated = state.config.copyWith(declaredInnings: nextDeclared);
     await LocalEventStore.instance.saveMatch(updated);
-    LocalEventStore.instance.ensureMatchSyncedToSupabase(updated.id);
     if (!mounted) return;
     setState(() => _config = updated);
     _showSnack('Innings $innNum ended.');
+    try {
+      await LocalEventStore.instance.ensureMatchSyncedToSupabase(updated.id);
+    } catch (_) {}
   }
 
   Future<void> _abandonMatch(DerivedMatchState state) async {
@@ -1062,10 +1066,12 @@ class _ScoringScreenState extends State<ScoringScreen> {
     final nextDeclared = {...state.config.declaredInnings, -1}.toList();
     final updated = state.config.copyWith(declaredInnings: nextDeclared);
     await LocalEventStore.instance.saveMatch(updated);
-    LocalEventStore.instance.ensureMatchSyncedToSupabase(updated.id);
     if (!mounted) return;
     setState(() => _config = updated);
     _showSnack('Match marked as Abandoned (No result).');
+    try {
+      await LocalEventStore.instance.ensureMatchSyncedToSupabase(updated.id);
+    } catch (_) {}
   }
 
   Future<void> _openMatchOptionsSheet(DerivedMatchState state) async {

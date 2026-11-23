@@ -725,7 +725,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                       ),
                       const SizedBox(height: 14),
                     ],
-                    if (_profile.isMyTeam) ...[
+                    if (_profile.isMyTeam && _profile.isOwner) ...[
                       Text(
                         'TEAM DESIGNATION',
                         style: Theme.of(ctx).textTheme.labelMedium?.copyWith(
@@ -833,12 +833,22 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                 foregroundColor: c.wicketRed,
                               ),
                               onPressed: () async {
+                                if (isClaimed) {
+                                  try {
+                                    await LocalEventStore.instance
+                                        .unlinkTeamPlayer(
+                                      _profile.id,
+                                      playerName,
+                                    );
+                                  } catch (_) {}
+                                }
                                 final nextPlayers =
                                     List<String>.from(_profile.players)
                                       ..remove(playerName);
                                 await _persist(
                                   _profile.copyWith(players: nextPlayers),
                                 );
+                                await _loadClaimed();
                                 if (ctx.mounted) Navigator.pop(ctx);
                               },
                               child: const Text('Remove player'),
@@ -884,7 +894,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
       appBar: AppBar(
         title: Text(_profile.name),
         actions: [
-          if (_profile.isMyTeam)
+          if (_profile.isMyTeam && _profile.isOwner)
             IconButton(
               tooltip: 'Invite teammates',
               icon: const Icon(Icons.group_add_outlined),
@@ -915,7 +925,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
               ),
-              if (_profile.isMyTeam)
+              if (_profile.isMyTeam && _profile.isOwner)
                 TextButton.icon(
                   onPressed: _addPlayer,
                   icon: const Icon(Icons.person_add_alt_1_rounded, size: 17),
@@ -925,7 +935,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                 Padding(
                   padding: const EdgeInsets.only(right: 4, bottom: 8),
                   child: Text(
-                    'Read-only',
+                    _profile.isMyTeam ? 'Squad member' : 'Read-only',
                     style: Theme.of(context).textTheme.labelMedium,
                   ),
                 ),
@@ -960,8 +970,11 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                               if (meta.role.isNotEmpty) meta.role,
                               if (pStats != null)
                                 '${pStats.runs}r · ${pStats.wickets}w',
-                              if (meta.role.isEmpty && pStats == null)
-                                _profile.isMyTeam
+                              if (isClaimed) 'Joined',
+                              if (meta.role.isEmpty &&
+                                  pStats == null &&
+                                  !isClaimed)
+                                (_profile.isMyTeam && _profile.isOwner)
                                     ? 'Tap to assign role'
                                     : 'Squad player',
                             ];

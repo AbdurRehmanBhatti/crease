@@ -65,6 +65,29 @@ class _InviteTeammatesSheetState extends State<_InviteTeammatesSheet> {
     }
   }
 
+  Future<void> _resetCode() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _copied = false;
+    });
+    try {
+      final code =
+          await LocalEventStore.instance.resetTeamInviteCode(widget.team.id);
+      if (!mounted) return;
+      setState(() {
+        _code = code;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not reset code right now. Check connection.';
+        _loading = false;
+      });
+    }
+  }
+
   String _formatCode(String raw) =>
       raw.length == 6 ? '${raw.substring(0, 3)} ${raw.substring(3)}' : raw;
 
@@ -188,6 +211,16 @@ class _InviteTeammatesSheetState extends State<_InviteTeammatesSheet> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 6),
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: c.inkSecondary,
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: _resetCode,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Reset code (invalidates old link)'),
             ),
           ],
         ],

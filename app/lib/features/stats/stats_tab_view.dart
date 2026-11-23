@@ -188,6 +188,79 @@ class _StatsTabViewState extends State<StatsTabView> {
     );
   }
 
+  void _showMvpInfoSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = ctx.crease;
+        Widget row(String label, String pts) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                            color: c.inkPrimary,
+                          ),
+                    ),
+                  ),
+                  Text(
+                    pts,
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                          color: c.pitchGreen,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                  ),
+                ],
+              ),
+            );
+        return GlassSurface(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          fillColor: c.surfaceSheet,
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: c.hairline,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'How MVP points work',
+                style: Theme.of(ctx).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Most Valuable Player ranks all-round match impact across batting, bowling, and fielding.',
+                style: Theme.of(ctx).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 14),
+              row('Every run scored', '+1 pt'),
+              row('Four / Six bonus', '+1 / +2 pts'),
+              row('Half-century (50) / Century (100)', '+10 / +25 pts'),
+              Divider(height: 18, color: c.hairlineSubtle),
+              row('Every wicket taken', '+20 pts'),
+              row('Maiden over bowled', '+10 pts'),
+              Divider(height: 18, color: c.hairlineSubtle),
+              row('Catch, stumping, or run-out', '+8 pts'),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
@@ -197,40 +270,81 @@ class _StatsTabViewState extends State<StatsTabView> {
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
       sliver: SliverList(
         delegate: SliverChildListDelegate([
-          // Board selector chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          // Board selector segmented bar (fits cleanly with zero horizontal clipping)
+          GlassSurface(
+            borderRadius: BorderRadius.circular(14),
+            padding: const EdgeInsets.all(3),
             child: Row(
               children: [
                 for (final entry in const [
                   (_StatsBoard.mvp, 'MVP'),
                   (_StatsBoard.batting, 'Batting'),
                   (_StatsBoard.bowling, 'Bowling'),
-                  (_StatsBoard.boundaries, 'Boundaries'),
+                  (_StatsBoard.boundaries, '4s & 6s'),
                 ])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(entry.$2),
-                      selected: _board == entry.$1,
-                      selectedColor: c.pitchGreen,
-                      checkmarkColor: Colors.white,
-                      labelStyle: TextStyle(
-                        color: _board == entry.$1 ? Colors.white : c.inkPrimary,
-                        fontWeight: _board == entry.$1
-                            ? FontWeight.w600
-                            : FontWeight.w500,
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _board = entry.$1),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: _board == entry.$1
+                              ? c.pitchGreen
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Text(
+                          entry.$2,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: _board == entry.$1
+                                        ? Colors.white
+                                        : c.inkPrimary,
+                                    fontWeight: _board == entry.$1
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                  ),
+                        ),
                       ),
-                      side: BorderSide(
-                        color:
-                            _board == entry.$1 ? c.pitchGreen : c.hairline,
-                      ),
-                      onSelected: (_) => setState(() => _board = entry.$1),
                     ),
                   ),
               ],
             ),
           ),
+
+          if (_board == _StatsBoard.mvp)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: _showMvpInfoSheet,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Most Valuable Player · all-round impact score',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: c.inkSecondary,
+                              ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: c.pitchGreen,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // Scope filter: My Teams first (default), then Tournaments, then All
           Builder(

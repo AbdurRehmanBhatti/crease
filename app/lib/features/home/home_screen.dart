@@ -254,22 +254,55 @@ class _HomeScreenState extends State<HomeScreen> {
                                   border: Border.all(color: c.hairline),
                                 ),
                                 alignment: Alignment.center,
-                                child: _profile.initials.isNotEmpty
-                                    ? Text(
-                                        _profile.initials,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .labelLarge
-                                            ?.copyWith(
-                                              color: c.pitchGreen,
-                                              fontWeight: FontWeight.w700,
-                                            ),
+                                child: (_profile.avatarUrl != null &&
+                                        _profile.avatarUrl!.isNotEmpty)
+                                    ? ClipOval(
+                                        child: Image.network(
+                                          _profile.avatarUrl!,
+                                          width: double.infinity,
+                                          height: double.infinity,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, _, _) =>
+                                              _profile.initials.isNotEmpty
+                                                  ? Center(
+                                                      child: Text(
+                                                        _profile.initials,
+                                                        style: Theme.of(context)
+                                                            .textTheme
+                                                            .labelLarge
+                                                            ?.copyWith(
+                                                              color:
+                                                                  c.pitchGreen,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                            ),
+                                                      ),
+                                                    )
+                                                  : Icon(
+                                                      Icons
+                                                          .person_outline_rounded,
+                                                      size: 22,
+                                                      color: c.inkPrimary,
+                                                    ),
+                                        ),
                                       )
-                                    : Icon(
-                                        Icons.person_outline_rounded,
-                                        size: 22,
-                                        color: c.inkPrimary,
-                                      ),
+                                    : _profile.initials.isNotEmpty
+                                        ? Text(
+                                            _profile.initials,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .labelLarge
+                                                ?.copyWith(
+                                                  color: c.pitchGreen,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                          )
+                                        : Icon(
+                                            Icons.person_outline_rounded,
+                                            size: 22,
+                                            color: c.inkPrimary,
+                                          ),
                               ),
                               if (_isGuestAccount)
                                 Positioned(

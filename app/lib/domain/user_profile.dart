@@ -14,12 +14,14 @@ class UserProfile {
     this.displayName = '',
     this.role = 'All-rounder',
     this.linkedPlayerName,
+    this.avatarUrl,
     this.themeMode = ThemeMode.system,
   });
 
   final String displayName;
   final String role;
   final String? linkedPlayerName;
+  final String? avatarUrl;
   final ThemeMode themeMode;
 
   static const List<String> roles = [
@@ -46,6 +48,8 @@ class UserProfile {
     String? role,
     String? linkedPlayerName,
     bool clearLinkedPlayer = false,
+    String? avatarUrl,
+    bool clearAvatar = false,
     ThemeMode? themeMode,
   }) {
     return UserProfile(
@@ -54,6 +58,7 @@ class UserProfile {
       linkedPlayerName: clearLinkedPlayer
           ? null
           : (linkedPlayerName ?? this.linkedPlayerName),
+      avatarUrl: clearAvatar ? null : (avatarUrl ?? this.avatarUrl),
       themeMode: themeMode ?? this.themeMode,
     );
   }
@@ -62,6 +67,7 @@ class UserProfile {
         'display_name': displayName,
         'role': role,
         'linked_player_name': linkedPlayerName,
+        'avatar_url': avatarUrl,
         'theme_mode': themeMode.name,
       });
 
@@ -77,6 +83,7 @@ class UserProfile {
         displayName: (map['display_name'] as String?) ?? '',
         role: (map['role'] as String?) ?? 'All-rounder',
         linkedPlayerName: map['linked_player_name'] as String?,
+        avatarUrl: map['avatar_url'] as String?,
         themeMode: mode,
       );
     } catch (_) {

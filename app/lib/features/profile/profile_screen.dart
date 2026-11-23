@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -33,6 +34,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _matchCount = 0;
   bool _loading = true;
   bool _syncing = false;
+  bool _uploadingAvatar = false;
   String? _syncNote;
   StreamSubscription<AuthState>? _authSub;
 
@@ -364,14 +366,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 final restored = await LocalEventStore.instance
                     .restoreAccountDataFromCloud();
 
-                // Auto-fill display name from Google profile if still empty
+                // Auto-fill display name & photo from Google profile if still empty
                 final currentProfile =
                     await LocalEventStore.instance.getUserProfile();
                 final googleName = googleUser.displayName?.trim() ?? '';
-                if (currentProfile.displayName.trim().isEmpty &&
-                    googleName.isNotEmpty) {
+                final googlePhoto = googleUser.photoUrl?.trim() ?? '';
+                final needsName = currentProfile.displayName.trim().isEmpty &&
+                    googleName.isNotEmpty;
+                final needsPhoto =
+                    (currentProfile.avatarUrl == null ||
+                        currentProfile.avatarUrl!.isEmpty) &&
+                    googlePhoto.isNotEmpty;
+                if (needsName || needsPhoto) {
                   await LocalEventStore.instance.saveUserProfile(
-                    currentProfile.copyWith(displayName: googleName),
+                    currentProfile.copyWith(
+                      displayName: needsName ? googleName : null,
+                      avatarUrl: needsPhoto ? googlePhoto : null,
+                    ),
                   );
                 }
 
@@ -621,6 +632,110 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _pickAndUploadAvatar(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 82,
+      );
+      if (picked == null) return;
+      setState(() => _uploadingAvatar = true);
+      final bytes = await picked.readAsBytes();
+      final url = await LocalEventStore.instance.uploadProfileAvatar(bytes);
+      final updated = _profile.copyWith(avatarUrl: url);
+      await LocalEventStore.instance.saveUserProfile(updated);
+      if (!mounted) return;
+      setState(() {
+        _profile = updated;
+        _uploadingAvatar = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _uploadingAvatar = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not upload photo. Check your internet connection.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openAvatarSheet() async {
+    final hasPhoto =
+        _profile.avatarUrl != null && _profile.avatarUrl!.isNotEmpty;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = ctx.crease;
+        return GlassSurface(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          fillColor: c.surfaceSheet,
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: c.hairline,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Profile photo',
+                style: Theme.of(ctx).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.photo_library_outlined, color: c.pitchGreen),
+                title: const Text('Choose from gallery'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndUploadAvatar(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.photo_camera_outlined, color: c.pitchGreen),
+                title: const Text('Take a photo'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndUploadAvatar(ImageSource.camera);
+                },
+              ),
+              if (hasPhoto)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.delete_outline_rounded, color: c.wicketRed),
+                  title: Text(
+                    'Remove photo',
+                    style: TextStyle(color: c.wicketRed),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final updated = _profile.copyWith(clearAvatar: true);
+                    await LocalEventStore.instance.saveUserProfile(updated);
+                    if (!mounted) return;
+                    setState(() => _profile = updated);
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _signOut() async {
     final email = _currentUser?.email ?? 'your account';
     final confirmed = await showDialog<bool>(
@@ -690,18 +805,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         title: const Text('Profile'),
-        actions: [
-          TextButton(
-            onPressed: _editProfile,
-            child: Text(
-              'Edit',
-              style: TextStyle(
-                color: c.pitchGreen,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -724,33 +827,109 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         padding: const EdgeInsets.all(20),
                         child: Row(
                           children: [
-                            Container(
-                              width: 58,
-                              height: 58,
-                              decoration: BoxDecoration(
-                                color: c.pitchGreenSoft,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: c.pitchGreen.withValues(alpha: 0.25),
-                                ),
-                              ),
-                              alignment: Alignment.center,
-                              child: _profile.initials.isNotEmpty
-                                  ? Text(
-                                      _profile.initials,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleLarge
-                                          ?.copyWith(
-                                            color: c.pitchGreen,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    )
-                                  : Icon(
-                                      Icons.person_outline_rounded,
-                                      color: c.pitchGreen,
-                                      size: 28,
+                            GestureDetector(
+                              onTap: _uploadingAvatar ? null : _openAvatarSheet,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    width: 60,
+                                    height: 60,
+                                    decoration: BoxDecoration(
+                                      color: c.pitchGreenSoft,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: c.pitchGreen
+                                            .withValues(alpha: 0.25),
+                                      ),
                                     ),
+                                    alignment: Alignment.center,
+                                    child: _uploadingAvatar
+                                        ? const SizedBox(
+                                            width: 22,
+                                            height: 22,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : (_profile.avatarUrl != null &&
+                                                _profile.avatarUrl!.isNotEmpty)
+                                            ? ClipOval(
+                                                child: Image.network(
+                                                  _profile.avatarUrl!,
+                                                  width: double.infinity,
+                                                  height: double.infinity,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, _, _) =>
+                                                      _profile
+                                                              .initials.isNotEmpty
+                                                          ? Center(
+                                                              child: Text(
+                                                                _profile
+                                                                    .initials,
+                                                                style: Theme.of(
+                                                                        context)
+                                                                    .textTheme
+                                                                    .titleLarge
+                                                                    ?.copyWith(
+                                                                      color: c
+                                                                          .pitchGreen,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w700,
+                                                                    ),
+                                                              ),
+                                                            )
+                                                          : Icon(
+                                                              Icons
+                                                                  .person_outline_rounded,
+                                                              color:
+                                                                  c.pitchGreen,
+                                                              size: 28,
+                                                            ),
+                                                ),
+                                              )
+                                            : _profile.initials.isNotEmpty
+                                                ? Text(
+                                                    _profile.initials,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .titleLarge
+                                                        ?.copyWith(
+                                                          color: c.pitchGreen,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                  )
+                                                : Icon(
+                                                    Icons.person_outline_rounded,
+                                                    color: c.pitchGreen,
+                                                    size: 28,
+                                                  ),
+                                  ),
+                                  Positioned(
+                                    right: -2,
+                                    bottom: -2,
+                                    child: Container(
+                                      width: 22,
+                                      height: 22,
+                                      decoration: BoxDecoration(
+                                        color: c.pitchGreen,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: c.surfaceGlass,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        Icons.camera_alt_rounded,
+                                        size: 12,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                             const SizedBox(width: 16),
                             Expanded(
@@ -1006,39 +1185,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               Expanded(
                                 child: Text(
                                   _isLinkedEmail
-                                      ? _currentUser!.email!
+                                      ? _profile.effectiveName
                                       : 'Guest cloud backup',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style:
                                       Theme.of(context).textTheme.titleMedium,
                                 ),
                               ),
-                              IconButton(
-                                tooltip: 'Sync now',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: _syncing ? null : _syncNow,
-                                icon: _syncing
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
+                              if (!_isLinkedEmail)
+                                IconButton(
+                                  tooltip: 'Sync now',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: _syncing ? null : _syncNow,
+                                  icon: _syncing
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Icon(
+                                          Icons.sync_rounded,
+                                          size: 20,
+                                          color: c.inkSecondary,
                                         ),
-                                      )
-                                    : Icon(
-                                        Icons.sync_rounded,
-                                        size: 20,
-                                        color: c.inkSecondary,
-                                      ),
-                              ),
+                                ),
                             ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _isLinkedEmail
-                                ? 'Your $_matchCount matches and teams are linked to this account.'
-                                : 'Sign in to restore an existing account, or create one to keep your teams and stats backed up.',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
+                          if (_isLinkedEmail) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              _currentUser!.email!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: c.inkSecondary,
+                                    fontSize: 13,
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$_matchCount match${_matchCount == 1 ? '' : 'es'} & teams backed up.',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ] else ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Sign in to restore an existing account, or create one to keep your teams and stats backed up.',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
                           if (_syncNote != null) ...[
                             const SizedBox(height: 8),
                             Text(

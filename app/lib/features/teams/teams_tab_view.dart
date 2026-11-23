@@ -317,62 +317,63 @@ class _TeamsTabViewState extends State<TeamsTabView> {
             ),
             const SizedBox(height: 12),
           ],
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    hintText: 'Search all teams...',
-                    filled: true,
-                    fillColor: c.surfaceGlass,
-                    isDense: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: c.hairline),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: c.hairline),
+          if (allNames.isNotEmpty) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                      hintText: 'Search all teams...',
+                      filled: true,
+                      fillColor: c.surfaceGlass,
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: c.hairline),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: c.hairline),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: c.pitchGreen,
-                  side: BorderSide(color: c.hairline),
-                  backgroundColor: c.surfaceGlass,
-                  minimumSize: const Size(0, 44),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: c.pitchGreen,
+                    side: BorderSide(color: c.hairline),
+                    backgroundColor: c.surfaceGlass,
+                    minimumSize: const Size(0, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
+                  onPressed: () async {
+                    final joined = await showJoinTeamSheet(context);
+                    if (joined) widget.onChanged();
+                  },
+                  icon: const Icon(Icons.group_add_outlined, size: 18),
+                  label: const Text('Join'),
                 ),
-                onPressed: () async {
-                  final joined = await showJoinTeamSheet(context);
-                  if (joined) widget.onChanged();
-                },
-                icon: const Icon(Icons.group_add_outlined, size: 18),
-                label: const Text('Join'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (filtered.isEmpty)
-            GlassSurface(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                'No teams found. Tap "+ Team" to create your squad.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            )
-          else
-            for (final name in filtered) ...[
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (filtered.isEmpty)
+              GlassSurface(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No teams matching "${_searchCtrl.text.trim()}".',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              )
+            else
+              for (final name in filtered) ...[
               Builder(
                 builder: (context) {
                   final saved = savedByName[name.toLowerCase()];
@@ -466,6 +467,7 @@ class _TeamsTabViewState extends State<TeamsTabView> {
                 },
               ),
             ],
+          ],
         ]),
       ),
     );

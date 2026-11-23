@@ -220,12 +220,35 @@ class LocalEventStore {
                 'display_name': profile.displayName,
                 'role': profile.role,
                 'linked_player_name': profile.linkedPlayerName,
+                'custom_avatar_url': profile.avatarUrl ?? '',
               },
             ),
           );
         }
       } catch (_) {}
     }
+  }
+
+  /// Uploads a compressed JPEG profile photo to `avatars/<uid>/profile.jpg`
+  /// and returns its cache-busted public URL.
+  Future<String> uploadProfileAvatar(Uint8List bytes) async {
+    final client = Supabase.instance.client;
+    var uid = client.auth.currentUser?.id;
+    uid ??= (await client.auth.signInAnonymously()).user?.id;
+    if (uid == null) {
+      throw StateError('Authentication required to upload photo.');
+    }
+    final path = '$uid/profile.jpg';
+    await client.storage.from('avatars').uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
+            upsert: true,
+          ),
+        );
+    final publicUrl = client.storage.from('avatars').getPublicUrl(path);
+    return '$publicUrl?v=${DateTime.now().millisecondsSinceEpoch}';
   }
 
   /// Removes any legacy pre-seeded demo matches locally.
@@ -985,13 +1008,28 @@ class LocalEventStore {
     var restoredMatches = 0;
 
     try {
-      // 0. Restore cloud user profile metadata (display name, role, linked player)
+      // 0. Restore cloud user profile metadata (display name, role, linked player, avatar)
       final meta = client.auth.currentUser?.userMetadata;
       if (meta != null) {
         final currentProfile = await getUserProfile();
-        final cloudName = (meta['display_name'] as String?)?.trim() ?? '';
+        final cloudName =
+            ((meta['display_name'] ?? meta['full_name'] ?? meta['name'])
+                        as String?)
+                    ?.trim() ??
+                '';
         final cloudRole = (meta['role'] as String?)?.trim() ?? '';
         final cloudLinked = (meta['linked_player_name'] as String?)?.trim();
+        final hasCustomKey = meta.containsKey('custom_avatar_url');
+        final customAvatar = (meta['custom_avatar_url'] as String?)?.trim();
+        final oauthAvatar =
+            ((meta['avatar_url'] ?? meta['picture']) as String?)?.trim();
+        final resolvedAvatar = hasCustomKey
+            ? (customAvatar != null && customAvatar.isNotEmpty
+                ? customAvatar
+                : null)
+            : (oauthAvatar != null && oauthAvatar.isNotEmpty
+                ? oauthAvatar
+                : null);
         await saveUserProfile(
           currentProfile.copyWith(
             displayName:
@@ -1000,6 +1038,8 @@ class LocalEventStore {
             linkedPlayerName: (cloudLinked != null && cloudLinked.isNotEmpty)
                 ? cloudLinked
                 : currentProfile.linkedPlayerName,
+            avatarUrl: resolvedAvatar,
+            clearAvatar: hasCustomKey && resolvedAvatar == null,
           ),
           syncCloud: false,
         );

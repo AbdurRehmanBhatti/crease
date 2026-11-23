@@ -36,6 +36,23 @@ class GlassSurface extends StatelessWidget {
         ? Colors.black.withValues(alpha: 0.35)
         : const Color(0xFF0A0C0C).withValues(alpha: 0.06);
 
+    final isBottomSheet =
+        borderRadius.bottomLeft == Radius.zero &&
+        borderRadius.bottomRight == Radius.zero;
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final bottomSafe = (isBottomSheet && !keyboardOpen)
+        ? MediaQuery.viewPaddingOf(context).bottom
+        : 0.0;
+    final resolvedPadding = padding?.resolve(Directionality.of(context));
+    final effectivePadding = bottomSafe > 0
+        ? EdgeInsets.fromLTRB(
+            resolvedPadding?.left ?? 0,
+            resolvedPadding?.top ?? 0,
+            resolvedPadding?.right ?? 0,
+            (resolvedPadding?.bottom ?? 0) + bottomSafe,
+          )
+        : padding;
+
     return Container(
       decoration: BoxDecoration(
         borderRadius: borderRadius,
@@ -55,7 +72,7 @@ class GlassSurface extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
           child: Container(
-            padding: padding,
+            padding: effectivePadding,
             decoration: BoxDecoration(
               color: fillColor ?? c.surfaceGlass,
               borderRadius: borderRadius,

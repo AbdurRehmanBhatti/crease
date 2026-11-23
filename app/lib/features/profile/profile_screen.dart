@@ -1038,9 +1038,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               children: [
                                 Expanded(
                                   child: OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                      ),
+                                    ),
                                     onPressed: () =>
                                         _openAuthSheet(initialSignIn: true),
-                                    child: const Text('Sign in'),
+                                    child: const Text(
+                                      'Sign in',
+                                      maxLines: 1,
+                                      softWrap: false,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -1049,10 +1058,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     style: FilledButton.styleFrom(
                                       backgroundColor: c.pitchGreen,
                                       foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                      ),
                                     ),
                                     onPressed: () =>
                                         _openAuthSheet(initialSignIn: false),
-                                    child: const Text('Create account'),
+                                    child: const Text(
+                                      'Sign up',
+                                      maxLines: 1,
+                                      softWrap: false,
+                                    ),
                                   ),
                                 ),
                               ],

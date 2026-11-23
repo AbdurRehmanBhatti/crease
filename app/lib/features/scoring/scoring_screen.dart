@@ -2392,14 +2392,13 @@ class _GlassScoringSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
-    final bottomInset = MediaQuery.of(context).padding.bottom;
 
     return GlassSurface(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       fillColor: c.surfaceSheet,
       borderColor: c.hairline,
       blurSigma: 14,
-      padding: EdgeInsets.fromLTRB(18, 12, 18, 14 + bottomInset),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

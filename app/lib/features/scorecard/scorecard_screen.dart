@@ -220,7 +220,9 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
             ],
           ),
         ),
-        body: TabBarView(
+        body: SafeArea(
+          top: false,
+          child: TabBarView(
           children: [
             _OverviewTab(state: state, innings: shownInnings),
             _ScorecardTab(
@@ -251,6 +253,7 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
               onSelectInnings: (v) => setState(() => _selectedInnings = v),
             ),
           ],
+        ),
         ),
       ),
     );

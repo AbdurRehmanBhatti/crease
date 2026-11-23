@@ -912,7 +912,12 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          10,
+          16,
+          32 + MediaQuery.paddingOf(context).bottom,
+        ),
         children: [
           // Squad card (editable only for My Team; read-only for opposition teams)
           Row(

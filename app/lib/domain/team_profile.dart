@@ -62,6 +62,7 @@ class TeamProfile {
   const TeamProfile({
     required this.id,
     required this.name,
+    this.location,
     this.isMyTeam = false,
     this.isOwner = true,
     this.players = const [],
@@ -72,6 +73,7 @@ class TeamProfile {
 
   final String id;
   final String name;
+  final String? location;
   final bool isMyTeam;
   final bool isOwner;
   final List<String> players;
@@ -113,6 +115,8 @@ class TeamProfile {
 
   TeamProfile copyWith({
     String? name,
+    String? location,
+    bool clearLocation = false,
     bool? isMyTeam,
     bool? isOwner,
     List<String>? players,
@@ -122,6 +126,7 @@ class TeamProfile {
       TeamProfile(
         id: id,
         name: name ?? this.name,
+        location: clearLocation ? null : (location ?? this.location),
         isMyTeam: isMyTeam ?? this.isMyTeam,
         isOwner: isOwner ?? this.isOwner,
         players: players ?? this.players,
@@ -138,6 +143,9 @@ class TeamProfile {
   Map<String, Object?> toMap() => {
         'id': id,
         'name': name,
+        'location': (location != null && location!.trim().isNotEmpty)
+            ? location!.trim()
+            : null,
         'is_my_team': isMyTeam ? 1 : 0,
         'is_owner': isOwner ? 1 : 0,
         'players': jsonEncode(players),
@@ -184,18 +192,22 @@ class TeamProfile {
     return out;
   }
 
-  static TeamProfile fromMap(Map<String, Object?> map) => TeamProfile(
-        id: map['id']! as String,
-        name: map['name']! as String,
-        isMyTeam: _decodeBool(map['is_my_team']),
-        isOwner: map.containsKey('is_owner') ? _decodeBool(map['is_owner']) : true,
-        players: _decodePlayers(map['players']),
-        playerMeta: _decodeMeta(map['player_meta']),
-        synced: _decodeBool(map['synced']),
-        createdAt: DateTime.fromMillisecondsSinceEpoch(
-          (map['created_at']! as num).toInt(),
-        ),
-      );
+  static TeamProfile fromMap(Map<String, Object?> map) {
+    final rawLoc = (map['location'] as String?)?.trim();
+    return TeamProfile(
+      id: map['id']! as String,
+      name: map['name']! as String,
+      location: (rawLoc != null && rawLoc.isNotEmpty) ? rawLoc : null,
+      isMyTeam: _decodeBool(map['is_my_team']),
+      isOwner: map.containsKey('is_owner') ? _decodeBool(map['is_owner']) : true,
+      players: _decodePlayers(map['players']),
+      playerMeta: _decodeMeta(map['player_meta']),
+      synced: _decodeBool(map['synced']),
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        (map['created_at']! as num).toInt(),
+      ),
+    );
+  }
 }
 
 @immutable

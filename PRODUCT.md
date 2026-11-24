@@ -37,6 +37,21 @@ Crease is built on an append-only ball-by-ball event log stored on the phone fir
 Confirmed for MVP (Phase 1): Quick Match scoring, any-ball undo/edit, full scorecard, offline-first sync, shareable live scorecard link.
 Phase 2: tournaments, auto points table and NRR, player profiles and career stats, MVP points.
 Phase 3 (undecided detail): live-stream overlays, club pages, notifications, optional monetisation.
+
+### Pre-Production Pending Features (Required Before Launch)
+- **Tournament Roles & Permissions (`tournament_members` + RLS + UI gating):**
+  - **Organiser (Owner / Co-Admin):** Full tournament control — add/remove teams, edit/remove tournament squad players, unlock knockouts early, invite/revoke scorers, discard matches, delete tournament.
+  - **Tournament Scorer (Invited via code/link):** Can start scheduled fixtures, resume live matches (Pass the Baton), score balls, add missing players during a match, and discard unstarted (`0/0`) matches they started — cannot wipe squads, remove teams, or force-unlock knockouts.
+  - **Viewer / Player (Read-Only):** Can follow live standings, NRR, fixtures, knockouts, and squads with all mutating controls (FAB, Add/Rename/Remove, Discard, Unlock early) hidden and enforced by Supabase RLS.
+
+### Future Architecture / Known Edge Cases (Post-MVP Roadmap)
+- **Same-Name Derbies (`batting_first_side` in `CricketEngine`):**
+  - **Implemented:** `matches` now stores both immutable team IDs (`team_a_id`, `team_b_id`) and historical display-name snapshots (`team_a`, `team_b`). `StatsEngine`, the **Stats** tab, and **Team Match History** match by `teamId` first (with name fallback for legacy/ad-hoc matches), so same-named clubs never mix stats and team renames preserve history.
+  - **Display disambiguation:** When two different clubs with the same name play each other in Quick Match, the second club's match display label is disambiguated with its location or `(2)` so the scoreboard and `CricketEngine` innings labels stay unambiguous.
+  - **Optional future enhancement:** Track `batting_first_side` (`'a'` | `'b'`) in `CricketEngine` if exact identical scoreboard strings are ever needed without display disambiguation.
+- **In-Match Super Over (Implemented):**
+  - Tied limited-overs matches surface a 1-tap **`Play Super Over`** CTA inside `MatchCompleteSheet` that runs Super Over Innings 1 & 2 as `innings_number` 3 & 4 inside the **same match record** (`1 over`, `2 wickets all-out`, 2nd-innings team batting first per ICC rules), keeps a single unified scorecard with Super Over tabs, excludes Super Over runs/wickets from official career averages per ICC rules, and credits the Super Over winner in team records & tournament standings.
+
 Constraints: must run smoothly on low-end Android phones; charts (wagon wheel, worm, manhattan) must stay light.
 Terminology: standard cricket terms (over, extras, wide, no-ball, bye, leg-bye, wicket types, NRR, strike rate, economy).
 Undecided: business model beyond "free, no intrusive ads"; logo and final name confirmation (Crease is the working name).

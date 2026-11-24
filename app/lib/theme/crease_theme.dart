@@ -448,6 +448,16 @@ class CreaseTheme {
         titleTextStyle: textTheme.titleLarge,
         contentTextStyle: textTheme.bodyMedium,
       ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: ext.surfaceSheet,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(CreaseRadius.control + 2),
+          side: BorderSide(color: ext.hairline, width: 1),
+        ),
+        textStyle: textTheme.bodyLarge,
+      ),
       dividerTheme: DividerThemeData(
         color: ext.hairlineSubtle,
         thickness: 1,

@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../domain/cricket_engine.dart';
 import '../domain/models.dart';
 import '../domain/team_profile.dart';
 import '../domain/tournament_engine.dart';
@@ -23,7 +24,7 @@ class LocalEventStore {
     final fullPath = p.join(dbPath, 'crease_events.db');
     _db = await openDatabase(
       fullPath,
-      version: 8,
+      version: 12,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE app_settings (
@@ -35,6 +36,7 @@ class LocalEventStore {
           CREATE TABLE teams (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            location TEXT,
             is_my_team INTEGER NOT NULL DEFAULT 0,
             is_owner INTEGER NOT NULL DEFAULT 1,
             players TEXT NOT NULL DEFAULT '[]',
@@ -48,12 +50,18 @@ class LocalEventStore {
           CREATE TABLE tournaments (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            location TEXT,
+            start_date INTEGER,
+            end_date INTEGER,
             overs_limit INTEGER NOT NULL,
             players_per_side INTEGER NOT NULL DEFAULT 11,
             format_label TEXT NOT NULL,
             team_rosters TEXT NOT NULL DEFAULT '{}',
             points_for_win INTEGER NOT NULL DEFAULT 2,
             points_for_tie INTEGER NOT NULL DEFAULT 1,
+            structure TEXT NOT NULL DEFAULT 'open',
+            rounds_per_pair INTEGER NOT NULL DEFAULT 1,
+            knockout_qualifiers INTEGER NOT NULL DEFAULT 2,
             synced INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
           )
@@ -64,6 +72,8 @@ class LocalEventStore {
             id TEXT PRIMARY KEY,
             team_a TEXT NOT NULL,
             team_b TEXT NOT NULL,
+            team_a_id TEXT,
+            team_b_id TEXT,
             overs_limit INTEGER NOT NULL,
             players_per_side INTEGER NOT NULL,
             format_label TEXT NOT NULL,
@@ -77,6 +87,8 @@ class LocalEventStore {
             team_a_players TEXT NOT NULL DEFAULT '[]',
             team_b_players TEXT NOT NULL DEFAULT '[]',
             tournament_id TEXT,
+            tournament_stage TEXT,
+            fixture_index INTEGER,
             is_test_match INTEGER NOT NULL DEFAULT 0,
             declared_innings TEXT NOT NULL DEFAULT '[]',
             follow_on_enforced INTEGER NOT NULL DEFAULT 0,
@@ -113,6 +125,7 @@ class LocalEventStore {
         await db.execute(
           'CREATE INDEX idx_ball_events_match ON ball_events (match_id, innings_number, sequence_number)',
         );
+        await _createPerformanceIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -183,9 +196,61 @@ class LocalEventStore {
             'ALTER TABLE teams ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 1',
           );
         }
+        if (oldVersion < 9) {
+          await db.execute(
+            "ALTER TABLE tournaments ADD COLUMN structure TEXT NOT NULL DEFAULT 'open'",
+          );
+          await db.execute(
+            'ALTER TABLE tournaments ADD COLUMN rounds_per_pair INTEGER NOT NULL DEFAULT 1',
+          );
+          await db.execute(
+            'ALTER TABLE tournaments ADD COLUMN knockout_qualifiers INTEGER NOT NULL DEFAULT 2',
+          );
+          await db.execute(
+            'ALTER TABLE matches ADD COLUMN tournament_stage TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE matches ADD COLUMN fixture_index INTEGER',
+          );
+        }
+        if (oldVersion < 10) {
+          await _createPerformanceIndexes(db);
+        }
+        if (oldVersion < 11) {
+          await db.execute('ALTER TABLE teams ADD COLUMN location TEXT');
+          await db.execute('ALTER TABLE tournaments ADD COLUMN location TEXT');
+          await db.execute(
+            'ALTER TABLE tournaments ADD COLUMN start_date INTEGER',
+          );
+          await db.execute(
+            'ALTER TABLE tournaments ADD COLUMN end_date INTEGER',
+          );
+        }
+        if (oldVersion < 12) {
+          await db.execute('ALTER TABLE matches ADD COLUMN team_a_id TEXT');
+          await db.execute('ALTER TABLE matches ADD COLUMN team_b_id TEXT');
+        }
       },
     );
     return _db!;
+  }
+
+  Future<void> _createPerformanceIndexes(Database db) async {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches (created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_matches_tournament_fixture ON matches (tournament_id, fixture_index)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_matches_teams ON matches (team_a, team_b)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_tournaments_created_at ON tournaments (created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_teams_my_created ON teams (is_my_team DESC, created_at DESC)',
+    );
   }
 
   Future<UserProfile> getUserProfile() async {
@@ -224,9 +289,59 @@ class LocalEventStore {
               },
             ),
           );
+          try {
+            await Supabase.instance.client
+                .from('team_members')
+                .update({'avatar_url': profile.avatarUrl})
+                .eq('user_id', auth.currentUser!.id);
+          } catch (_) {}
+          await _syncOwnerTeamMemberships(profile);
         }
       } catch (_) {}
     }
+  }
+
+  /// Auto-links the signed-in team owner into `public.team_members` for any
+  /// owned team whose roster includes [profile.linkedPlayerName], so the owner
+  /// receives the verified Linked badge, publishes their avatar to teammates
+  /// and public viewers, and reserves their name against invite-code claims.
+  Future<void> _syncOwnerTeamMemberships(
+    UserProfile profile, {
+    TeamProfile? onlyTeam,
+  }) async {
+    final linked = profile.linkedPlayerName?.trim();
+    if (linked == null || linked.isEmpty) return;
+    try {
+      final client = Supabase.instance.client;
+      final uid = client.auth.currentUser?.id;
+      if (uid == null) return;
+      final teams = onlyTeam != null ? [onlyTeam] : await listTeams();
+      final linkedLower = linked.toLowerCase();
+      for (final team in teams) {
+        if (!team.isOwner) continue;
+        String? matchedPlayer;
+        for (final p in team.players) {
+          if (p.trim().toLowerCase() == linkedLower) {
+            matchedPlayer = p.trim();
+            break;
+          }
+        }
+        if (matchedPlayer == null) continue;
+        try {
+          await client.from('team_members').upsert(
+            {
+              'team_id': team.id,
+              'user_id': uid,
+              'player_name': matchedPlayer,
+              'role': 'captain',
+              'avatar_url': profile.avatarUrl,
+              'joined_at': DateTime.now().millisecondsSinceEpoch,
+            },
+            onConflict: 'team_id,user_id',
+          );
+        } catch (_) {}
+      }
+    } catch (_) {}
   }
 
   /// Uploads a compressed JPEG profile photo to `avatars/<uid>/profile.jpg`
@@ -261,6 +376,10 @@ class LocalEventStore {
     await db.delete('matches', where: 'is_demo = 1');
   }
 
+  /// Monotonically incremented whenever account-level local data is wiped or
+  /// restored from cloud so screens like HomeScreen know when to do a full reload.
+  int accountDataVersion = 0;
+
   /// Clears user-specific local teams, tournaments, matches, and profile name
   /// on Sign Out (keeping only the user's theme preference).
   Future<void> clearLocalUserDataOnSignOut() async {
@@ -270,10 +389,16 @@ class LocalEventStore {
     await db.delete('tournaments');
     await db.delete('ball_events');
     await db.delete('matches');
+    await db.delete(
+      'app_settings',
+      where: 'key LIKE ?',
+      whereArgs: ['tournament_ko_unlocked_%'],
+    );
     await saveUserProfile(
       UserProfile(themeMode: current.themeMode),
       syncCloud: false,
     );
+    accountDataVersion++;
   }
 
   Future<List<MatchConfig>> listMatches() async {
@@ -317,6 +442,46 @@ class LocalEventStore {
     );
   }
 
+  /// Deletes an owned saved team locally and from Supabase.
+  /// Past matches, scorecards, and player career stats are preserved.
+  Future<void> deleteTeam(String teamId) async {
+    final db = await database;
+    await db.delete('teams', where: 'id = ?', whereArgs: [teamId]);
+    try {
+      final client = Supabase.instance.client;
+      final uid = client.auth.currentUser?.id;
+      if (uid != null) {
+        await client
+            .from('teams')
+            .delete()
+            .eq('id', teamId)
+            .eq('owner_id', uid);
+      }
+    } catch (e) {
+      debugPrint('[Crease Sync] Team delete failed: $e');
+    }
+  }
+
+  /// Leaves a joined (non-owned) team locally and removes the user's
+  /// membership row in Supabase without deleting the owner's team.
+  Future<void> leaveTeam(String teamId) async {
+    final db = await database;
+    await db.delete('teams', where: 'id = ?', whereArgs: [teamId]);
+    try {
+      final client = Supabase.instance.client;
+      final uid = client.auth.currentUser?.id;
+      if (uid != null) {
+        await client
+            .from('team_members')
+            .delete()
+            .eq('team_id', teamId)
+            .eq('user_id', uid);
+      }
+    } catch (e) {
+      debugPrint('[Crease Sync] Team leave failed: $e');
+    }
+  }
+
   Future<void> syncTeamToSupabase(String teamId) async {
     SupabaseClient? client;
     try {
@@ -343,6 +508,7 @@ class LocalEventStore {
           'id': team.id,
           'owner_id': userId,
           'name': team.name,
+          'location': team.location,
           'is_my_team': team.isMyTeam,
           'players': team.players,
           'player_meta': team.toJsonMetaMap(),
@@ -356,10 +522,23 @@ class LocalEventStore {
         where: 'id = ?',
         whereArgs: [team.id],
       );
+      if (team.isOwner) {
+        await _syncOwnerTeamMemberships(
+          await getUserProfile(),
+          onlyTeam: team,
+        );
+      }
     } catch (e) {
       debugPrint('[Crease Sync] Team upsert failed: $e');
     }
   }
+
+  static final _placeholderPlayerPattern =
+      RegExp(r'^(batter|bowler|opener)\s*\d+$', caseSensitive: false);
+
+  /// True for auto-generated placeholder names like "Batter 1", "Bowler 1", "Opener 2".
+  static bool isPlaceholderPlayerName(String name) =>
+      _placeholderPlayerPattern.hasMatch(name.trim());
 
   /// Collects all unique team names and merged player rosters across all
   /// saved teams, tournaments, and matches so Quick Match can pick existing teams.
@@ -372,7 +551,7 @@ class LocalEventStore {
       final list = rosters.putIfAbsent(key, () => <String>[]);
       for (final p in players) {
         final trimmed = p.trim();
-        if (trimmed.isEmpty) continue;
+        if (trimmed.isEmpty || isPlaceholderPlayerName(trimmed)) continue;
         if (!list.any((e) => e.toLowerCase() == trimmed.toLowerCase())) {
           list.add(trimmed);
         }
@@ -380,7 +559,9 @@ class LocalEventStore {
     }
 
     final savedTeams = await listTeams();
+    final savedNameById = <String, String>{};
     for (final t in savedTeams) {
+      savedNameById[t.id] = t.name;
       merge(t.name, t.players);
     }
 
@@ -393,11 +574,276 @@ class LocalEventStore {
 
     final matches = await listMatches();
     for (final m in matches) {
-      merge(m.teamA, m.teamAPlayers);
-      merge(m.teamB, m.teamBPlayers);
+      // Skip remote/public club sides (non-null teamId not in savedTeams) so
+      // disambiguated match labels like "Bhatti xi (2)" never appear as fake
+      // local saved teams in Quick Match.
+      if (m.teamAId == null) {
+        if (!m.teamA.trim().endsWith('(2)')) {
+          merge(m.teamA, m.teamAPlayers);
+        }
+      } else if (savedNameById.containsKey(m.teamAId)) {
+        merge(savedNameById[m.teamAId]!, m.teamAPlayers);
+      }
+      if (m.teamBId == null) {
+        if (!m.teamB.trim().endsWith('(2)')) {
+          merge(m.teamB, m.teamBPlayers);
+        }
+      } else if (savedNameById.containsKey(m.teamBId)) {
+        merge(savedNameById[m.teamBId]!, m.teamBPlayers);
+      }
     }
 
     return rosters;
+  }
+
+  /// On-demand, column-only cloud search across public Crease teams.
+  /// Returns an empty list when offline or when [query] is shorter than 2 chars.
+  Future<List<({String id, String name, String? location, List<String> players})>>
+      searchPublicTeams(
+    String query, {
+    int limit = 15,
+    Set<String> excludeIds = const {},
+    bool dedupeByName = true,
+  }) async {
+    final clean = query.trim();
+    if (clean.length < 2) return const [];
+    try {
+      final client = Supabase.instance.client;
+      final rows = await client
+          .from('teams')
+          .select('id, name, location, players')
+          .ilike('name', '%$clean%')
+          .order('created_at', ascending: false)
+          .limit(limit);
+      final results =
+          <({String id, String name, String? location, List<String> players})>[];
+      final seenLower = <String>{};
+      for (final raw in (rows as List)) {
+        final map = raw as Map;
+        final id = (map['id'] as String?) ?? '';
+        final name = (map['name'] as String?)?.trim() ?? '';
+        if (name.isEmpty || excludeIds.contains(id)) continue;
+        if (dedupeByName && !seenLower.add(name.toLowerCase())) continue;
+        final rawLoc = (map['location'] as String?)?.trim();
+        final location = (rawLoc != null && rawLoc.isNotEmpty) ? rawLoc : null;
+        final rawPlayers = map['players'];
+        final players = <String>[];
+        if (rawPlayers is List) {
+          for (final p in rawPlayers) {
+            final s = p.toString().trim();
+            if (s.isNotEmpty && !isPlaceholderPlayerName(s)) {
+              players.add(s);
+            }
+          }
+        }
+        results.add((id: id, name: name, location: location, players: players));
+      }
+      return results;
+    } catch (_) {
+      // Offline or Supabase unavailable — degrade silently to local teams.
+      return const [];
+    }
+  }
+
+  /// Fetches a single public team's full profile (including player roles/designations)
+  /// for read-only viewing from the Crease directory.
+  Future<TeamProfile?> fetchPublicTeamProfile(String teamId) async {
+    try {
+      final row = await Supabase.instance.client
+          .from('teams')
+          .select(_teamSelectCols)
+          .eq('id', teamId)
+          .maybeSingle();
+      if (row == null) return null;
+      return TeamProfile.fromMap(Map<String, Object?>.from(row));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Searches public synced matches on Supabase by team name (case-insensitive).
+  Future<
+      List<
+          ({
+            String id,
+            String teamA,
+            String teamB,
+            String formatLabel,
+            DateTime createdAt,
+          })>> searchPublicMatches(
+    String query, {
+    int limit = 10,
+    Set<String> excludeIds = const {},
+  }) async {
+    final clean = query.trim();
+    if (clean.length < 2) return const [];
+    try {
+      final client = Supabase.instance.client;
+      final safe = clean.replaceAll(',', ' ');
+      final rows = await client
+          .from('matches')
+          .select('id, team_a, team_b, format_label, created_at')
+          .eq('is_demo', false)
+          .or('team_a.ilike.%$safe%,team_b.ilike.%$safe%')
+          .order('created_at', ascending: false)
+          .limit(limit);
+      final out = <({
+        String id,
+        String teamA,
+        String teamB,
+        String formatLabel,
+        DateTime createdAt,
+      })>[];
+      for (final raw in (rows as List)) {
+        final m = raw as Map;
+        final id = (m['id'] as String?) ?? '';
+        if (id.isEmpty || excludeIds.contains(id)) continue;
+        out.add((
+          id: id,
+          teamA: (m['team_a'] as String?) ?? '',
+          teamB: (m['team_b'] as String?) ?? '',
+          formatLabel: (m['format_label'] as String?) ?? '',
+          createdAt: DateTime.fromMillisecondsSinceEpoch(
+            ((m['created_at'] as num?) ?? 0).toInt(),
+          ),
+        ));
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Searches public synced tournaments on Supabase by name or venue (case-insensitive).
+  Future<
+      List<
+          ({
+            String id,
+            String name,
+            String? location,
+            String formatLabel,
+            int teamCount,
+            String? dateRangeLabel,
+          })>> searchPublicTournaments(
+    String query, {
+    int limit = 10,
+    Set<String> excludeIds = const {},
+  }) async {
+    final clean = query.trim();
+    if (clean.length < 2) return const [];
+    try {
+      final client = Supabase.instance.client;
+      final safe = clean.replaceAll(',', ' ');
+      final rows = await client
+          .from('tournaments')
+          .select(
+            'id, name, location, start_date, end_date, format_label, team_rosters',
+          )
+          .or('name.ilike.%$safe%,location.ilike.%$safe%')
+          .order('created_at', ascending: false)
+          .limit(limit);
+      final out = <({
+        String id,
+        String name,
+        String? location,
+        String formatLabel,
+        int teamCount,
+        String? dateRangeLabel,
+      })>[];
+      for (final raw in (rows as List)) {
+        final m = Map<String, Object?>.from(raw as Map);
+        final id = (m['id'] as String?) ?? '';
+        final name = (m['name'] as String?)?.trim() ?? '';
+        if (id.isEmpty || name.isEmpty || excludeIds.contains(id)) continue;
+        final rawLoc = (m['location'] as String?)?.trim();
+        final loc = (rawLoc != null && rawLoc.isNotEmpty) ? rawLoc : null;
+        final rawStart = m['start_date'] as num?;
+        final rawEnd = m['end_date'] as num?;
+        final start = rawStart != null
+            ? DateTime.fromMillisecondsSinceEpoch(rawStart.toInt())
+            : null;
+        final end = rawEnd != null
+            ? DateTime.fromMillisecondsSinceEpoch(rawEnd.toInt())
+            : null;
+        String? dateLabel;
+        if (start != null && end != null) {
+          dateLabel = (start.year == end.year &&
+                  start.month == end.month &&
+                  start.day == end.day)
+              ? Tournament.formatShortDate(start)
+              : '${Tournament.formatShortDate(start)} – ${Tournament.formatShortDate(end)}';
+        } else if (start != null) {
+          dateLabel = 'Starts ${Tournament.formatShortDate(start)}';
+        } else if (end != null) {
+          dateLabel = 'Ends ${Tournament.formatShortDate(end)}';
+        }
+        final rosters = m['team_rosters'];
+        final count = rosters is Map ? rosters.length : 0;
+        out.add((
+          id: id,
+          name: name,
+          location: loc,
+          formatLabel: (m['format_label'] as String?) ?? '',
+          teamCount: count,
+          dateRangeLabel: dateLabel,
+        ));
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Searches players across public Crease teams by player name (case-insensitive).
+  Future<
+      List<
+          ({
+            String playerName,
+            String teamId,
+            String teamName,
+            String? teamLocation,
+          })>> searchPublicPlayers(
+    String query, {
+    int limit = 12,
+    Set<String> excludeTeamIds = const {},
+  }) async {
+    final clean = query.trim();
+    if (clean.length < 2) return const [];
+    try {
+      final rows = await Supabase.instance.client.rpc(
+        'search_public_players',
+        params: {'p_query': clean, 'p_limit': limit},
+      );
+      final out = <({
+        String playerName,
+        String teamId,
+        String teamName,
+        String? teamLocation,
+      })>[];
+      if (rows is List) {
+        for (final raw in rows) {
+          final m = raw as Map;
+          final playerName = (m['player_name'] as String?)?.trim() ?? '';
+          final teamId = (m['team_id'] as String?) ?? '';
+          final teamName = (m['team_name'] as String?)?.trim() ?? '';
+          if (playerName.isEmpty ||
+              teamId.isEmpty ||
+              excludeTeamIds.contains(teamId)) {
+            continue;
+          }
+          final rawLoc = (m['team_location'] as String?)?.trim();
+          out.add((
+            playerName: playerName,
+            teamId: teamId,
+            teamName: teamName,
+            teamLocation: (rawLoc != null && rawLoc.isNotEmpty) ? rawLoc : null,
+          ));
+        }
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<Tournament?> getTournament(String tournamentId) async {
@@ -445,12 +891,18 @@ class LocalEventStore {
           'id': t.id,
           'owner_id': userId,
           'name': t.name,
+          'location': t.location,
+          'start_date': t.startDate?.millisecondsSinceEpoch,
+          'end_date': t.endDate?.millisecondsSinceEpoch,
           'overs_limit': t.oversLimit,
           'players_per_side': t.playersPerSide,
           'format_label': t.formatLabel,
           'team_rosters': t.teamRosters,
           'points_for_win': t.pointsForWin,
           'points_for_tie': t.pointsForTie,
+          'structure': t.structure.name,
+          'rounds_per_pair': t.roundsPerPair,
+          'knockout_qualifiers': t.knockoutQualifiers,
           'created_at': t.createdAt.millisecondsSinceEpoch,
         },
         onConflict: 'id',
@@ -464,6 +916,90 @@ class LocalEventStore {
       );
     } catch (e) {
       debugPrint('[Crease Sync] Tournament upsert failed: $e');
+    }
+  }
+
+  /// Fetches a public tournament and all of its synced matches purely in memory
+  /// (never writes another user's tournament or matches into local SQLite).
+  Future<({Tournament tournament, List<DerivedMatchState> matches, bool isOwner})?>
+      fetchPublicTournamentSnapshot(String tournamentId) async {
+    try {
+      final client = Supabase.instance.client;
+      final tRow = await client
+          .from('tournaments')
+          .select('owner_id, $_tournamentSelectCols')
+          .eq('id', tournamentId)
+          .maybeSingle();
+      if (tRow == null) return null;
+      final uid = client.auth.currentUser?.id;
+      final isOwner = uid != null && (tRow['owner_id'] as String?) == uid;
+      final tournament =
+          Tournament.fromMap(Map<String, Object?>.from(tRow));
+      final matchRows = await client
+          .from('matches')
+          .select(_matchSelectCols)
+          .eq('tournament_id', tournamentId)
+          .order('created_at', ascending: false);
+      final configs = (matchRows as List)
+          .map((r) => MatchConfig.fromMap(Map<String, Object?>.from(r as Map)))
+          .toList();
+      final matchIds = configs.map((c) => c.id).toList();
+      final eventsByMatch = <String, List<BallEvent>>{};
+      if (matchIds.isNotEmpty) {
+        final evRows = await client
+            .from('ball_events')
+            .select(_ballEventSelectCols)
+            .inFilter('match_id', matchIds)
+            .order('sequence_number', ascending: true);
+        for (final r in (evRows as List)) {
+          final ev = BallEvent.fromMap(Map<String, Object?>.from(r as Map));
+          eventsByMatch.putIfAbsent(ev.matchId, () => <BallEvent>[]).add(ev);
+        }
+      }
+      final derived = [
+        for (final cfg in configs)
+          CricketEngine.derive(cfg, eventsByMatch[cfg.id] ?? const []),
+      ];
+      return (tournament: tournament, matches: derived, isOwner: isOwner);
+    } catch (e) {
+      debugPrint('[Crease Sync] fetchPublicTournamentSnapshot failed: $e');
+      return null;
+    }
+  }
+
+  /// Pulls a public tournament and all of its synced matches from Supabase into
+  /// local SQLite (used when opening a shared tournament link in the app).
+  Future<bool> pullRemoteTournamentToLocal(String tournamentId) async {
+    try {
+      final client = Supabase.instance.client;
+      final tRow = await client
+          .from('tournaments')
+          .select(_tournamentSelectCols)
+          .eq('id', tournamentId)
+          .maybeSingle();
+      if (tRow == null) return false;
+      final tournament =
+          Tournament.fromMap(Map<String, Object?>.from(tRow));
+      final db = await database;
+      await db.insert(
+        'tournaments',
+        tournament.copyWith(synced: true).toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      final matchRows = await client
+          .from('matches')
+          .select('id')
+          .eq('tournament_id', tournamentId);
+      for (final r in (matchRows as List)) {
+        final mid = (r as Map)['id'] as String?;
+        if (mid != null && mid.isNotEmpty) {
+          await pullRemoteMatchToLocal(mid);
+        }
+      }
+      return true;
+    } catch (e) {
+      debugPrint('[Crease Sync] pullRemoteTournamentToLocal failed: $e');
+      return false;
     }
   }
 
@@ -495,7 +1031,7 @@ class LocalEventStore {
     String playerName,
   ) async {
     final trimmed = playerName.trim();
-    if (trimmed.isEmpty) return null;
+    if (trimmed.isEmpty || isPlaceholderPlayerName(trimmed)) return null;
     final match = await getMatch(matchId);
     if (match == null) return null;
     final isTeamA = teamName == match.teamA;
@@ -511,6 +1047,62 @@ class LocalEventStore {
         : match.copyWith(teamBPlayers: current);
     await saveMatch(updated);
     return updated;
+  }
+
+  Future<bool> isTournamentKnockoutsUnlockedEarly(String tournamentId) async {
+    final db = await database;
+    final rows = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['tournament_unlocked_early_$tournamentId'],
+      limit: 1,
+    );
+    return rows.isNotEmpty && rows.first['value'] == '1';
+  }
+
+  Future<void> setTournamentKnockoutsUnlockedEarly(
+    String tournamentId,
+    bool unlocked,
+  ) async {
+    final db = await database;
+    final key = 'tournament_unlocked_early_$tournamentId';
+    if (unlocked) {
+      await db.insert(
+        'app_settings',
+        {'key': key, 'value': '1'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } else {
+      await db.delete('app_settings', where: 'key = ?', whereArgs: [key]);
+    }
+  }
+
+  /// Deletes [tournamentId] locally and in Supabase while preserving played
+  /// matches and career stats (mirrors Postgres ON DELETE SET NULL).
+  Future<void> deleteTournament(String tournamentId) async {
+    final db = await database;
+    await db.update(
+      'matches',
+      {
+        'tournament_id': null,
+        'tournament_stage': null,
+        'fixture_index': null,
+      },
+      where: 'tournament_id = ?',
+      whereArgs: [tournamentId],
+    );
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['tournament_unlocked_early_$tournamentId'],
+    );
+    await db.delete('tournaments', where: 'id = ?', whereArgs: [tournamentId]);
+    try {
+      await Supabase.instance.client
+          .from('tournaments')
+          .delete()
+          .eq('id', tournamentId);
+    } catch (_) {}
   }
 
   Future<void> deleteMatch(String matchId) async {
@@ -596,6 +1188,24 @@ class LocalEventStore {
     );
   }
 
+  static const _teamSelectCols =
+      'id, owner_id, name, location, is_my_team, players, player_meta, created_at';
+  static const _tournamentSelectCols =
+      'id, name, location, start_date, end_date, overs_limit, players_per_side, '
+      'format_label, team_rosters, points_for_win, points_for_tie, structure, '
+      'rounds_per_pair, knockout_qualifiers, created_at';
+  static const _matchSelectCols =
+      'id, team_a, team_b, team_a_id, team_b_id, overs_limit, players_per_side, format_label, '
+      'batting_first_team, opening_striker_1, opening_non_striker_1, '
+      'opening_bowler_1, opening_striker_2, opening_non_striker_2, '
+      'opening_bowler_2, team_a_players, team_b_players, tournament_id, '
+      'tournament_stage, fixture_index, is_test_match, declared_innings, '
+      'follow_on_enforced, first_innings_target_override, is_demo, created_at';
+  static const _ballEventSelectCols =
+      'id, match_id, innings_number, sequence_number, striker, non_striker, '
+      'bowler, runs_off_bat, extra_type, extra_runs, is_wicket, wicket_type, '
+      'dismissed_batter, fielder, next_batter, voided, created_at';
+
   /// Fetches a public/shared match and its ball events from the cloud when
   /// opened via a deep link on a device that does not store the match locally.
   Future<({MatchConfig config, List<BallEvent> events})?> fetchRemoteMatch(
@@ -610,14 +1220,14 @@ class LocalEventStore {
     try {
       final matchRow = await client
           .from('matches')
-          .select()
+          .select(_matchSelectCols)
           .eq('id', matchId)
           .maybeSingle();
       if (matchRow == null) return null;
 
       final eventRows = await client
           .from('ball_events')
-          .select()
+          .select(_ballEventSelectCols)
           .eq('match_id', matchId)
           .order('sequence_number', ascending: true);
 
@@ -704,6 +1314,8 @@ class LocalEventStore {
         'active_scorer_id': userId,
         'team_a': match.teamA,
         'team_b': match.teamB,
+        'team_a_id': match.teamAId,
+        'team_b_id': match.teamBId,
         'overs_limit': match.oversLimit,
         'players_per_side': match.playersPerSide,
         'format_label': match.formatLabel,
@@ -717,6 +1329,8 @@ class LocalEventStore {
         'team_a_players': match.teamAPlayers,
         'team_b_players': match.teamBPlayers,
         'tournament_id': match.tournamentId,
+        'tournament_stage': match.tournamentStage,
+        'fixture_index': match.fixtureIndex,
         'is_test_match': match.isTestMatch,
         'declared_innings': match.declaredInnings,
         'follow_on_enforced': match.followOnEnforced,
@@ -988,6 +1602,49 @@ class LocalEventStore {
     }
   }
 
+  /// Returns lowercase player names mapped to their public avatar URL for [teamId].
+  Future<Map<String, String>> fetchTeamMemberAvatars(String teamId) async {
+    try {
+      final rows = await Supabase.instance.client
+          .from('team_members')
+          .select('player_name, avatar_url')
+          .eq('team_id', teamId);
+      final out = <String, String>{};
+      for (final raw in (rows as List)) {
+        final m = raw as Map;
+        final name = (m['player_name'] as String?)?.trim().toLowerCase() ?? '';
+        final url = (m['avatar_url'] as String?)?.trim() ?? '';
+        if (name.isNotEmpty && url.isNotEmpty) {
+          out[name] = url;
+        }
+      }
+      return out;
+    } catch (_) {
+      return const <String, String>{};
+    }
+  }
+
+  /// Fetches a linked player's public avatar URL (if any) from `team_members`.
+  Future<String?> fetchPublicPlayerAvatar(String playerName) async {
+    final clean = playerName.trim();
+    if (clean.isEmpty) return null;
+    try {
+      final rows = await Supabase.instance.client
+          .from('team_members')
+          .select('avatar_url')
+          .ilike('player_name', clean)
+          .not('avatar_url', 'is', null)
+          .limit(1);
+      if (rows.isNotEmpty) {
+        final url = ((rows.first as Map)['avatar_url'] as String?)?.trim();
+        if (url != null && url.isNotEmpty) return url;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Unlinks a claimed player from [teamId] (allowed for the player or team owner).
   Future<void> unlinkTeamPlayer(String teamId, String playerName) async {
     await Supabase.instance.client
@@ -1046,9 +1703,10 @@ class LocalEventStore {
       }
 
       // 1. Owned teams
-      final ownedTeams =
-          await client.from('teams').select().eq('owner_id', uid);
-      final teamNamesToPull = <String>{};
+      final ownedTeams = await client
+          .from('teams')
+          .select(_teamSelectCols)
+          .eq('owner_id', uid);
       for (final row in (ownedTeams as List)) {
         final team = TeamProfile.fromMap(Map<String, Object?>.from(row as Map));
         await db.insert(
@@ -1056,7 +1714,6 @@ class LocalEventStore {
           team.copyWith(synced: true).toMap(),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
-        teamNamesToPull.add(team.name);
       }
 
       // 2. Claimed team memberships
@@ -1073,7 +1730,7 @@ class LocalEventStore {
         if (tid != null) {
           final tRow = await client
               .from('teams')
-              .select()
+              .select(_teamSelectCols)
               .eq('id', tid)
               .maybeSingle();
           if (tRow != null) {
@@ -1086,9 +1743,25 @@ class LocalEventStore {
                   .toMap(),
               conflictAlgorithm: ConflictAlgorithm.replace,
             );
-            teamNamesToPull.add(team.name);
           }
         }
+      }
+
+      // 2b. Owned tournaments
+      final restoredTournamentIds = <String>{};
+      final ownedTournaments = await client
+          .from('tournaments')
+          .select(_tournamentSelectCols)
+          .eq('owner_id', uid);
+      for (final row in (ownedTournaments as List)) {
+        final tournament =
+            Tournament.fromMap(Map<String, Object?>.from(row as Map));
+        await db.insert(
+          'tournaments',
+          tournament.copyWith(synced: true).toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        restoredTournamentIds.add(tournament.id);
       }
 
       if (firstClaimedPlayer != null) {
@@ -1104,6 +1777,8 @@ class LocalEventStore {
           );
         }
       }
+
+      await _syncOwnerTeamMemberships(await getUserProfile());
 
       // 3. Owned matches + co-scored matches
       final matchIds = <String>{};
@@ -1125,14 +1800,160 @@ class LocalEventStore {
         }
       }
 
-      // 4. Matches played by any of the user's teams
-      for (final name in teamNamesToPull) {
-        restoredMatches += await pullMatchesForTeamName(name);
+      // 4. Restore any tournaments referenced by restored matches (e.g. co-scored)
+      final localTournamentRefRows = await db.rawQuery(
+        'SELECT DISTINCT tournament_id FROM matches WHERE tournament_id IS NOT NULL',
+      );
+      for (final r in localTournamentRefRows) {
+        final tid = r['tournament_id'] as String?;
+        if (tid == null ||
+            tid.isEmpty ||
+            restoredTournamentIds.contains(tid)) {
+          continue;
+        }
+        final tRow = await client
+            .from('tournaments')
+            .select(_tournamentSelectCols)
+            .eq('id', tid)
+            .maybeSingle();
+        if (tRow != null) {
+          final tournament =
+              Tournament.fromMap(Map<String, Object?>.from(tRow));
+          await db.insert(
+            'tournaments',
+            tournament.copyWith(synced: true).toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+          restoredTournamentIds.add(tid);
+        }
       }
     } catch (e) {
       debugPrint('[Crease Sync] restoreAccountDataFromCloud failed: $e');
     }
+    accountDataVersion++;
     return restoredMatches;
+  }
+
+  /// Transfers ownership of any local anonymous-guest matches, teams, and
+  /// tournaments on this device to the currently signed-in account, smart-merges
+  /// any guest team that shares a name with an existing owned team, and uploads
+  /// any offline-only guest records.
+  Future<({int matchesSaved, int teamsSaved, int tournamentsSaved})>
+      claimGuestDataForSignedInUser({String? previousGuestUid}) async {
+    var matchesSaved = 0;
+    var teamsSaved = 0;
+    var tournamentsSaved = 0;
+
+    final matches = (await listMatches()).where((m) => !m.isDemo).toList();
+    final teams = await listTeams();
+    final tournaments = await listTournaments();
+
+    if (matches.isEmpty && teams.isEmpty && tournaments.isEmpty) {
+      return (matchesSaved: 0, teamsSaved: 0, tournamentsSaved: 0);
+    }
+
+    final db = await database;
+    final removedLocalTeamIds = <String>{};
+
+    try {
+      final client = Supabase.instance.client;
+      final newUid = client.auth.currentUser?.id;
+      if (newUid != null &&
+          previousGuestUid != null &&
+          previousGuestUid.isNotEmpty &&
+          previousGuestUid != newUid) {
+        final res = await client.rpc(
+          'claim_guest_data',
+          params: {
+            'p_guest_id': previousGuestUid,
+            'p_match_ids': matches.map((m) => m.id).toList(),
+            'p_team_ids': teams.map((t) => t.id).toList(),
+            'p_tournament_ids': tournaments.map((t) => t.id).toList(),
+          },
+        );
+        if (res is Map) {
+          matchesSaved = (res['matches_claimed'] as num?)?.toInt() ?? 0;
+          teamsSaved = (res['teams_claimed'] as num?)?.toInt() ?? 0;
+          tournamentsSaved = (res['tournaments_claimed'] as num?)?.toInt() ?? 0;
+          final mergedIds = res['merged_team_ids'];
+          if (mergedIds is List) {
+            for (final rawId in mergedIds) {
+              final id = rawId.toString();
+              if (id.isNotEmpty) {
+                await client
+                    .from('teams')
+                    .delete()
+                    .eq('id', id)
+                    .eq('owner_id', newUid);
+                await db.delete('teams', where: 'id = ?', whereArgs: [id]);
+                removedLocalTeamIds.add(id);
+              }
+            }
+          }
+        }
+      }
+
+      // Handle offline-only guest teams whose name collides with an already-owned cloud team.
+      final remainingUnsyncedTeams = teams
+          .where((t) => !t.synced && !removedLocalTeamIds.contains(t.id))
+          .toList();
+      if (newUid != null && remainingUnsyncedTeams.isNotEmpty) {
+        final ownedCloudRows = await client
+            .from('teams')
+            .select('id, name, players')
+            .eq('owner_id', newUid);
+        final ownedByLower = <String, ({String id, List<String> players})>{};
+        for (final row in (ownedCloudRows as List)) {
+          final m = Map<String, Object?>.from(row as Map);
+          final name = (m['name'] as String? ?? '').trim();
+          final id = m['id'] as String? ?? '';
+          if (name.isEmpty || id.isEmpty) continue;
+          final rawPlayers = m['players'];
+          final players = rawPlayers is List
+              ? rawPlayers.map((e) => e.toString()).toList()
+              : <String>[];
+          ownedByLower[name.toLowerCase()] = (id: id, players: players);
+        }
+
+        for (final guestTeam in remainingUnsyncedTeams) {
+          final existing = ownedByLower[guestTeam.name.trim().toLowerCase()];
+          if (existing == null || existing.id == guestTeam.id) continue;
+          final merged = List<String>.from(existing.players);
+          final seen = merged.map((p) => p.trim().toLowerCase()).toSet();
+          var changed = false;
+          for (final p in guestTeam.players) {
+            final clean = p.trim();
+            if (clean.isEmpty || seen.contains(clean.toLowerCase())) continue;
+            merged.add(clean);
+            seen.add(clean.toLowerCase());
+            changed = true;
+          }
+          if (changed) {
+            await client
+                .from('teams')
+                .update({'players': merged})
+                .eq('id', existing.id)
+                .eq('owner_id', newUid);
+          }
+          await db.delete('teams', where: 'id = ?', whereArgs: [guestTeam.id]);
+          removedLocalTeamIds.add(guestTeam.id);
+        }
+      }
+    } catch (e) {
+      debugPrint('[Crease Sync] claim_guest_data RPC failed: $e');
+    }
+
+    // Also upload any non-colliding offline-only guest teams, tournaments, and matches.
+    final offlineSyncedEvents = await syncAllPendingToSupabase();
+    if (offlineSyncedEvents > 0 && matchesSaved == 0) {
+      matchesSaved = matches.length;
+    }
+
+    return (
+      matchesSaved: matchesSaved,
+      teamsSaved: teamsSaved,
+      tournamentsSaved: tournamentsSaved,
+    );
   }
 
   /// Syncs all teams, tournaments, and matches that have unsynced records to Supabase.
@@ -1209,6 +2030,8 @@ class LocalEventStore {
             'active_scorer_id': userId,
             'team_a': match.teamA,
             'team_b': match.teamB,
+            'team_a_id': match.teamAId,
+            'team_b_id': match.teamBId,
             'overs_limit': match.oversLimit,
             'players_per_side': match.playersPerSide,
             'format_label': match.formatLabel,
@@ -1222,6 +2045,8 @@ class LocalEventStore {
             'team_a_players': match.teamAPlayers,
             'team_b_players': match.teamBPlayers,
             'tournament_id': match.tournamentId,
+            'tournament_stage': match.tournamentStage,
+            'fixture_index': match.fixtureIndex,
             'is_test_match': match.isTestMatch,
             'declared_innings': match.declaredInnings,
             'follow_on_enforced': match.followOnEnforced,

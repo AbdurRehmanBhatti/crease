@@ -21,5 +21,14 @@ void main() {
 
     final teamScheme = Uri.parse('crease://join-team/731492');
     expect(CreaseLinks.parseTeamInviteCode(teamScheme), '731492');
+
+    final tourneyHttps = Uri.parse(CreaseLinks.tournamentUrl('tourney-101'));
+    expect(CreaseLinks.parseTournamentId(tourneyHttps), 'tourney-101');
+
+    final tourneyScheme =
+        Uri.parse(CreaseLinks.appTournamentUri('tourney-202'));
+    expect(CreaseLinks.parseTournamentId(tourneyScheme), 'tourney-202');
+
+    expect(CreaseLinks.parseTournamentId(unrelated), isNull);
   });
 }

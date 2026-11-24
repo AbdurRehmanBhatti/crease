@@ -13,9 +13,10 @@ import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 import '../profile/profile_screen.dart';
 import '../quick_match/quick_match_sheet.dart';
+import '../scorecard/scorecard_screen.dart';
 import '../scoring/scorer_handover_sheets.dart';
 import '../scoring/scoring_screen.dart';
-import '../stats/stats_tab_view.dart';
+import '../search/search_screen.dart';
 import '../teams/teams_tab_view.dart';
 import '../tournaments/create_tournament_sheet.dart';
 import '../tournaments/tournament_detail_screen.dart';
@@ -42,18 +43,68 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadMatches();
   }
 
+  Map<String, List<String>> _deriveKnownRosters(
+    List<TeamProfile> teams,
+    List<Tournament> tournaments,
+    List<DerivedMatchState> matches,
+  ) {
+    final rosters = <String, List<String>>{};
+    void merge(String teamName, List<String> players) {
+      final key = teamName.trim();
+      if (key.isEmpty) return;
+      final list = rosters.putIfAbsent(key, () => <String>[]);
+      for (final p in players) {
+        final trimmed = p.trim();
+        if (trimmed.isEmpty ||
+            LocalEventStore.isPlaceholderPlayerName(trimmed)) {
+          continue;
+        }
+        if (!list.any((e) => e.toLowerCase() == trimmed.toLowerCase())) {
+          list.add(trimmed);
+        }
+      }
+    }
+
+    for (final t in teams) {
+      merge(t.name, t.players);
+    }
+    final savedNameById = {for (final t in teams) t.id: t.name};
+    for (final t in tournaments) {
+      for (final entry in t.teamRosters.entries) {
+        merge(entry.key, entry.value);
+      }
+    }
+    for (final m in matches) {
+      if (m.config.teamAId == null) {
+        if (!m.config.teamA.trim().endsWith('(2)')) {
+          merge(m.config.teamA, m.config.teamAPlayers);
+        }
+      } else if (savedNameById.containsKey(m.config.teamAId)) {
+        merge(savedNameById[m.config.teamAId]!, m.config.teamAPlayers);
+      }
+      if (m.config.teamBId == null) {
+        if (!m.config.teamB.trim().endsWith('(2)')) {
+          merge(m.config.teamB, m.config.teamBPlayers);
+        }
+      } else if (savedNameById.containsKey(m.config.teamBId)) {
+        merge(savedNameById[m.config.teamBId]!, m.config.teamBPlayers);
+      }
+    }
+    return rosters;
+  }
+
   Future<void> _loadMatches() async {
     final store = LocalEventStore.instance;
     final configs = await store.listMatches();
     final tournaments = await store.listTournaments();
     final teams = await store.listTeams();
-    final knownRosters = await store.listKnownTeamRosters();
     final profile = await store.getUserProfile();
     final derived = <DerivedMatchState>[];
     for (final cfg in configs) {
       final events = await store.getBallEvents(cfg.id);
       derived.add(CricketEngine.derive(cfg, events));
     }
+    final knownRosters = _deriveKnownRosters(teams, tournaments, derived);
     if (!mounted) return;
     setState(() {
       _matches = derived;
@@ -65,8 +116,80 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _refreshProfileOnly() async {
+    final profile = await LocalEventStore.instance.getUserProfile();
+    if (!mounted) return;
+    setState(() => _profile = profile);
+  }
+
+  Future<void> _refreshTeamsOnly() async {
+    final teams = await LocalEventStore.instance.listTeams();
+    if (!mounted) return;
+    setState(() {
+      _teams = teams;
+      _knownRosters = _deriveKnownRosters(teams, _tournaments, _matches);
+    });
+  }
+
+  Future<void> _refreshSingleMatch(String matchId) async {
+    final store = LocalEventStore.instance;
+    final cfg = await store.getMatch(matchId);
+    final nextMatches = List<DerivedMatchState>.from(_matches);
+    final existingIdx = nextMatches.indexWhere((m) => m.config.id == matchId);
+    if (cfg == null) {
+      if (existingIdx >= 0) nextMatches.removeAt(existingIdx);
+    } else {
+      final events = await store.getBallEvents(cfg.id);
+      final derived = CricketEngine.derive(cfg, events);
+      if (existingIdx >= 0) {
+        nextMatches[existingIdx] = derived;
+      } else {
+        nextMatches.insert(0, derived);
+      }
+    }
+    // Also pick up any newly created follow-up match (e.g. Super Over).
+    final knownIds = nextMatches.map((m) => m.config.id).toSet();
+    final allConfigs = await store.listMatches();
+    for (final c in allConfigs) {
+      if (!knownIds.contains(c.id)) {
+        final ev = await store.getBallEvents(c.id);
+        nextMatches.insert(0, CricketEngine.derive(c, ev));
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _matches = nextMatches;
+      _knownRosters = _deriveKnownRosters(_teams, _tournaments, nextMatches);
+    });
+  }
+
+  Future<void> _refreshTournament(String tournamentId) async {
+    final store = LocalEventStore.instance;
+    final tournaments = await store.listTournaments();
+    final tConfigs = await store.listMatchesForTournament(tournamentId);
+    final refreshed = <DerivedMatchState>[];
+    for (final cfg in tConfigs) {
+      final events = await store.getBallEvents(cfg.id);
+      refreshed.add(CricketEngine.derive(cfg, events));
+    }
+    final nextMatches = _matches
+        .where((m) => m.config.tournamentId != tournamentId)
+        .toList()
+      ..addAll(refreshed)
+      ..sort((a, b) => b.config.createdAt.compareTo(a.config.createdAt));
+    if (!mounted) return;
+    setState(() {
+      _tournaments = tournaments;
+      _matches = nextMatches;
+      _knownRosters = _deriveKnownRosters(_teams, tournaments, nextMatches);
+    });
+  }
+
   Future<void> _createTeam() async {
-    final team = await showCreateTeamSheet(context);
+    final team = await showCreateTeamSheet(
+      context,
+      existingTeamNames: _teams.map((t) => t.name).toList(),
+    );
     if (team == null) return;
     await LocalEventStore.instance.saveTeam(team);
     LocalEventStore.instance.syncTeamToSupabase(team.id);
@@ -81,7 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    _loadMatches();
+    _refreshTeamsOnly();
   }
 
   Future<void> _createTournament() async {
@@ -95,25 +218,37 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => TournamentDetailScreen(tournamentId: tournament.id),
       ),
     );
-    _loadMatches();
+    _refreshTournament(tournament.id);
   }
 
   Future<void> _createQuickMatch() async {
-    final config = await showQuickMatchSheet(context);
+    final myTeam = _teams.where((t) => t.isMyTeam).firstOrNull?.name;
+    final config = await showQuickMatchSheet(
+      context,
+      initialKnownTeams: _knownRosters,
+      defaultMyTeamName: myTeam,
+    );
     if (config == null) return;
     await LocalEventStore.instance.saveMatch(config);
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ScoringScreen(matchId: config.id)),
     );
-    _loadMatches();
+    _refreshSingleMatch(config.id);
   }
 
   Future<void> _openMatch(String matchId) async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ScoringScreen(matchId: matchId)),
     );
-    _loadMatches();
+    _refreshSingleMatch(matchId);
+  }
+
+  Future<void> _openScorecard(String matchId) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ScorecardScreen(matchId: matchId)),
+    );
+    _refreshSingleMatch(matchId);
   }
 
   Future<void> _confirmDeleteMatch(DerivedMatchState match) async {
@@ -142,7 +277,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (ok != true) return;
     await LocalEventStore.instance.deleteMatch(match.config.id);
-    _loadMatches();
+    _refreshSingleMatch(match.config.id);
   }
 
   Future<void> _joinAsScorer() async {
@@ -151,11 +286,43 @@ class _HomeScreenState extends State<HomeScreen> {
     await _openMatch(matchId);
   }
 
+  Future<void> _openSearch() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SearchScreen(
+          localMatches: _matches,
+          localTeams: _teams,
+          localTournaments: _tournaments,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    _loadMatches();
+  }
+
   Future<void> _openProfile() async {
+    final versionBefore = LocalEventStore.instance.accountDataVersion;
+    String? uidBefore;
+    try {
+      uidBefore = Supabase.instance.client.auth.currentUser?.id;
+    } catch (_) {}
+
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const ProfileScreen()),
     );
-    _loadMatches();
+    if (!mounted) return;
+
+    String? uidAfter;
+    try {
+      uidAfter = Supabase.instance.client.auth.currentUser?.id;
+    } catch (_) {}
+
+    if (LocalEventStore.instance.accountDataVersion != versionBefore ||
+        uidAfter != uidBefore) {
+      await _loadMatches();
+    } else {
+      await _refreshProfileOnly();
+    }
   }
 
   bool get _isGuestAccount {
@@ -174,9 +341,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String get _tabHeading => switch (_navIndex) {
-        1 => 'Teams',
-        2 => 'Tournaments',
-        3 => 'Stats',
+        1 => 'My Teams',
+        2 => 'My Tournaments',
         _ => 'Crease',
       };
 
@@ -261,6 +427,33 @@ class _HomeScreenState extends State<HomeScreen> {
                                     : 'New match',
                           ),
                         ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: 'Search Crease',
+                        child: CreasePressable(
+                          onTap: _openSearch,
+                          borderRadius:
+                              BorderRadius.circular(CreaseRadius.control),
+                          scale: 0.94,
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: c.surfaceGlass,
+                              borderRadius: BorderRadius.circular(
+                                CreaseRadius.control,
+                              ),
+                              border: Border.all(color: c.hairline),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.search_rounded,
+                              size: 20,
+                              color: c.inkPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       Tooltip(
                         message: 'Profile & account',
@@ -461,7 +654,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemBuilder: (context, index) => _MatchScoreCard(
                           match: recentMatches[index],
                           onTap: () =>
-                              _openMatch(recentMatches[index].config.id),
+                              _openScorecard(recentMatches[index].config.id),
                           onLongPress: () =>
                               _confirmDeleteMatch(recentMatches[index]),
                         ),
@@ -546,7 +739,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         final t = _tournaments[index];
                         final tMatches = _matches
                             .where((m) => m.config.tournamentId == t.id)
-                            .length;
+                            .toList();
+                        final overview =
+                            TournamentEngine.deriveOverview(t, tMatches);
+                        final subtitle = overview.champion != null
+                            ? 'Champion: ${overview.champion} · ${t.formatLabel}'
+                            : overview.totalPlannedMatches > 0
+                                ? '${t.structure.shortLabel} · ${overview.completedTotalCount}/${overview.totalPlannedMatches} matches · ${t.formatLabel}'
+                                : '${t.teams.length} teams · ${tMatches.length} match${tMatches.length == 1 ? '' : 'es'} · ${t.formatLabel}';
                         return CreasePressable(
                           onTap: () async {
                             await Navigator.of(context).push(
@@ -555,7 +755,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     TournamentDetailScreen(tournamentId: t.id),
                               ),
                             );
-                            _loadMatches();
+                            _refreshTournament(t.id);
                           },
                           child: GlassSurface(
                             padding: const EdgeInsets.all(16),
@@ -582,11 +782,42 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       const SizedBox(height: 3),
                                       Text(
-                                        '${t.teams.length} teams · $tMatches match${tMatches == 1 ? '' : 'es'} · ${t.formatLabel}',
+                                        subtitle,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: Theme.of(context)
                                             .textTheme
-                                            .bodyMedium,
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color: overview.champion != null
+                                                  ? c.pitchGreen
+                                                  : c.inkSecondary,
+                                              fontWeight:
+                                                  overview.champion != null
+                                                      ? FontWeight.w600
+                                                      : FontWeight.w400,
+                                            ),
                                       ),
+                                      if ((t.location != null &&
+                                              t.location!.isNotEmpty) ||
+                                          t.dateRangeLabel != null) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          [
+                                            if (t.location != null &&
+                                                t.location!.isNotEmpty)
+                                              t.location!,
+                                            if (t.dateRangeLabel != null)
+                                              t.dateRangeLabel!,
+                                          ].join(' · '),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(color: c.inkSecondary),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),
@@ -603,12 +834,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ],
-              ] else
-                StatsTabView(
-                  matches: _matches,
-                  tournaments: _tournaments,
-                  savedTeams: _teams,
-                ),
+              ],
             ],
           ),
         ),
@@ -896,11 +1122,6 @@ class _CreaseBottomNav extends StatelessWidget {
       label: 'Tournaments',
       icon: Icons.emoji_events_outlined,
       activeIcon: Icons.emoji_events_rounded,
-    ),
-    (
-      label: 'Stats',
-      icon: Icons.bar_chart_outlined,
-      activeIcon: Icons.bar_chart_rounded,
     ),
   ];
 

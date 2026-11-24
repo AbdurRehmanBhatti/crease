@@ -66,8 +66,11 @@ class CricketEngine {
             ? innings1.totalRuns + 1
             : null);
 
-    final bool showInnings2 =
-        hasDemoChase || inn2Events.isNotEmpty || forcedInnings == 2;
+    final bool showInnings2 = hasDemoChase ||
+        inn2Events.isNotEmpty ||
+        inn3Events.isNotEmpty ||
+        inn4Events.isNotEmpty ||
+        (forcedInnings != null && forcedInnings >= 2);
 
     DerivedInningsState? innings2;
     if (showInnings2) {
@@ -86,13 +89,88 @@ class CricketEngine {
       );
     }
 
-    int activeInningsNumber = showInnings2 ? 2 : 1;
+    // True In-Match Super Over (innings 3 & 4) when regulation limited-overs match ties.
+    final regulationTarget =
+        innings2?.target ?? (innings1.totalRuns + 1);
+    final isRegulationTied = innings2 != null &&
+        innings2.isComplete &&
+        innings2.totalRuns == (regulationTarget - 1);
+
+    final bool showSuperOver1 = isRegulationTied &&
+        (inn3Events.isNotEmpty ||
+            inn4Events.isNotEmpty ||
+            (forcedInnings != null && forcedInnings >= 3));
+    DerivedInningsState? innings3;
+    if (showSuperOver1) {
+      // ICC Super Over rule: team that batted 2nd in regulation bats 1st.
+      final so1BatTeam = config.battingSecondTeam;
+      final so1BowlTeam = config.battingFirstTeam;
+      final so1BatRoster = config.rosterForTeam(so1BatTeam);
+      final so1BowlRoster = config.rosterForTeam(so1BowlTeam);
+      innings3 = _deriveInnings(
+        inningsNumber: 3,
+        battingTeam: so1BatTeam,
+        bowlingTeam: so1BowlTeam,
+        oversLimit: 1,
+        playersPerSide: 3, // 2 wickets all-out
+        openingStriker:
+            so1BatRoster.isNotEmpty ? so1BatRoster[0] : 'Batter 1',
+        openingNonStriker:
+            so1BatRoster.length > 1 ? so1BatRoster[1] : 'Batter 2',
+        openingBowler:
+            so1BowlRoster.isNotEmpty ? so1BowlRoster[0] : 'Bowler 1',
+        events: inn3Events,
+        isDeclared: config.declaredInnings.contains(3),
+        target: null,
+      );
+    }
+
+    final bool showSuperOver2 = innings3 != null &&
+        (inn4Events.isNotEmpty ||
+            (forcedInnings != null && forcedInnings >= 4));
+    DerivedInningsState? innings4;
+    if (showSuperOver2) {
+      final so2BatTeam = config.battingFirstTeam;
+      final so2BowlTeam = config.battingSecondTeam;
+      final so2BatRoster = config.rosterForTeam(so2BatTeam);
+      final so2BowlRoster = config.rosterForTeam(so2BowlTeam);
+      innings4 = _deriveInnings(
+        inningsNumber: 4,
+        battingTeam: so2BatTeam,
+        bowlingTeam: so2BowlTeam,
+        oversLimit: 1,
+        playersPerSide: 3, // 2 wickets all-out
+        openingStriker:
+            so2BatRoster.isNotEmpty ? so2BatRoster[0] : 'Batter 1',
+        openingNonStriker:
+            so2BatRoster.length > 1 ? so2BatRoster[1] : 'Batter 2',
+        openingBowler:
+            so2BowlRoster.isNotEmpty ? so2BowlRoster[0] : 'Bowler 1',
+        events: inn4Events,
+        isDeclared: config.declaredInnings.contains(4),
+        target: innings3.totalRuns + 1,
+      );
+    }
+
+    int activeInningsNumber = 1;
+    if (innings4 != null) {
+      activeInningsNumber = 4;
+    } else if (innings3 != null) {
+      activeInningsNumber = 3;
+    } else if (showInnings2) {
+      activeInningsNumber = 2;
+    }
     if (forcedInnings == 1 && !hasDemoChase) activeInningsNumber = 1;
+    if (forcedInnings == 2 && innings2 != null) activeInningsNumber = 2;
+    if (forcedInnings == 3 && innings3 != null) activeInningsNumber = 3;
+    if (forcedInnings == 4 && innings4 != null) activeInningsNumber = 4;
 
     // Apply optional manual striker/bowler overrides (e.g. scorer swapped strike
     // or picked a new bowler before bowling the next ball).
     DerivedInningsState finalInn1 = innings1;
     DerivedInningsState? finalInn2 = innings2;
+    DerivedInningsState? finalInn3 = innings3;
+    DerivedInningsState? finalInn4 = innings4;
     if (activeInningsNumber == 1) {
       finalInn1 = _applyManualOverrides(
         innings1,
@@ -100,9 +178,23 @@ class CricketEngine {
         nonStriker: manualNonStrikerOverride,
         bowler: manualBowlerOverride,
       );
-    } else if (finalInn2 != null) {
+    } else if (activeInningsNumber == 2 && finalInn2 != null) {
       finalInn2 = _applyManualOverrides(
         finalInn2,
+        striker: manualStrikerOverride,
+        nonStriker: manualNonStrikerOverride,
+        bowler: manualBowlerOverride,
+      );
+    } else if (activeInningsNumber == 3 && finalInn3 != null) {
+      finalInn3 = _applyManualOverrides(
+        finalInn3,
+        striker: manualStrikerOverride,
+        nonStriker: manualNonStrikerOverride,
+        bowler: manualBowlerOverride,
+      );
+    } else if (activeInningsNumber == 4 && finalInn4 != null) {
+      finalInn4 = _applyManualOverrides(
+        finalInn4,
         striker: manualStrikerOverride,
         nonStriker: manualNonStrikerOverride,
         bowler: manualBowlerOverride,
@@ -115,6 +207,22 @@ class CricketEngine {
     if (config.isAbandoned) {
       status = MatchStatus.completed;
       resultSummary = 'Match abandoned (No result)';
+    } else if (finalInn4 != null && finalInn4.isComplete && finalInn3 != null) {
+      status = MatchStatus.completed;
+      final soTarget = finalInn3.totalRuns + 1;
+      if (finalInn4.totalRuns >= soTarget) {
+        resultSummary = '${finalInn4.battingTeam} won Super Over';
+      } else if (finalInn4.totalRuns == finalInn3.totalRuns) {
+        resultSummary = 'Super Over tied';
+      } else {
+        resultSummary = '${finalInn4.bowlingTeam} won Super Over';
+      }
+    } else if (finalInn4 == null && finalInn3 != null && finalInn3.isComplete) {
+      status = MatchStatus.inningsBreak;
+      resultSummary =
+          'Super Over break · ${config.battingFirstTeam} need ${finalInn3.totalRuns + 1} in 1 ov';
+    } else if (finalInn3 != null) {
+      status = MatchStatus.live;
     } else if (finalInn2 != null && finalInn2.isComplete) {
       status = MatchStatus.completed;
       final target = finalInn2.target ?? (finalInn1.totalRuns + 1);
@@ -141,6 +249,8 @@ class CricketEngine {
       config: config,
       innings1: finalInn1,
       innings2: finalInn2,
+      innings3: finalInn3,
+      innings4: finalInn4,
       activeInningsNumber: activeInningsNumber,
       status: status,
       resultSummary: resultSummary,

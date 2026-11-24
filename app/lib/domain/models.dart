@@ -89,6 +89,8 @@ class MatchConfig {
     required this.id,
     required this.teamA,
     required this.teamB,
+    this.teamAId,
+    this.teamBId,
     required this.oversLimit,
     this.playersPerSide = 11,
     required this.formatLabel,
@@ -102,6 +104,8 @@ class MatchConfig {
     this.teamAPlayers = const [],
     this.teamBPlayers = const [],
     this.tournamentId,
+    this.tournamentStage,
+    this.fixtureIndex,
     this.isTestMatch = false,
     this.declaredInnings = const [],
     this.followOnEnforced = false,
@@ -113,6 +117,8 @@ class MatchConfig {
   final String id;
   final String teamA;
   final String teamB;
+  final String? teamAId;
+  final String? teamBId;
   final int oversLimit; // 0 = unlimited overs (Test match)
   final int playersPerSide;
   final String formatLabel;
@@ -126,6 +132,8 @@ class MatchConfig {
   final List<String> teamAPlayers;
   final List<String> teamBPlayers;
   final String? tournamentId;
+  final String? tournamentStage; // league | quarterFinal | semiFinal | finalMatch
+  final int? fixtureIndex; // 1-based scheduled slot within tournament
   final bool isTestMatch;
   final List<int> declaredInnings;
   final bool followOnEnforced;
@@ -146,6 +154,29 @@ class MatchConfig {
   List<String> rosterForTeam(String teamName) =>
       teamName == teamA ? teamAPlayers : teamBPlayers;
 
+  /// Returns the match's display name for the side corresponding to [teamId]
+  /// (preferred) or [teamName] (fallback for legacy/ad-hoc matches without IDs),
+  /// or `null` if this match does not involve that team.
+  String? sideNameForTeam({String? teamId, String? teamName}) {
+    final cleanId = teamId?.trim();
+    if (cleanId != null && cleanId.isNotEmpty) {
+      if (teamAId == cleanId) return teamA;
+      if (teamBId == cleanId) return teamB;
+    }
+    final lower = teamName?.trim().toLowerCase();
+    if (lower == null || lower.isEmpty) return null;
+    if (teamAId == null && teamA.toLowerCase() == lower) return teamA;
+    if (teamBId == null && teamB.toLowerCase() == lower) return teamB;
+    if (cleanId == null || cleanId.isEmpty) {
+      if (teamA.toLowerCase() == lower) return teamA;
+      if (teamB.toLowerCase() == lower) return teamB;
+    }
+    return null;
+  }
+
+  bool involvesTeam({String? teamId, String? teamName}) =>
+      sideNameForTeam(teamId: teamId, teamName: teamName) != null;
+
   MatchConfig copyWith({
     int? oversLimit,
     String? formatLabel,
@@ -160,6 +191,8 @@ class MatchConfig {
         id: id,
         teamA: teamA,
         teamB: teamB,
+        teamAId: teamAId,
+        teamBId: teamBId,
         oversLimit: oversLimit ?? this.oversLimit,
         playersPerSide: playersPerSide,
         formatLabel: formatLabel ?? this.formatLabel,
@@ -173,6 +206,8 @@ class MatchConfig {
         teamAPlayers: teamAPlayers ?? this.teamAPlayers,
         teamBPlayers: teamBPlayers ?? this.teamBPlayers,
         tournamentId: tournamentId,
+        tournamentStage: tournamentStage,
+        fixtureIndex: fixtureIndex,
         isTestMatch: isTestMatch,
         declaredInnings: declaredInnings ?? this.declaredInnings,
         followOnEnforced: followOnEnforced ?? this.followOnEnforced,
@@ -187,6 +222,8 @@ class MatchConfig {
         'id': id,
         'team_a': teamA,
         'team_b': teamB,
+        'team_a_id': teamAId,
+        'team_b_id': teamBId,
         'overs_limit': oversLimit,
         'players_per_side': playersPerSide,
         'format_label': formatLabel,
@@ -200,6 +237,8 @@ class MatchConfig {
         'team_a_players': jsonEncode(teamAPlayers),
         'team_b_players': jsonEncode(teamBPlayers),
         'tournament_id': tournamentId,
+        'tournament_stage': tournamentStage,
+        'fixture_index': fixtureIndex,
         'is_test_match': isTestMatch ? 1 : 0,
         'declared_innings': jsonEncode(declaredInnings),
         'follow_on_enforced': followOnEnforced ? 1 : 0,
@@ -246,6 +285,8 @@ class MatchConfig {
         id: map['id']! as String,
         teamA: map['team_a']! as String,
         teamB: map['team_b']! as String,
+        teamAId: map['team_a_id'] as String?,
+        teamBId: map['team_b_id'] as String?,
         oversLimit: (map['overs_limit']! as num).toInt(),
         playersPerSide: ((map['players_per_side'] as num?) ?? 11).toInt(),
         formatLabel: map['format_label']! as String,
@@ -262,6 +303,8 @@ class MatchConfig {
         teamAPlayers: _decodePlayers(map['team_a_players']),
         teamBPlayers: _decodePlayers(map['team_b_players']),
         tournamentId: map['tournament_id'] as String?,
+        tournamentStage: map['tournament_stage'] as String?,
+        fixtureIndex: (map['fixture_index'] as num?)?.toInt(),
         isTestMatch: _decodeBool(map['is_test_match']),
         declaredInnings: _decodeInts(map['declared_innings']),
         followOnEnforced: _decodeBool(map['follow_on_enforced']),

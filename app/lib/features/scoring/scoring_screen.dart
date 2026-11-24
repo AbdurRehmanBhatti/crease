@@ -8,6 +8,7 @@ import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
+import '../profile/player_profile_screen.dart';
 import '../scorecard/match_summary_poster.dart';
 import '../scorecard/scorecard_screen.dart';
 import 'scorer_handover_sheets.dart';
@@ -532,6 +533,306 @@ class _ScoringScreenState extends State<ScoringScreen> {
     _showSnack('Ball updated. Scorecard recalculated.');
   }
 
+  Future<void> _startSuperOver(
+    DerivedMatchState state, {
+    int targetInnings = 3,
+  }) async {
+    final cfg = state.config;
+    // ICC Super Over rule: team that batted 2nd in regulation bats 1st (inn 3);
+    // team that batted 1st in regulation chases (inn 4).
+    final batFirst =
+        targetInnings == 3 ? cfg.battingSecondTeam : cfg.battingFirstTeam;
+    final batSecond =
+        targetInnings == 3 ? cfg.battingFirstTeam : cfg.battingSecondTeam;
+
+    List<String> mergeTeamPlayers(String teamName) {
+      final seen = <String>{};
+      final out = <String>[];
+      void add(String name) {
+        final t = name.trim();
+        if (t.isEmpty || LocalEventStore.isPlaceholderPlayerName(t)) return;
+        if (seen.add(t.toLowerCase())) out.add(t);
+      }
+      for (final p in cfg.rosterForTeam(teamName)) {
+        add(p);
+      }
+      for (final inn in state.allInnings) {
+        if (inn.battingTeam == teamName) {
+          for (final b in inn.batters) {
+            add(b.name);
+          }
+        }
+        if (inn.bowlingTeam == teamName) {
+          for (final bw in inn.bowlers) {
+            add(bw.name);
+          }
+        }
+      }
+      return out;
+    }
+
+    final batFirstRoster = mergeTeamPlayers(batFirst);
+    final batSecondRoster = mergeTeamPlayers(batSecond);
+
+    var striker =
+        batFirstRoster.isNotEmpty ? batFirstRoster[0] : 'Batter 1';
+    var nonStriker =
+        batFirstRoster.length > 1 ? batFirstRoster[1] : 'Batter 2';
+    var bowler =
+        batSecondRoster.isNotEmpty ? batSecondRoster[0] : 'Bowler 1';
+
+    Future<String?> pickPlayer({
+      required BuildContext sheetCtx,
+      required String title,
+      required String current,
+      required List<String> roster,
+      String? excludeName,
+    }) async {
+      final candidates = roster
+          .where(
+            (p) =>
+                excludeName == null ||
+                p.toLowerCase() != excludeName.toLowerCase(),
+          )
+          .toList();
+      if (candidates.isEmpty) {
+        return _promptCustomSuperOverPlayer(sheetCtx, title, current);
+      }
+      const customSentinel = '__custom__';
+      final picked = await showCreaseOptionPicker<String>(
+        sheetCtx,
+        title: title,
+        selectedValue: candidates.contains(current) ? current : '',
+        options: [
+          for (final p in candidates) (value: p, label: p, subtitle: null),
+          const (
+            value: customSentinel,
+            label: '+ Add player',
+            subtitle: 'Someone not in this squad',
+          ),
+        ],
+      );
+      if (picked == null) return null;
+      if (picked == customSentinel) {
+        if (!sheetCtx.mounted) return null;
+        return _promptCustomSuperOverPlayer(sheetCtx, title, '');
+      }
+      return picked;
+    }
+
+    final targetRuns =
+        targetInnings == 4 && state.innings3 != null ? state.innings3!.totalRuns + 1 : null;
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = ctx.crease;
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            Widget selectorRow({
+              required String label,
+              required String value,
+              required VoidCallback onTap,
+            }) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: Theme.of(ctx).textTheme.labelMedium?.copyWith(
+                          color: c.inkSecondary,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  CreasePressable(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(CreaseRadius.control),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      decoration: BoxDecoration(
+                        color: c.surfaceKey,
+                        borderRadius:
+                            BorderRadius.circular(CreaseRadius.control),
+                        border: Border.all(color: c.hairline),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              value,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(ctx).textTheme.bodyLarge,
+                            ),
+                          ),
+                          Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            size: 20,
+                            color: c.inkSecondary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }
+
+            return Container(
+              decoration: BoxDecoration(
+                color: c.surfaceSheet,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(CreaseRadius.sheet),
+                ),
+                border: Border.all(color: c.hairline),
+              ),
+              padding: EdgeInsets.fromLTRB(
+                20,
+                14,
+                20,
+                20 + MediaQuery.paddingOf(ctx).bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    CreaseSheetHeader(
+                      title: targetInnings == 3
+                          ? 'Super Over'
+                          : 'Super Over Chase',
+                      subtitle: targetInnings == 3
+                          ? '1 over · 2 wickets all-out · $batFirst bats first'
+                          : '$batFirst need ${targetRuns ?? 1} in 1 over · 2 wickets',
+                    ),
+                    const SizedBox(height: 14),
+                    selectorRow(
+                      label: '$batFirst — Striker',
+                      value: striker,
+                      onTap: () async {
+                        final chosen = await pickPlayer(
+                          sheetCtx: ctx,
+                          title: '$batFirst — Striker',
+                          current: striker,
+                          roster: batFirstRoster,
+                          excludeName: nonStriker,
+                        );
+                        if (chosen != null) {
+                          setModalState(() => striker = chosen);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    selectorRow(
+                      label: '$batFirst — Non-striker',
+                      value: nonStriker,
+                      onTap: () async {
+                        final chosen = await pickPlayer(
+                          sheetCtx: ctx,
+                          title: '$batFirst — Non-striker',
+                          current: nonStriker,
+                          roster: batFirstRoster,
+                          excludeName: striker,
+                        );
+                        if (chosen != null) {
+                          setModalState(() => nonStriker = chosen);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    selectorRow(
+                      label: '$batSecond — Bowler',
+                      value: bowler,
+                      onTap: () async {
+                        final chosen = await pickPlayer(
+                          sheetCtx: ctx,
+                          title: '$batSecond — Bowler',
+                          current: bowler,
+                          roster: batSecondRoster,
+                        );
+                        if (chosen != null) {
+                          setModalState(() => bowler = chosen);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: c.pitchGreen,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      icon: const Icon(Icons.bolt_rounded, size: 19),
+                      label: Text(
+                        targetInnings == 3
+                            ? 'Start Super Over'
+                            : 'Start Super Over chase',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _forcedInnings = targetInnings;
+      _manualStriker = striker;
+      _manualNonStriker = nonStriker;
+      _manualBowler = bowler;
+    });
+  }
+
+  Future<String?> _promptCustomSuperOverPlayer(
+    BuildContext context,
+    String title,
+    String initial,
+  ) async {
+    final ctrl = TextEditingController(text: initial);
+    final res = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(hintText: 'Player name'),
+          onSubmitted: (v) {
+            final t = v.trim();
+            if (t.isNotEmpty) Navigator.pop(ctx, t);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final t = ctrl.text.trim();
+              if (t.isNotEmpty) Navigator.pop(ctx, t);
+            },
+            child: const Text('Select'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return res;
+  }
+
   Future<void> _shareMatchSummary(DerivedMatchState state) async {
     await MatchSummaryPoster.shareMatch(state);
   }
@@ -691,6 +992,35 @@ class _ScoringScreenState extends State<ScoringScreen> {
                                                   ),
                                             ),
                                           ),
+                                          if (!state.config.isTestMatch &&
+                                              inn.inningsNumber >= 3) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: c.pitchGreenSoft,
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                'SUPER OVER',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .labelMedium
+                                                    ?.copyWith(
+                                                      fontSize: 9.5,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      letterSpacing: 0.5,
+                                                      color: c.pitchGreen,
+                                                    ),
+                                              ),
+                                            ),
+                                          ],
                                         ],
                                       ),
                                       const SizedBox(height: 4),
@@ -778,6 +1108,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
                             previousOver: previousOver,
                             currentOver: currentOver,
                             recentWicket: recentWicket,
+                            hideEmptySlots:
+                                state.status == MatchStatus.completed,
                             onBallTap: _openEditBallSheet,
                           ),
 
@@ -810,13 +1142,24 @@ class _ScoringScreenState extends State<ScoringScreen> {
                                   Expanded(
                                     child: FilledButton(
                                       onPressed: () {
+                                        if (!state.config.isTestMatch &&
+                                            state.activeInningsNumber == 3) {
+                                          _startSuperOver(
+                                            state,
+                                            targetInnings: 4,
+                                          );
+                                          return;
+                                        }
                                         setState(
                                           () => _forcedInnings =
                                               state.activeInningsNumber + 1,
                                         );
                                       },
                                       child: Text(
-                                        'Start Innings ${state.activeInningsNumber + 1}',
+                                        !state.config.isTestMatch &&
+                                                state.activeInningsNumber == 3
+                                            ? 'Start Super Over chase'
+                                            : 'Start Innings ${state.activeInningsNumber + 1}',
                                       ),
                                     ),
                                   ),
@@ -850,21 +1193,59 @@ class _ScoringScreenState extends State<ScoringScreen> {
               ),
             ),
 
-            // 3. Raised Scoring Pad (or Live Viewer Banner)
-            if (_handedOverToOther)
-              HandedOverSheet(
-                reclaiming: _reclaiming,
-                onReclaim: _reclaimScoring,
-              )
-            else
-              GlassScoringSheet(
-                onRunTap: (runs) => _recordBall(runsOffBat: runs),
-                onExtraTap: _openExtrasSheet,
-                onWicketTap: () => _openWicketSheet(),
-                onRunOutTap: () =>
-                    _openWicketSheet(initialType: WicketType.runOut),
-                onUndoTap: _undoLastBall,
-              ),
+            // 3. Raised Scoring Pad / Match Complete Sheet / Handed Over Banner
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 240),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: _handedOverToOther
+                  ? HandedOverSheet(
+                      key: const ValueKey('handed-over'),
+                      reclaiming: _reclaiming,
+                      onReclaim: _reclaimScoring,
+                    )
+                  : state.status == MatchStatus.completed
+                      ? MatchCompleteSheet(
+                          key: const ValueKey('match-complete'),
+                          state: state,
+                          onPlaySuperOver: !state.config.isTestMatch &&
+                                  state.innings3 == null &&
+                                  (state.resultSummary?.toLowerCase() ==
+                                      'match tied')
+                              ? () => _startSuperOver(state, targetInnings: 3)
+                              : null,
+                          onShare: () => _shareMatchSummary(state),
+                          onViewScorecard: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    ScorecardScreen(matchId: widget.matchId),
+                              ),
+                            );
+                            _load();
+                          },
+                          onUndoLastBall: _undoLastBall,
+                          onDone: () => Navigator.of(context).maybePop(),
+                          onPlayerTap: (name) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    PlayerProfileScreen(playerName: name),
+                              ),
+                            );
+                          },
+                        )
+                      : GlassScoringSheet(
+                          key: const ValueKey('keypad'),
+                          onRunTap: (runs) => _recordBall(runsOffBat: runs),
+                          onExtraTap: _openExtrasSheet,
+                          onWicketTap: () => _openWicketSheet(),
+                          onRunOutTap: () => _openWicketSheet(
+                            initialType: WicketType.runOut,
+                          ),
+                          onUndoTap: _undoLastBall,
+                        ),
+            ),
           ],
         ),
       ),

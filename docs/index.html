@@ -328,6 +328,7 @@
 
     const params = new URLSearchParams(window.location.search);
     const matchId = params.get('match');
+    const tournamentId = params.get('tournament');
     const authCode = params.get('code');
     const teamCode = params.get('team-code');
     let selectedInnings = null;
@@ -588,10 +589,44 @@
       renderMatch();
     };
 
+    const MATCH_COLS = 'id,team_a,team_b,overs_limit,players_per_side,format_label,batting_first_team,opening_striker_1,opening_non_striker_1,opening_bowler_1,opening_striker_2,opening_non_striker_2,opening_bowler_2,is_test_match,declared_innings,follow_on_enforced,first_innings_target_override';
+    const BALL_COLS = 'id,match_id,innings_number,sequence_number,striker,non_striker,bowler,runs_off_bat,extra_type,extra_runs,is_wicket,wicket_type,dismissed_batter,fielder,next_batter,voided';
+    const RECENT_MATCH_COLS = 'id,team_a,team_b,format_label,created_at';
+    let pollTimer = null;
+
+    function upsertLocalEvent(ev) {
+      if (!ev || !ev.id) return;
+      const idx = currentEvents.findIndex(e => e.id === ev.id);
+      if (idx >= 0) currentEvents[idx] = ev;
+      else currentEvents.push(ev);
+      currentEvents.sort((a, b) => (a.innings_number - b.innings_number) || (a.sequence_number - b.sequence_number));
+    }
+
+    function stopPollingFallback() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function startPollingFallback(id) {
+      if (pollTimer) return;
+      pollTimer = setInterval(async () => {
+        if (document.hidden) return;
+        const [{ data: freshMatch }, { data: freshEvents }] = await Promise.all([
+          sb.from('matches').select(MATCH_COLS).eq('id', id).maybeSingle(),
+          sb.from('ball_events').select(BALL_COLS).eq('match_id', id).order('sequence_number', { ascending: true }),
+        ]);
+        if (freshMatch) currentMatch = freshMatch;
+        if (freshEvents) currentEvents = freshEvents;
+        renderMatch();
+      }, 12000);
+    }
+
     async function loadSingleMatch(id) {
       const [{ data: match }, { data: events }] = await Promise.all([
-        sb.from('matches').select('*').eq('id', id).maybeSingle(),
-        sb.from('ball_events').select('*').eq('match_id', id).order('sequence_number', { ascending: true }),
+        sb.from('matches').select(MATCH_COLS).eq('id', id).maybeSingle(),
+        sb.from('ball_events').select(BALL_COLS).eq('match_id', id).order('sequence_number', { ascending: true }),
       ]);
       if (!match) {
         document.getElementById('app').innerHTML = `<div class="glass">Match not found yet. Ask the scorer to sync online.</div>`;
@@ -601,23 +636,34 @@
       currentEvents = events || [];
       renderMatch();
 
-      // Subscribe to live Realtime ball updates
+      // Subscribe to live Realtime ball updates incrementally (zero full re-fetch per ball)
+      // and fall back to lightweight polling if Realtime hits connection limits or drops.
       sb.channel(`match-${id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'ball_events', filter: `match_id=eq.${id}` }, async () => {
-          const { data: fresh } = await sb.from('ball_events').select('*').eq('match_id', id).order('sequence_number', { ascending: true });
-          currentEvents = fresh || [];
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'ball_events', filter: `match_id=eq.${id}` }, (payload) => {
+          if (payload.eventType === 'DELETE' && payload.old?.id) {
+            currentEvents = currentEvents.filter(e => e.id !== payload.old.id);
+          } else if (payload.new) {
+            upsertLocalEvent(payload.new);
+          }
           renderMatch();
         })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${id}` }, async () => {
-          const { data: freshMatch } = await sb.from('matches').select('*').eq('id', id).maybeSingle();
-          if (freshMatch) currentMatch = freshMatch;
-          renderMatch();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${id}` }, (payload) => {
+          if (payload.new) {
+            currentMatch = { ...currentMatch, ...payload.new };
+            renderMatch();
+          }
         })
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            stopPollingFallback();
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            startPollingFallback(id);
+          }
+        });
     }
 
     async function loadRecentMatches() {
-      const { data: matches } = await sb.from('matches').select('*').eq('is_demo', false).order('created_at', { ascending: false }).limit(20);
+      const { data: matches } = await sb.from('matches').select(RECENT_MATCH_COLS).eq('is_demo', false).order('created_at', { ascending: false }).limit(20);
       if (!matches || matches.length === 0) {
         document.getElementById('app').innerHTML = `<div class="glass muted">No synced matches yet. Score a match in the Crease Android app to see it live here.</div>`;
         return;
@@ -670,8 +716,162 @@
       }
     }
 
+    function formatShortDateMs(ms) {
+      if (!ms) return null;
+      const d = new Date(Number(ms));
+      if (isNaN(d.getTime())) return null;
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${months[d.getMonth()]} ${d.getDate()}`;
+    }
+
+    async function loadTournament(id) {
+      const TOURN_COLS = 'id, name, location, start_date, end_date, overs_limit, format_label, team_rosters, points_for_win, points_for_tie, structure';
+      const [{ data: t }, { data: matches }] = await Promise.all([
+        sb.from('tournaments').select(TOURN_COLS).eq('id', id).maybeSingle(),
+        sb.from('matches').select(MATCH_COLS).eq('tournament_id', id).order('created_at', { ascending: false }),
+      ]);
+      if (!t) {
+        document.getElementById('app').innerHTML = `<div class="glass">Tournament not found yet. Ask the organizer to sync online.</div>`;
+        return;
+      }
+      document.title = `${t.name} · Crease Tournament`;
+      const matchList = matches || [];
+      const matchIds = matchList.map(m => m.id);
+      let allEvents = [];
+      if (matchIds.length > 0) {
+        const { data: ev } = await sb.from('ball_events').select(BALL_COLS).in('match_id', matchIds).order('sequence_number', { ascending: true });
+        allEvents = ev || [];
+      }
+      const eventsByMatch = {};
+      for (const e of allEvents) {
+        (eventsByMatch[e.match_id] ||= []).push(e);
+      }
+
+      const teamNames = Object.keys(t.team_rosters || {});
+      const stats = {};
+      const ensure = (name) => {
+        const k = name.toLowerCase();
+        if (!stats[k]) stats[k] = { name, p: 0, w: 0, l: 0, pts: 0, rf: 0, bf: 0, ra: 0, ba: 0 };
+        return stats[k];
+      };
+      for (const name of teamNames) ensure(name);
+
+      const matchCardsHtml = matchList.map(m => {
+        const evs = eventsByMatch[m.id] || [];
+        const i1 = deriveInnings(m, evs, 1);
+        const i2 = deriveInnings(m, evs, 2);
+        const maxBalls = m.overs_limit > 0 ? m.overs_limit * 6 : 0;
+        const maxWkts = Math.max(1, (m.players_per_side || 11) - 1);
+        const abandoned = Array.isArray(m.declared_innings) && m.declared_innings.includes(-1);
+        const i1Done = maxBalls > 0 && (i1.legalBalls >= maxBalls || i1.wickets >= maxWkts);
+        const i2Started = i2.legalBalls > 0 || i2.runs > 0 || i2.wickets > 0;
+        const chased = i1Done && i2.runs > i1.runs;
+        const i2Done = i1Done && (chased || (maxBalls > 0 && i2.legalBalls >= maxBalls) || i2.wickets >= maxWkts);
+        const completed = abandoned || i2Done;
+        const isLeague = !m.tournament_stage || m.tournament_stage === 'league';
+
+        let resultText = 'Live';
+        if (abandoned) {
+          resultText = 'No result';
+          if (isLeague) {
+            const sa = ensure(m.team_a), sbTeam = ensure(m.team_b);
+            sa.p++; sbTeam.p++; sa.pts += (t.points_for_tie ?? 1); sbTeam.pts += (t.points_for_tie ?? 1);
+          }
+        } else if (i2Done) {
+          if (i2.runs > i1.runs) resultText = `${i2.battingTeam} won by ${maxWkts - i2.wickets} wkts`;
+          else if (i1.runs > i2.runs) resultText = `${i1.battingTeam} won by ${i1.runs - i2.runs} runs`;
+          else resultText = 'Match tied';
+
+          if (isLeague) {
+            const s1 = ensure(i1.battingTeam), s2 = ensure(i2.battingTeam);
+            s1.p++; s2.p++;
+            const b1 = i1.wickets >= maxWkts && maxBalls > 0 ? maxBalls : i1.legalBalls;
+            const b2 = i2.wickets >= maxWkts && maxBalls > 0 ? maxBalls : i2.legalBalls;
+            s1.rf += i1.runs; s1.bf += b1; s1.ra += i2.runs; s1.ba += b2;
+            s2.rf += i2.runs; s2.bf += b2; s2.ra += i1.runs; s2.ba += b1;
+            if (i1.runs > i2.runs) { s1.w++; s2.l++; s1.pts += (t.points_for_win ?? 2); }
+            else if (i2.runs > i1.runs) { s2.w++; s1.l++; s2.pts += (t.points_for_win ?? 2); }
+            else { s1.pts += (t.points_for_tie ?? 1); s2.pts += (t.points_for_tie ?? 1); }
+          }
+        }
+
+        return `
+          <a class="glass match-card" href="?match=${encodeURIComponent(m.id)}">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <strong>${esc(i1.battingTeam)} ${i1.runs}/${i1.wickets} (${Math.floor(i1.legalBalls/6)}.${i1.legalBalls%6})</strong>
+              <span class="format-pill">${esc(m.format_label)}</span>
+            </div>
+            <div style="margin-top:4px;font-size:14px;">
+              ${i2Started ? `${esc(i2.battingTeam)} ${i2.runs}/${i2.wickets} (${Math.floor(i2.legalBalls/6)}.${i2.legalBalls%6})` : `${esc(i2.battingTeam)} · Yet to bat`}
+            </div>
+            <div class="muted" style="margin-top:6px;font-size:12px;color:${completed ? 'var(--green)' : 'var(--muted)'};">${esc(resultText)}</div>
+          </a>
+        `;
+      }).join('');
+
+      const tableRows = Object.values(stats).map(s => {
+        const rrFor = s.bf > 0 ? (s.rf / (s.bf / 6)) : 0;
+        const rrAgainst = s.ba > 0 ? (s.ra / (s.ba / 6)) : 0;
+        const nrr = (s.bf > 0 && s.ba > 0) ? (rrFor - rrAgainst) : 0;
+        return { ...s, nrr };
+      }).sort((a, b) => (b.pts - a.pts) || (b.nrr - a.nrr) || (b.w - a.w) || a.name.localeCompare(b.name));
+
+      const startTxt = formatShortDateMs(t.start_date);
+      const endTxt = formatShortDateMs(t.end_date);
+      const dateTxt = startTxt && endTxt ? (startTxt === endTxt ? startTxt : `${startTxt} – ${endTxt}`) : (startTxt ? `Starts ${startTxt}` : (endTxt ? `Ends ${endTxt}` : null));
+      const metaLine = [t.format_label, `${teamNames.length} teams`, t.location, dateTxt].filter(Boolean).join(' · ');
+
+      document.getElementById('app').innerHTML = `
+        <div class="glass">
+          <div class="muted" style="font-size:11px;font-weight:700;letter-spacing:0.8px;color:var(--green);">TOURNAMENT</div>
+          <h1 style="font-size:24px;font-weight:700;margin:6px 0 4px;">${esc(t.name)}</h1>
+          <div class="muted">${esc(metaLine)}</div>
+        </div>
+        ${tableRows.length > 0 ? `
+          <div class="glass" style="padding:14px 16px;">
+            <div class="section-title" style="margin-bottom:10px;">Standings</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr class="muted" style="text-align:right;border-bottom:1px solid var(--border);">
+                  <th style="text-align:left;padding:6px 4px;">Team</th>
+                  <th style="padding:6px 4px;">P</th>
+                  <th style="padding:6px 4px;">W</th>
+                  <th style="padding:6px 4px;">L</th>
+                  <th style="padding:6px 4px;">Pts</th>
+                  <th style="padding:6px 4px;">NRR</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRows.map((r, idx) => `
+                  <tr style="text-align:right;border-bottom:1px solid var(--border);">
+                    <td style="text-align:left;padding:8px 4px;font-weight:600;">${idx + 1}. ${esc(r.name)}</td>
+                    <td style="padding:8px 4px;">${r.p}</td>
+                    <td style="padding:8px 4px;">${r.w}</td>
+                    <td style="padding:8px 4px;">${r.l}</td>
+                    <td style="padding:8px 4px;font-weight:700;">${r.pts}</td>
+                    <td style="padding:8px 4px;">${r.nrr >= 0 ? '+' : ''}${r.nrr.toFixed(3)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : ''}
+        ${matchList.length > 0 ? `<div class="section-title">Matches (${matchList.length})</div>${matchCardsHtml}` : `<div class="glass muted">No matches synced for this tournament yet.</div>`}
+      `;
+    }
+
     if (teamCode) {
       loadTeamInvite(teamCode);
+    } else if (tournamentId) {
+      if (/Android/i.test(navigator.userAgent)) {
+        const openBtn = document.getElementById('open-app-btn');
+        if (openBtn) {
+          const fallback = encodeURIComponent(window.location.href);
+          openBtn.href = `intent://tournament/${encodeURIComponent(tournamentId)}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
+          openBtn.style.display = 'inline-flex';
+        }
+      }
+      loadTournament(tournamentId);
     } else if (authCode && !matchId) {
       document.getElementById('app').innerHTML = `
         <div class="glass">

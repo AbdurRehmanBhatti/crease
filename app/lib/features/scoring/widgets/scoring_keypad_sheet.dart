@@ -1,9 +1,296 @@
 import 'package:flutter/material.dart';
 
 import '../../../domain/models.dart';
+import '../../../domain/stats_engine.dart';
 import '../../../theme/crease_theme.dart';
 import '../../../widgets/crease_ui.dart';
 import '../../../widgets/glass_surface.dart';
+
+/// Post-match summary & actions sheet that smoothly replaces the scoring keypad
+/// once a match reaches [MatchStatus.completed], keeping Undo 1 tap away.
+class MatchCompleteSheet extends StatelessWidget {
+  const MatchCompleteSheet({
+    super.key,
+    required this.state,
+    required this.onShare,
+    required this.onViewScorecard,
+    required this.onUndoLastBall,
+    required this.onDone,
+    this.onPlaySuperOver,
+    this.onPlayerTap,
+  });
+
+  final DerivedMatchState state;
+  final VoidCallback onShare;
+  final VoidCallback onViewScorecard;
+  final VoidCallback onUndoLastBall;
+  final VoidCallback onDone;
+  final VoidCallback? onPlaySuperOver;
+  final ValueChanged<String>? onPlayerTap;
+
+  PlayerCareerStats? _deriveMvp() {
+    final all = StatsEngine.derive([state], excludeDemo: false);
+    if (all.isEmpty) return null;
+    all.sort((a, b) => b.mvpPoints.compareTo(a.mvpPoints));
+    final top = all.first;
+    return top.mvpPoints > 0 ? top : null;
+  }
+
+  String _formatMvpLine(PlayerCareerStats p) {
+    final parts = <String>[];
+    if (p.ballsFaced > 0 || p.runs > 0) {
+      final star = p.notOuts > 0 ? '*' : '';
+      parts.add('${p.runs}$star (${p.ballsFaced})');
+    }
+    if (p.wickets > 0) {
+      parts.add('${p.wickets}/${p.runsConceded}');
+    } else if (p.catches + p.stumpings + p.runOuts > 0 && parts.isEmpty) {
+      final dism = p.catches + p.stumpings + p.runOuts;
+      parts.add('$dism dismissal${dism == 1 ? '' : 's'}');
+    }
+    return parts.join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    final mvp = _deriveMvp();
+    final inningsList = [
+      state.innings1,
+      if (state.innings2 != null) state.innings2!,
+      if (state.innings3 != null) state.innings3!,
+      if (state.innings4 != null) state.innings4!,
+    ];
+    final scoresLine = inningsList.map((i) {
+      final isSo = !state.config.isTestMatch && i.inningsNumber >= 3;
+      return isSo
+          ? '${i.battingTeam} SO ${i.scoreText} (${i.oversText})'
+          : '${i.battingTeam} ${i.scoreText} (${i.oversText})';
+    }).join('  ·  ');
+    final isTournament = state.config.tournamentId != null;
+
+    return GlassSurface(
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(CreaseRadius.sheet),
+      ),
+      fillColor: c.surfaceSheet,
+      borderColor: c.hairline,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: c.pitchGreenSoft,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'FINAL',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: c.pitchGreen,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10.5,
+                        letterSpacing: 0.7,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  state.resultSummary ?? 'Match complete',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            scoresLine,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: creaseNumeralStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+              color: c.inkSecondary,
+            ),
+          ),
+          if (mvp != null) ...[
+            const SizedBox(height: 12),
+            CreasePressable(
+              onTap: onPlayerTap == null ? null : () => onPlayerTap!(mvp.name),
+              borderRadius: BorderRadius.circular(CreaseRadius.control),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: c.surfaceKey,
+                  borderRadius: BorderRadius.circular(CreaseRadius.control),
+                  border: Border.all(color: c.hairlineSubtle),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: c.pitchGreenSoft,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.emoji_events_rounded,
+                        size: 18,
+                        color: c.pitchGreen,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'PLAYER OF THE MATCH',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.6,
+                                  color: c.pitchGreen,
+                                ),
+                          ),
+                          const SizedBox(height: 1),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  mvp.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              if (_formatMvpLine(mvp).isNotEmpty) ...[
+                                Text(
+                                  '  ·  ',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                Text(
+                                  _formatMvpLine(mvp),
+                                  style: creaseNumeralStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: c.inkSecondary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (onPlayerTap != null)
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: c.inkSecondary,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          if (onPlaySuperOver != null) ...[
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: c.inkPrimary,
+                foregroundColor: c.ground,
+                minimumSize: const Size.fromHeight(46),
+              ),
+              onPressed: onPlaySuperOver,
+              icon: const Icon(Icons.bolt_rounded, size: 19),
+              label: const Text('Play Super Over'),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: c.pitchGreen,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  onPressed: onShare,
+                  icon: const Icon(Icons.share_rounded, size: 18),
+                  label: const Text('Share result'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  onPressed: onViewScorecard,
+                  icon: const Icon(Icons.table_chart_outlined, size: 18),
+                  label: const Text('Scorecard'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: c.inkSecondary,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: onUndoLastBall,
+                icon: const Icon(Icons.undo_rounded, size: 17),
+                label: const Text('Undo last ball'),
+              ),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: c.inkPrimary,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: onDone,
+                icon: Icon(
+                  isTournament
+                      ? Icons.emoji_events_outlined
+                      : Icons.check_rounded,
+                  size: 17,
+                ),
+                label: Text(isTournament ? 'Back to tournament' : 'Done'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class HandedOverSheet extends StatelessWidget {
   const HandedOverSheet({

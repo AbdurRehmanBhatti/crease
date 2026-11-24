@@ -144,17 +144,6 @@ class ChaseOrRateStack extends StatelessWidget {
               style: Theme.of(context).textTheme.titleSmall,
             ),
           ),
-          const SizedBox(height: 2),
-          TextButton.icon(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              minimumSize: const Size(0, 32),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            onPressed: onShare,
-            icon: const Icon(Icons.share_rounded, size: 15),
-            label: const Text('Share'),
-          ),
         ],
       );
     }
@@ -297,19 +286,21 @@ class OverTimeline extends StatelessWidget {
     required this.currentOver,
     required this.recentWicket,
     required this.onBallTap,
+    this.hideEmptySlots = false,
   });
 
   final OverSummary? previousOver;
   final OverSummary? currentOver;
   final BallEvent? recentWicket;
   final ValueChanged<BallEvent> onBallTap;
+  final bool hideEmptySlots;
 
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
     final currentBalls = currentOver?.balls ?? const <BallEvent>[];
     final legalCount = currentOver?.legalBallsInOver ?? 0;
-    final emptySlots = (6 - legalCount).clamp(0, 6);
+    final emptySlots = hideEmptySlots ? 0 : (6 - legalCount).clamp(0, 6);
 
     return Column(
       mainAxisSize: MainAxisSize.min,

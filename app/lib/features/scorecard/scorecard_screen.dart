@@ -9,6 +9,7 @@ import '../../domain/stats_engine.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../profile/player_profile_screen.dart';
 import 'match_summary_poster.dart';
 
 /// 4-tab Daylight Glass Match Center: Overview · Scorecard · Charts · Overs.
@@ -578,31 +579,42 @@ class _ScorecardTab extends StatelessWidget {
               ),
               const Divider(height: 14),
               for (final b in innings.batters) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _ScorecardDataRow(
-                        label: b.isOut ? b.name : '${b.name} *',
-                        isHighlight: !b.isOut,
-                        values: [
-                          '${b.runs}',
-                          '${b.balls}',
-                          '${b.fours}',
-                          '${b.sixes}',
-                          b.strikeRate.toStringAsFixed(0),
-                        ],
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PlayerProfileScreen(
+                        playerName: b.name,
+                        teams: [innings.battingTeam],
                       ),
-                      if (b.dismissalText != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            b.dismissalText!,
-                            style: Theme.of(context).textTheme.labelMedium,
-                          ),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _ScorecardDataRow(
+                          label: b.isOut ? b.name : '${b.name} *',
+                          isHighlight: !b.isOut,
+                          values: [
+                            '${b.runs}',
+                            '${b.balls}',
+                            '${b.fours}',
+                            '${b.sixes}',
+                            b.strikeRate.toStringAsFixed(0),
+                          ],
                         ),
-                    ],
+                        if (b.dismissalText != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              b.dismissalText!,
+                              style: Theme.of(context).textTheme.labelMedium,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 if (b != innings.batters.last) const Divider(height: 10),
@@ -623,17 +635,28 @@ class _ScorecardTab extends StatelessWidget {
               ),
               const Divider(height: 14),
               for (final bw in innings.bowlers) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _ScorecardDataRow(
-                    label: bw.name,
-                    values: [
-                      bw.oversText,
-                      '${bw.maidens}',
-                      '${bw.runsConceded}',
-                      '${bw.wickets}',
-                      bw.economy.toStringAsFixed(1),
-                    ],
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PlayerProfileScreen(
+                        playerName: bw.name,
+                        teams: [innings.bowlingTeam],
+                      ),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: _ScorecardDataRow(
+                      label: bw.name,
+                      values: [
+                        bw.oversText,
+                        '${bw.maidens}',
+                        '${bw.runsConceded}',
+                        '${bw.wickets}',
+                        bw.economy.toStringAsFixed(1),
+                      ],
+                    ),
                   ),
                 ),
                 if (bw != innings.bowlers.last) const Divider(height: 10),
@@ -1037,25 +1060,39 @@ class _InningsSwitcher extends StatelessWidget {
       child: Row(
         children: [
           for (final inn in list)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text('${inn.battingTeam} #${inn.inningsNumber} (${inn.scoreText})'),
-                selected: selectedInnings == inn.inningsNumber,
-                selectedColor: c.pitchGreen,
-                checkmarkColor: Colors.white,
-                labelStyle: TextStyle(
-                  color: selectedInnings == inn.inningsNumber
-                      ? Colors.white
-                      : c.inkPrimary,
-                  fontWeight: FontWeight.w500,
+            Builder(
+              builder: (chipCtx) => Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(
+                    !state.config.isTestMatch && inn.inningsNumber >= 3
+                        ? '${inn.battingTeam} SO (${inn.scoreText})'
+                        : '${inn.battingTeam} #${inn.inningsNumber} (${inn.scoreText})',
+                  ),
+                  selected: selectedInnings == inn.inningsNumber,
+                  selectedColor: c.pitchGreen,
+                  checkmarkColor: Colors.white,
+                  labelStyle: TextStyle(
+                    color: selectedInnings == inn.inningsNumber
+                        ? Colors.white
+                        : c.inkPrimary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  side: BorderSide(
+                    color: selectedInnings == inn.inningsNumber
+                        ? c.pitchGreen
+                        : c.hairline,
+                  ),
+                  onSelected: (_) {
+                    onSelect(inn.inningsNumber);
+                    Scrollable.ensureVisible(
+                      chipCtx,
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeOutCubic,
+                      alignment: 0.5,
+                    );
+                  },
                 ),
-                side: BorderSide(
-                  color: selectedInnings == inn.inningsNumber
-                      ? c.pitchGreen
-                      : c.hairline,
-                ),
-                onSelected: (_) => onSelect(inn.inningsNumber),
               ),
             ),
         ],

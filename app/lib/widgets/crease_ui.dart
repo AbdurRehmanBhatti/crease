@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/crease_theme.dart';
 
@@ -196,11 +197,13 @@ class CreaseTeamBadge extends StatelessWidget {
     required this.name,
     this.size = 36,
     this.highlighted = false,
+    this.avatarUrl,
   });
 
   final String name;
   final double size;
   final bool highlighted;
+  final String? avatarUrl;
 
   static const _lightPalettes = [
     (bg: Color(0xFFE8EEF5), fg: Color(0xFF2B4C73)), // Steel Navy
@@ -252,27 +255,43 @@ class CreaseTeamBadge extends StatelessWidget {
         ? _darkPalettes[_hashIndex]
         : _lightPalettes[_hashIndex];
 
+    final radius = BorderRadius.circular(size * 0.28);
+    final fallback = Text(
+      _initials,
+      style: creaseNumeralStyle(
+        fontSize: size * 0.36,
+        fontWeight: FontWeight.w700,
+        color: palette.fg,
+        letterSpacing: 0.2,
+      ),
+    );
+    final url = avatarUrl?.trim();
+    final hasPhoto = url != null && url.isNotEmpty;
+
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: palette.bg,
-        borderRadius: BorderRadius.circular(size * 0.28),
+        borderRadius: radius,
         border: Border.all(
           color: palette.fg.withValues(alpha: isDark ? 0.24 : 0.16),
           width: 1,
         ),
       ),
-      child: Text(
-        _initials,
-        style: creaseNumeralStyle(
-          fontSize: size * 0.36,
-          fontWeight: FontWeight.w700,
-          color: palette.fg,
-          letterSpacing: 0.2,
-        ),
-      ),
+      child: hasPhoto
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular((size * 0.28) - 1),
+              child: Image.network(
+                url,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => fallback,
+              ),
+            )
+          : fallback,
     );
   }
 }
@@ -372,16 +391,20 @@ class CreaseSegmentedControl<T> extends StatelessWidget {
   }
 }
 
-/// Standard modal sheet header with drag pill + title + optional subtitle.
+/// Standard modal sheet header with drag pill + title + close button + optional subtitle.
 class CreaseSheetHeader extends StatelessWidget {
   const CreaseSheetHeader({
     super.key,
     required this.title,
     this.subtitle,
+    this.showCloseButton = true,
+    this.onClose,
   });
 
   final String title;
   final String? subtitle;
+  final bool showCloseButton;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -399,8 +422,28 @@ class CreaseSheetHeader extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 16),
-        Text(title, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+            ),
+            if (showCloseButton)
+              IconButton(
+                tooltip: 'Close',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                icon: Icon(
+                  Icons.close_rounded,
+                  size: 20,
+                  color: c.inkSecondary,
+                ),
+                onPressed: onClose ?? () => Navigator.of(context).maybePop(),
+              ),
+          ],
+        ),
         if (subtitle != null) ...[
           const SizedBox(height: 4),
           Text(subtitle!, style: Theme.of(context).textTheme.bodyMedium),
@@ -538,4 +581,292 @@ class _GoogleGPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Option descriptor for [showCreaseActionSheet] and [CreaseMenuButton].
+class CreaseMenuItem<T> {
+  const CreaseMenuItem({
+    required this.value,
+    required this.label,
+    required this.icon,
+    this.subtitle,
+    this.isDestructive = false,
+  });
+
+  final T value;
+  final String label;
+  final IconData icon;
+  final String? subtitle;
+  final bool isDestructive;
+}
+
+/// Unified, thumb-friendly Crease bottom action sheet replacing stock Material
+/// popup menus across the app.
+Future<T?> showCreaseActionSheet<T>(
+  BuildContext context, {
+  String? title,
+  required List<CreaseMenuItem<T>> items,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final c = ctx.crease;
+      return Container(
+        decoration: BoxDecoration(
+          color: c.surfaceSheet,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(CreaseRadius.sheet),
+          ),
+          border: Border(top: BorderSide(color: c.hairline)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: c.hairline,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              if (title != null && title.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  title,
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                ),
+              ],
+              const SizedBox(height: 12),
+              Container(
+                decoration: BoxDecoration(
+                  color: c.surfaceKey,
+                  borderRadius: BorderRadius.circular(CreaseRadius.card),
+                  border: Border.all(color: c.hairlineSubtle),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < items.length; i++) ...[
+                      if (i > 0) Divider(height: 1, color: c.hairlineSubtle),
+                      _CreaseActionRow<T>(item: items[i]),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _CreaseActionRow<T> extends StatelessWidget {
+  const _CreaseActionRow({required this.item});
+
+  final CreaseMenuItem<T> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    final fg = item.isDestructive ? c.wicketRed : c.inkPrimary;
+    final iconBg = item.isDestructive ? c.wicketRedSoft : c.pillMutedBg;
+    final iconColor = item.isDestructive ? c.wicketRed : c.inkPrimary;
+
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.of(context).pop(item.value);
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: iconBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(item.icon, size: 18, color: iconColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.label,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: fg,
+                        ),
+                  ),
+                  if (item.subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      item.subtitle!,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: item.isDestructive
+                  ? c.wicketRed.withValues(alpha: 0.7)
+                  : c.inkSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Drop-in replacement for [PopupMenuButton] that opens [showCreaseActionSheet].
+class CreaseMenuButton<T> extends StatelessWidget {
+  const CreaseMenuButton({
+    super.key,
+    required this.items,
+    required this.onSelected,
+    this.sheetTitle,
+    this.tooltip = 'More options',
+    this.icon = Icons.more_vert_rounded,
+    this.iconSize = 20,
+    this.compact = false,
+  });
+
+  final List<CreaseMenuItem<T>> items;
+  final ValueChanged<T> onSelected;
+  final String? sheetTitle;
+  final String tooltip;
+  final IconData icon;
+  final double iconSize;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    return IconButton(
+      tooltip: tooltip,
+      padding: compact ? EdgeInsets.zero : null,
+      constraints: compact
+          ? const BoxConstraints(minWidth: 32, minHeight: 32)
+          : null,
+      visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+      icon: Icon(icon, size: iconSize, color: c.inkSecondary),
+      onPressed: () async {
+        HapticFeedback.selectionClick();
+        final picked = await showCreaseActionSheet<T>(
+          context,
+          title: sheetTitle,
+          items: items,
+        );
+        if (picked != null) onSelected(picked);
+      },
+    );
+  }
+}
+
+/// Unified option picker bottom sheet replacing raw Material dropdowns.
+Future<T?> showCreaseOptionPicker<T>(
+  BuildContext context, {
+  required String title,
+  String? subtitle,
+  required List<({T value, String label, String? subtitle})> options,
+  required T selectedValue,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final c = ctx.crease;
+      final maxHeight = MediaQuery.sizeOf(ctx).height * 0.65;
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Container(
+          decoration: BoxDecoration(
+            color: c.surfaceSheet,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(CreaseRadius.sheet),
+            ),
+            border: Border(top: BorderSide(color: c.hairline)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                CreaseSheetHeader(title: title, subtitle: subtitle),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: c.surfaceKey,
+                      borderRadius: BorderRadius.circular(CreaseRadius.card),
+                      border: Border.all(color: c.hairlineSubtle),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: options.length,
+                      separatorBuilder: (_, _) =>
+                          Divider(height: 1, color: c.hairlineSubtle),
+                      itemBuilder: (_, index) {
+                        final opt = options[index];
+                        final isSelected = opt.value == selectedValue;
+                        return ListTile(
+                          dense: true,
+                          title: Text(
+                            opt.label,
+                            style: Theme.of(ctx).textTheme.bodyLarge?.copyWith(
+                                  fontWeight: isSelected
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: isSelected
+                                      ? c.pitchGreen
+                                      : c.inkPrimary,
+                                ),
+                          ),
+                          subtitle: opt.subtitle != null
+                              ? Text(opt.subtitle!)
+                              : null,
+                          trailing: isSelected
+                              ? Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 20,
+                                  color: c.pitchGreen,
+                                )
+                              : null,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            Navigator.of(ctx).pop(opt.value);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }

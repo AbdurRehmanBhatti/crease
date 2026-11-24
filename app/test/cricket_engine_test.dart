@@ -208,6 +208,134 @@ void main() {
       expect(state.innings1.batterByName('Ali').dismissalText, 'retired hurt');
       expect(state.innings1.needsNextBatter, isTrue);
     });
+
+    test('in-match Super Over resolves tied limited-overs match inside innings 3 & 4', () {
+      final cfg = MatchConfig(
+        id: 'so-match',
+        teamA: 'Bhatti XI',
+        teamB: 'Street XI',
+        oversLimit: 1,
+        playersPerSide: 11,
+        formatLabel: '1OV',
+        battingFirstTeam: 'Bhatti XI',
+        openingStrikerInnings1: 'Ali',
+        openingNonStrikerInnings1: 'Bilal',
+        openingBowlerInnings1: 'Zain',
+        openingStrikerInnings2: 'Saad',
+        openingNonStrikerInnings2: 'Omer',
+        openingBowlerInnings2: 'Hamza',
+        teamAPlayers: const ['Ali', 'Bilal', 'Hamza'],
+        teamBPlayers: const ['Saad', 'Omer', 'Zain'],
+        createdAt: DateTime(2026),
+      );
+
+      // Both teams score 6 runs in 1 over -> tied regulation match.
+      final regEvents = <BallEvent>[
+        for (var i = 1; i <= 6; i++)
+          BallEvent(
+            id: 'i1-$i',
+            matchId: cfg.id,
+            inningsNumber: 1,
+            sequenceNumber: i,
+            striker: 'Ali',
+            nonStriker: 'Bilal',
+            bowler: 'Zain',
+            runsOffBat: i == 1 ? 6 : 0,
+            createdAt: DateTime(2026),
+          ),
+        for (var i = 1; i <= 6; i++)
+          BallEvent(
+            id: 'i2-$i',
+            matchId: cfg.id,
+            inningsNumber: 2,
+            sequenceNumber: i,
+            striker: 'Saad',
+            nonStriker: 'Omer',
+            bowler: 'Hamza',
+            runsOffBat: i == 1 ? 6 : 0,
+            createdAt: DateTime(2026),
+          ),
+      ];
+
+      final tied = CricketEngine.derive(cfg, regEvents);
+      expect(tied.status, MatchStatus.completed);
+      expect(tied.resultSummary, 'Match tied');
+      expect(tied.innings3, isNull);
+
+      // Super Over Innings 1 (inningsNumber 3): Street XI (batted 2nd) bats first,
+      // scores 4 then loses 2 wickets -> all out at 2 wickets!
+      final so1Events = [
+        ...regEvents,
+        BallEvent(
+          id: 'so1-1',
+          matchId: cfg.id,
+          inningsNumber: 3,
+          sequenceNumber: 1,
+          striker: 'Saad',
+          nonStriker: 'Omer',
+          bowler: 'Hamza',
+          runsOffBat: 4,
+          createdAt: DateTime(2026),
+        ),
+        BallEvent(
+          id: 'so1-2',
+          matchId: cfg.id,
+          inningsNumber: 3,
+          sequenceNumber: 2,
+          striker: 'Saad',
+          nonStriker: 'Omer',
+          bowler: 'Hamza',
+          isWicket: true,
+          wicketType: WicketType.bowled,
+          dismissedBatter: 'Saad',
+          nextBatter: 'Zain',
+          createdAt: DateTime(2026),
+        ),
+        BallEvent(
+          id: 'so1-3',
+          matchId: cfg.id,
+          inningsNumber: 3,
+          sequenceNumber: 3,
+          striker: 'Zain',
+          nonStriker: 'Omer',
+          bowler: 'Hamza',
+          isWicket: true,
+          wicketType: WicketType.bowled,
+          dismissedBatter: 'Zain',
+          createdAt: DateTime(2026),
+        ),
+      ];
+
+      final soBreak = CricketEngine.derive(cfg, so1Events);
+      expect(soBreak.innings3, isNotNull);
+      expect(soBreak.innings3!.battingTeam, 'Street XI');
+      expect(soBreak.innings3!.isComplete, isTrue);
+      expect(soBreak.innings3!.totalRuns, 4);
+      expect(soBreak.status, MatchStatus.inningsBreak);
+
+      // Super Over Innings 2 (inningsNumber 4): Bhatti XI hits 6 on ball 1 -> wins!
+      final so2Events = [
+        ...so1Events,
+        BallEvent(
+          id: 'so2-1',
+          matchId: cfg.id,
+          inningsNumber: 4,
+          sequenceNumber: 1,
+          striker: 'Ali',
+          nonStriker: 'Bilal',
+          bowler: 'Zain',
+          runsOffBat: 6,
+          createdAt: DateTime(2026),
+        ),
+      ];
+
+      final done = CricketEngine.derive(cfg, so2Events);
+      expect(done.status, MatchStatus.completed);
+      expect(done.innings4, isNotNull);
+      expect(done.innings4!.battingTeam, 'Bhatti XI');
+      expect(done.innings4!.isComplete, isTrue);
+      expect(done.resultSummary, 'Bhatti XI won Super Over');
+    });
   });
 }
 

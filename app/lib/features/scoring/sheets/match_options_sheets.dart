@@ -97,6 +97,7 @@ Future<void> showMatchOptionsSheet(
 }) {
   return showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) {
       final c = ctx.crease;
@@ -106,90 +107,92 @@ Future<void> showMatchOptionsSheet(
         ),
         fillColor: c.surfaceSheet,
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 26),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const CreaseSheetHeader(title: 'Match options'),
-            const SizedBox(height: 14),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 2.35,
-              children: [
-                _OptionTile(
-                  icon: Icons.looks_5_outlined,
-                  title: '5 runs',
-                  subtitle: 'Overthrow',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    onFiveRuns();
-                  },
-                ),
-                _OptionTile(
-                  icon: Icons.flag_outlined,
-                  title: '+5 Penalty',
-                  subtitle: 'Dead-ball award',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    onPenaltyRuns();
-                  },
-                ),
-                _OptionTile(
-                  icon: Icons.healing_outlined,
-                  title: 'Retired hurt',
-                  subtitle: 'No wicket lost',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    onRetiredHurt();
-                  },
-                ),
-                _OptionTile(
-                  icon: Icons.stop_circle_outlined,
-                  title: 'End innings',
-                  subtitle: 'Close or declare',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    onEndInnings();
-                  },
-                ),
-                _OptionTile(
-                  icon: Icons.thunderstorm_outlined,
-                  title: 'Revise rules',
-                  subtitle: 'Rain or target',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    onReviseRules();
-                  },
-                ),
-                _OptionTile(
-                  icon: Icons.swap_horiz_rounded,
-                  title: 'Hand over',
-                  subtitle: 'Switch scorer',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    onHandOver();
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: c.wicketRed,
-                side: BorderSide(color: c.wicketRed.withValues(alpha: 0.35)),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const CreaseSheetHeader(title: 'Match options'),
+              const SizedBox(height: 14),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 2.35,
+                children: [
+                  _OptionTile(
+                    icon: Icons.looks_5_outlined,
+                    title: '5 runs',
+                    subtitle: 'Overthrow',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      onFiveRuns();
+                    },
+                  ),
+                  _OptionTile(
+                    icon: Icons.flag_outlined,
+                    title: '+5 Penalty',
+                    subtitle: 'Dead-ball award',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      onPenaltyRuns();
+                    },
+                  ),
+                  _OptionTile(
+                    icon: Icons.healing_outlined,
+                    title: 'Retired hurt',
+                    subtitle: 'No wicket lost',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      onRetiredHurt();
+                    },
+                  ),
+                  _OptionTile(
+                    icon: Icons.stop_circle_outlined,
+                    title: 'End innings',
+                    subtitle: 'Close or declare',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      onEndInnings();
+                    },
+                  ),
+                  _OptionTile(
+                    icon: Icons.thunderstorm_outlined,
+                    title: 'Revise rules',
+                    subtitle: 'Rain or target',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      onReviseRules();
+                    },
+                  ),
+                  _OptionTile(
+                    icon: Icons.swap_horiz_rounded,
+                    title: 'Hand over',
+                    subtitle: 'Switch scorer',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      onHandOver();
+                    },
+                  ),
+                ],
               ),
-              onPressed: () {
-                Navigator.pop(ctx);
-                onAbandonMatch();
-              },
-              icon: const Icon(Icons.cancel_outlined, size: 18),
-              label: const Text('Abandon match (No result)'),
-            ),
-          ],
+              const SizedBox(height: 14),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: c.wicketRed,
+                  side: BorderSide(color: c.wicketRed.withValues(alpha: 0.35)),
+                ),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  onAbandonMatch();
+                },
+                icon: const Icon(Icons.cancel_outlined, size: 18),
+                label: const Text('Abandon match (No result)'),
+              ),
+            ],
+          ),
         ),
       );
     },

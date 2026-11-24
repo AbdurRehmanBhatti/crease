@@ -6,6 +6,8 @@ create table if not exists public.matches (
   owner_id uuid references auth.users(id) on delete set null default auth.uid(),
   team_a text not null,
   team_b text not null,
+  team_a_id text,
+  team_b_id text,
   overs_limit integer not null check (overs_limit > 0),
   players_per_side integer not null default 11 check (players_per_side between 2 and 15),
   format_label text not null,
@@ -216,3 +218,257 @@ create unique index if not exists idx_team_members_team_player_lower
 -- Per-player cricket roles & designations (migration add_team_player_roles)
 alter table public.teams
   add column if not exists player_meta jsonb not null default '{}'::jsonb;
+
+
+-- Structured Tournaments: fixtures, knockouts & match stages (migration add_tournament_structure)
+alter table public.tournaments
+  add column if not exists structure text not null default 'open',
+  add column if not exists rounds_per_pair integer not null default 1,
+  add column if not exists knockout_qualifiers integer not null default 2;
+
+alter table public.matches
+  add column if not exists tournament_stage text,
+  add column if not exists fixture_index integer;
+
+
+-- Performance indexes for launch-lean scaling (migration add_performance_indexes)
+create index if not exists idx_matches_owner_created
+  on public.matches (owner_id, created_at desc);
+
+create index if not exists idx_matches_team_a
+  on public.matches (lower(team_a));
+
+create index if not exists idx_matches_team_b
+  on public.matches (lower(team_b));
+
+create index if not exists idx_team_members_user_id
+  on public.team_members (user_id);
+
+create index if not exists idx_tournaments_owner_created
+  on public.tournaments (owner_id, created_at desc);
+
+-- Allow Test (unlimited overs = 0) tournaments (migration allow_test_tournament_overs)
+alter table public.tournaments drop constraint if exists tournaments_overs_limit_check;
+alter table public.tournaments add constraint tournaments_overs_limit_check check (overs_limit >= 0);
+
+-- Transfer anonymous guest data to newly signed-in account with smart team merge
+-- (migrations add_claim_guest_data_rpc, smart_merge_guest_teams_on_claim)
+create or replace function public.claim_guest_data(
+  p_guest_id uuid,
+  p_match_ids text[] default '{}',
+  p_team_ids text[] default '{}',
+  p_tournament_ids text[] default '{}'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_new_uid uuid := auth.uid();
+  v_is_anon boolean := false;
+  v_matches_claimed integer := 0;
+  v_teams_claimed integer := 0;
+  v_tournaments_claimed integer := 0;
+  v_merged_team_ids text[] := '{}';
+  v_guest_team record;
+  v_existing_team record;
+  v_merged_players jsonb;
+begin
+  if v_new_uid is null or p_guest_id is null or v_new_uid = p_guest_id then
+    return jsonb_build_object(
+      'matches_claimed', 0,
+      'teams_claimed', 0,
+      'tournaments_claimed', 0,
+      'merged_team_ids', '[]'::jsonb
+    );
+  end if;
+
+  select coalesce(u.is_anonymous, false)
+    into v_is_anon
+    from auth.users u
+   where u.id = p_guest_id;
+
+  if not coalesce(v_is_anon, false) then
+    return jsonb_build_object(
+      'matches_claimed', 0,
+      'teams_claimed', 0,
+      'tournaments_claimed', 0,
+      'merged_team_ids', '[]'::jsonb
+    );
+  end if;
+
+  if coalesce(array_length(p_team_ids, 1), 0) > 0 then
+    for v_guest_team in
+      select id, name, players
+        from public.teams
+       where id = any(p_team_ids)
+         and owner_id = p_guest_id
+    loop
+      select id, players
+        into v_existing_team
+        from public.teams
+       where owner_id = v_new_uid
+         and lower(trim(name)) = lower(trim(v_guest_team.name))
+       limit 1;
+
+      if found then
+        select coalesce(
+          (
+            select jsonb_agg(p order by ord)
+              from (
+                select distinct on (lower(trim(val))) val as p, ord
+                  from (
+                    select elem as val, idx as ord
+                      from jsonb_array_elements_text(coalesce(v_existing_team.players, '[]'::jsonb)) with ordinality as e(elem, idx)
+                    union all
+                    select elem as val, 100000 + idx as ord
+                      from jsonb_array_elements_text(coalesce(v_guest_team.players, '[]'::jsonb)) with ordinality as g(elem, idx)
+                  ) combined
+                 where trim(val) <> ''
+                 order by lower(trim(val)), ord
+              ) dedup
+          ),
+          '[]'::jsonb
+        ) into v_merged_players;
+
+        update public.teams
+           set players = v_merged_players
+         where id = v_existing_team.id;
+
+        update public.teams
+           set owner_id = v_new_uid
+         where id = v_guest_team.id;
+
+        v_merged_team_ids := array_append(v_merged_team_ids, v_guest_team.id);
+      else
+        update public.teams
+           set owner_id = v_new_uid
+         where id = v_guest_team.id;
+        v_teams_claimed := v_teams_claimed + 1;
+
+        update public.team_members tm
+           set user_id = v_new_uid
+         where tm.team_id = v_guest_team.id
+           and tm.user_id = p_guest_id
+           and not exists (
+             select 1
+               from public.team_members existing
+              where existing.team_id = tm.team_id
+                and existing.user_id = v_new_uid
+           );
+      end if;
+    end loop;
+  end if;
+
+  if coalesce(array_length(p_tournament_ids, 1), 0) > 0 then
+    update public.tournaments
+       set owner_id = v_new_uid
+     where id = any(p_tournament_ids)
+       and owner_id = p_guest_id;
+    get diagnostics v_tournaments_claimed = row_count;
+  end if;
+
+  if coalesce(array_length(p_match_ids, 1), 0) > 0 then
+    update public.matches
+       set owner_id = v_new_uid,
+           active_scorer_id = case
+             when active_scorer_id = p_guest_id then v_new_uid
+             else active_scorer_id
+           end
+     where id = any(p_match_ids)
+       and owner_id = p_guest_id;
+    get diagnostics v_matches_claimed = row_count;
+
+    update public.match_scorers ms
+       set user_id = v_new_uid
+     where ms.match_id = any(p_match_ids)
+       and ms.user_id = p_guest_id
+       and not exists (
+         select 1
+           from public.match_scorers existing
+          where existing.match_id = ms.match_id
+            and existing.user_id = v_new_uid
+       );
+  end if;
+
+  return jsonb_build_object(
+    'matches_claimed', v_matches_claimed,
+    'teams_claimed', v_teams_claimed,
+    'tournaments_claimed', v_tournaments_claimed,
+    'merged_team_ids', to_jsonb(v_merged_team_ids)
+  );
+end;
+$$;
+
+revoke all on function public.claim_guest_data(uuid, text[], text[], text[]) from public, anon;
+grant execute on function public.claim_guest_data(uuid, text[], text[], text[]) to authenticated;
+
+-- Team location & Tournament venue/dates (migration add_team_and_tournament_location_dates)
+alter table public.teams
+  add column if not exists location text;
+
+alter table public.tournaments
+  add column if not exists location text,
+  add column if not exists start_date bigint,
+  add column if not exists end_date bigint;
+
+-- Search players across public Crease teams (migration add_search_public_players_rpc)
+create or replace function public.search_public_players(
+  p_query text,
+  p_limit integer default 15
+)
+returns table (
+  player_name text,
+  team_id text,
+  team_name text,
+  team_location text
+)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select distinct on (lower(trim(elem)), t.id)
+    trim(elem) as player_name,
+    t.id as team_id,
+    t.name as team_name,
+    t.location as team_location
+  from public.teams t,
+       lateral jsonb_array_elements_text(coalesce(t.players, '[]'::jsonb)) as elem
+  where length(trim(coalesce(p_query, ''))) >= 2
+    and trim(elem) ilike '%' || trim(p_query) || '%'
+    and trim(elem) !~* '^(batter|bowler|opener)\s*\d+$'
+  order by lower(trim(elem)), t.id, t.created_at desc
+  limit greatest(1, least(coalesce(p_limit, 15), 30));
+$$;
+
+grant execute on function public.search_public_players(text, integer) to anon, authenticated;
+
+-- Sync linked player profile avatars for public display (migration add_team_member_avatar_url)
+alter table public.team_members
+  add column if not exists avatar_url text;
+
+create policy "team_members_update_own"
+  on public.team_members
+  for update
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+-- Allow team owners to auto-link themselves as captain in team_members
+-- (migration add_team_members_owner_insert_policy)
+create policy "team_members_insert_owner_self"
+  on public.team_members
+  for insert
+  to authenticated
+  with check (
+    (select auth.uid()) = user_id
+    and exists (
+      select 1
+        from public.teams t
+       where t.id = team_members.team_id
+         and t.owner_id = (select auth.uid())
+    )
+  );
+grant insert, update on public.team_members to authenticated;

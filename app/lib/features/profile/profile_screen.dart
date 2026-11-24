@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/local_event_store.dart';
@@ -15,6 +14,7 @@ import '../../domain/user_profile.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import 'player_career_poster.dart';
 
 /// Daylight Glass Profile & Account screen:
 /// 1. Cricketer identity + linked player career stats
@@ -32,6 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   TeamProfile? _myTeam;
   PlayerCareerStats? _myStats;
   List<String> _knownPlayers = const [];
+  Map<String, List<String>> _playerTeamsByLower = const {};
   int _matchCount = 0;
   bool _loading = true;
   bool _syncing = false;
@@ -92,15 +93,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final statsPool = realMatches.isNotEmpty ? realMatches : derived;
     final allStats = StatsEngine.derive(
       statsPool,
-      teamName: myTeam?.name,
       excludeDemo: realMatches.isNotEmpty,
     );
 
-    final knownSet = <String>{
-      ...?myTeam?.players,
-      ...allStats.map((p) => p.name),
-    };
-    final knownPlayers = knownSet.toList()..sort();
+    final canonicalByLower = <String, String>{};
+    final teamsByPlayerLower = <String, List<String>>{};
+    for (final t in teams) {
+      for (final rawName in t.players) {
+        final name = rawName.trim();
+        if (name.isEmpty || LocalEventStore.isPlaceholderPlayerName(name)) {
+          continue;
+        }
+        final key = name.toLowerCase();
+        canonicalByLower.putIfAbsent(key, () => name);
+        final list = teamsByPlayerLower.putIfAbsent(key, () => <String>[]);
+        if (!list.contains(t.name)) list.add(t.name);
+      }
+    }
+    for (final p in allStats) {
+      final name = p.name.trim();
+      if (name.isEmpty || LocalEventStore.isPlaceholderPlayerName(name)) {
+        continue;
+      }
+      canonicalByLower.putIfAbsent(name.toLowerCase(), () => name);
+    }
+    final knownPlayers = canonicalByLower.values.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
     PlayerCareerStats? myStats;
     final linked = profile.linkedPlayerName;
@@ -108,13 +126,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       myStats = allStats
           .where((p) => p.name.toLowerCase() == linked.toLowerCase())
           .firstOrNull;
-      if (myStats == null && myTeam != null) {
-        // Fallback across all matches if they played for another team name
-        final broad = StatsEngine.derive(statsPool, excludeDemo: realMatches.isNotEmpty);
-        myStats = broad
-            .where((p) => p.name.toLowerCase() == linked.toLowerCase())
-            .firstOrNull;
-      }
     }
 
     if (!mounted) return;
@@ -123,6 +134,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _myTeam = myTeam;
       _myStats = myStats;
       _knownPlayers = knownPlayers;
+      _playerTeamsByLower = teamsByPlayerLower;
       _matchCount = realMatches.length;
       _loading = false;
     });
@@ -185,25 +197,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: c.hairline,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Edit profile',
-                        style: Theme.of(ctx).textTheme.titleLarge,
-                      ),
+                      const CreaseSheetHeader(title: 'Edit profile'),
                       const SizedBox(height: 14),
                       TextField(
                         controller: nameCtrl,
                         textCapitalization: TextCapitalization.words,
+                        onChanged: (_) => setModalState(() {}),
                         decoration: const InputDecoration(
                           labelText: 'Your name',
                           hintText: 'e.g. Abdur Rehman',
@@ -250,47 +249,115 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           style: Theme.of(ctx).textTheme.labelMedium,
                         ),
                         const SizedBox(height: 8),
-                        DropdownButtonFormField<String?>(
-                          initialValue: _knownPlayers.contains(selectedPlayer)
-                              ? selectedPlayer
-                              : null,
-                          decoration: const InputDecoration(
-                            hintText: 'Select your name from squad',
-                          ),
-                          items: [
-                            const DropdownMenuItem<String?>(
-                              value: null,
-                              child: Text('Not linked'),
+                        CreasePressable(
+                          onTap: () async {
+                            final currentKey =
+                                _knownPlayers.contains(selectedPlayer)
+                                    ? (selectedPlayer ?? '')
+                                    : '';
+                            final picked =
+                                await showCreaseOptionPicker<String>(
+                              ctx,
+                              title: 'Link scorecard name',
+                              subtitle:
+                                  'Connect your profile to your career stats.',
+                              selectedValue: currentKey,
+                              options: [
+                                (
+                                  value: '',
+                                  label: 'Not linked',
+                                  subtitle: null,
+                                ),
+                                for (final p in _knownPlayers)
+                                  (
+                                    value: p,
+                                    label: p,
+                                    subtitle: _playerTeamsByLower[
+                                            p.toLowerCase()]
+                                        ?.join(', '),
+                                  ),
+                              ],
+                            );
+                            if (picked == null) return;
+                            setModalState(
+                              () => selectedPlayer =
+                                  picked.isEmpty ? null : picked,
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 14,
                             ),
-                            for (final p in _knownPlayers)
-                              DropdownMenuItem<String?>(
-                                value: p,
-                                child: Text(p),
-                              ),
-                          ],
-                          onChanged: (v) =>
-                              setModalState(() => selectedPlayer = v),
+                            decoration: BoxDecoration(
+                              color: c.surfaceKey,
+                              borderRadius:
+                                  BorderRadius.circular(CreaseRadius.control),
+                              border: Border.all(color: c.hairline),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _knownPlayers.contains(selectedPlayer)
+                                        ? selectedPlayer!
+                                        : 'Not linked',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(ctx)
+                                        .textTheme
+                                        .bodyLarge
+                                        ?.copyWith(
+                                          color: _knownPlayers
+                                                  .contains(selectedPlayer)
+                                              ? c.inkPrimary
+                                              : c.inkSecondary,
+                                        ),
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  size: 20,
+                                  color: c.inkSecondary,
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                       const SizedBox(height: 20),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: c.pitchGreen,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size.fromHeight(48),
-                        ),
-                        onPressed: () {
-                          final trimmedName = nameCtrl.text.trim();
-                          Navigator.of(ctx).pop(
-                            _profile.copyWith(
-                              displayName: trimmedName,
-                              role: selectedRole,
-                              linkedPlayerName: selectedPlayer,
-                              clearLinkedPlayer: selectedPlayer == null,
+                      Builder(
+                        builder: (_) {
+                          final hasChanges =
+                              nameCtrl.text.trim() !=
+                                      _profile.displayName.trim() ||
+                                  selectedRole != _profile.role ||
+                                  selectedPlayer != _profile.linkedPlayerName;
+                          return FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: c.pitchGreen,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor: c.surfaceKey,
+                              disabledForegroundColor: c.inkSecondary,
+                              minimumSize: const Size.fromHeight(48),
                             ),
+                            onPressed: hasChanges
+                                ? () {
+                                    final trimmedName = nameCtrl.text.trim();
+                                    Navigator.of(ctx).pop(
+                                      _profile.copyWith(
+                                        displayName: trimmedName,
+                                        role: selectedRole,
+                                        linkedPlayerName: selectedPlayer,
+                                        clearLinkedPlayer:
+                                            selectedPlayer == null,
+                                      ),
+                                    );
+                                  }
+                                : null,
+                            child: const Text('Save profile'),
                           );
                         },
-                        child: const Text('Save profile'),
                       ),
                     ],
                   ),
@@ -312,20 +379,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final passCtrl = TextEditingController();
     var isSignInMode = initialSignIn;
     var obscurePassword = true;
-    var submitting = false;
+    String? busyAction; // 'google' | 'email'
     String? errorText;
 
     final done = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final c = ctx.crease;
         return StatefulBuilder(
           builder: (ctx, setModalState) {
+            final isBusy = busyAction != null;
+
             Future<void> continueWithGoogle() async {
               setModalState(() {
-                submitting = true;
+                busyAction = 'google';
                 errorText = null;
               });
               try {
@@ -340,7 +411,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
                 final googleUser = await googleSignIn.signIn();
                 if (googleUser == null) {
-                  setModalState(() => submitting = false);
+                  setModalState(() => busyAction = null);
                   return;
                 }
                 final googleAuth = await googleUser.authentication;
@@ -350,20 +421,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   setModalState(() {
                     errorText =
                         'Could not get Google ID token. Verify your Android OAuth Client ID (SHA-1) in Google Cloud Console.';
-                    submitting = false;
+                    busyAction = null;
                   });
                   return;
                 }
 
                 final auth = Supabase.instance.client.auth;
+                final prevUser = auth.currentUser;
+                final prevGuestUid = (prevUser != null &&
+                        (prevUser.email == null ||
+                            prevUser.email!.trim().isEmpty))
+                    ? prevUser.id
+                    : null;
+
                 await auth.signInWithIdToken(
                   provider: OAuthProvider.google,
                   idToken: idToken,
                   accessToken: accessToken,
                 );
 
-                // Sync any local guest data + restore cloud teams/matches/profile
-                await LocalEventStore.instance.syncAllPendingToSupabase();
+                // Claim & sync any local guest data, then restore cloud account data
+                final claimed = await LocalEventStore.instance
+                    .claimGuestDataForSignedInUser(
+                  previousGuestUid: prevGuestUid,
+                );
                 final restored = await LocalEventStore.instance
                     .restoreAccountDataFromCloud();
 
@@ -388,21 +469,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 }
 
                 if (!ctx.mounted) return;
-                Navigator.of(ctx).pop(
-                  restored > 0
-                      ? 'Signed in as ${googleUser.email} & restored $restored matches.'
-                      : 'Signed in as ${googleUser.email}',
-                );
+                final savedGuestCount = claimed.matchesSaved;
+                final message = savedGuestCount > 0
+                    ? 'Signed in as ${googleUser.email} · saved $savedGuestCount guest ${savedGuestCount == 1 ? 'match' : 'matches'}.'
+                    : restored > 0
+                        ? 'Signed in as ${googleUser.email} & restored $restored ${restored == 1 ? 'match' : 'matches'}.'
+                        : 'Signed in as ${googleUser.email}';
+                Navigator.of(ctx).pop(message);
               } on AuthException catch (e) {
                 setModalState(() {
                   errorText = e.message;
-                  submitting = false;
+                  busyAction = null;
                 });
               } catch (e) {
                 setModalState(() {
                   errorText =
                       'Google sign-in failed. Make sure the Android OAuth client (app.crease.crease + SHA-1) is added in Google Cloud Console.';
-                  submitting = false;
+                  busyAction = null;
                 });
               }
             }
@@ -417,21 +500,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 return;
               }
               setModalState(() {
-                submitting = true;
+                busyAction = 'email';
                 errorText = null;
               });
               try {
                 final auth = Supabase.instance.client.auth;
                 if (isSignInMode) {
+                  final prevUser = auth.currentUser;
+                  final prevGuestUid = (prevUser != null &&
+                          (prevUser.email == null ||
+                              prevUser.email!.trim().isEmpty))
+                      ? prevUser.id
+                      : null;
                   await auth.signInWithPassword(email: email, password: pass);
+                  final claimed = await LocalEventStore.instance
+                      .claimGuestDataForSignedInUser(
+                    previousGuestUid: prevGuestUid,
+                  );
                   final restored = await LocalEventStore.instance
                       .restoreAccountDataFromCloud();
                   if (!ctx.mounted) return;
-                  Navigator.of(ctx).pop(
-                    restored > 0
-                        ? 'Signed in & restored $restored matches.'
-                        : 'Signed in as $email',
-                  );
+                  final savedGuestCount = claimed.matchesSaved;
+                  final message = savedGuestCount > 0
+                      ? 'Signed in as $email · saved $savedGuestCount guest ${savedGuestCount == 1 ? 'match' : 'matches'}.'
+                      : restored > 0
+                          ? 'Signed in & restored $restored ${restored == 1 ? 'match' : 'matches'}.'
+                          : 'Signed in as $email';
+                  Navigator.of(ctx).pop(message);
                 } else {
                   const redirect = 'crease://login-callback';
                   if (auth.currentSession == null) {
@@ -455,100 +550,128 @@ class _ProfileScreenState extends State<ProfileScreen> {
               } on AuthException catch (e) {
                 setModalState(() {
                   errorText = e.message;
-                  submitting = false;
+                  busyAction = null;
                 });
               } catch (_) {
                 setModalState(() {
                   errorText = 'Check your internet connection and try again.';
-                  submitting = false;
+                  busyAction = null;
                 });
               }
             }
 
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-              ),
-              child: GlassSurface(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(24)),
-                fillColor: c.surfaceSheet,
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: c.hairline,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        isSignInMode ? 'Sign in to Crease' : 'Create account',
-                        style: Theme.of(ctx).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        isSignInMode
-                            ? 'Restore your backed-up teams, matches, and career stats.'
-                            : 'Save your teams, matches, and stats to an account so you never lose them.',
-                        style: Theme.of(ctx).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                          side: BorderSide(color: c.hairline),
-                          backgroundColor: c.surfaceGlass,
-                          foregroundColor: c.inkPrimary,
-                        ),
-                        onPressed: submitting ? null : continueWithGoogle,
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            GoogleGMark(size: 18),
-                            SizedBox(width: 10),
-                            Text('Continue with Google'),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
+            return PopScope(
+              canPop: !isBusy,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                ),
+                child: GlassSurface(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
+                  fillColor: c.surfaceSheet,
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                  child: SafeArea(
+                    top: false,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(child: Divider(color: c.hairlineSubtle)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Text(
-                              'or use email',
-                              style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                                    color: c.inkSecondary,
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  isSignInMode
+                                      ? 'Sign in to Crease'
+                                      : 'Create account',
+                                  style: Theme.of(ctx).textTheme.titleLarge,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Close',
+                                onPressed: isBusy
+                                    ? null
+                                    : () => Navigator.of(ctx).pop(),
+                                icon: const Icon(Icons.close_rounded, size: 20),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            isSignInMode
+                                ? 'Restore your backed-up teams, matches, and career stats.'
+                                : 'Save your teams, matches, and stats to an account so you never lose them.',
+                            style: Theme.of(ctx).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 16),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              side: BorderSide(color: c.hairline),
+                              backgroundColor: c.surfaceGlass,
+                              foregroundColor: c.inkPrimary,
+                            ),
+                            onPressed: isBusy ? null : continueWithGoogle,
+                            child: busyAction == 'google'
+                                ? Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: c.pitchGreen,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      const Text('Signing in with Google…'),
+                                    ],
+                                  )
+                                : const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      GoogleGMark(size: 18),
+                                      SizedBox(width: 10),
+                                      Text('Continue with Google'),
+                                    ],
                                   ),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(child: Divider(color: c.hairlineSubtle)),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text(
+                                  'or use email',
+                                  style: Theme.of(ctx)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: c.inkSecondary),
+                                ),
+                              ),
+                              Expanded(child: Divider(color: c.hairlineSubtle)),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: emailCtrl,
+                            enabled: !isBusy,
+                            keyboardType: TextInputType.emailAddress,
+                            autofillHints: const [AutofillHints.email],
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              hintText: 'you@example.com',
                             ),
                           ),
-                          Expanded(child: Divider(color: c.hairlineSubtle)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: emailCtrl,
-                        keyboardType: TextInputType.emailAddress,
-                        autofillHints: const [AutofillHints.email],
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          hintText: 'you@example.com',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: passCtrl,
-                        obscureText: obscurePassword,
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: passCtrl,
+                            enabled: !isBusy,
+                            obscureText: obscurePassword,
                         decoration: InputDecoration(
                           labelText:
                               isSignInMode ? 'Password' : 'Create a password',
@@ -583,15 +706,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           foregroundColor: Colors.white,
                           minimumSize: const Size.fromHeight(48),
                         ),
-                        onPressed: submitting ? null : submitEmail,
-                        child: submitting
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
+                        onPressed: isBusy ? null : submitEmail,
+                        child: busyAction == 'email'
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: c.pitchGreen,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    isSignInMode
+                                        ? 'Signing in…'
+                                        : 'Creating account…',
+                                  ),
+                                ],
                               )
                             : Text(
                                 isSignInMode ? 'Sign in' : 'Create account',
@@ -599,7 +733,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 8),
                       TextButton(
-                        onPressed: submitting
+                        onPressed: isBusy
                             ? null
                             : () => setModalState(() {
                                   isSignInMode = !isSignInMode;
@@ -615,11 +749,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
+              ),
+              ),
             );
           },
         );
       },
     );
+
+    Future<void>.delayed(const Duration(milliseconds: 500), () {
+      emailCtrl.dispose();
+      passCtrl.dispose();
+    });
 
     if (done != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(done)));
@@ -781,14 +922,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _shareMyCard(PlayerCareerStats stats) {
-    final teamLine = _myTeam != null ? ' · ${_myTeam!.name}' : '';
-    final text = '${_profile.effectiveName} (${_profile.role}$teamLine)\n'
-        'Matches: ${stats.matchesPlayed} · Runs: ${stats.runs} (SR ${stats.strikeRate.toStringAsFixed(1)}) · '
-        'Wickets: ${stats.wickets} (Econ ${stats.economy.toStringAsFixed(1)}) · '
-        'MVP: ${stats.mvpPoints.toStringAsFixed(0)} pts\n'
-        'Tracked with Crease';
-    Share.share(text);
+  Future<void> _shareMyCard(PlayerCareerStats stats) async {
+    await PlayerCareerPoster.sharePlayerCard(
+      playerName: _profile.effectiveName,
+      stats: stats,
+      role: _profile.role,
+      teamName: _myTeam?.name,
+    );
   }
 
   @override
@@ -1058,6 +1198,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           highlight: true,
                         ),
                       ],
+                    )
+                  else if (_profile.linkedPlayerName != null &&
+                      _profile.linkedPlayerName!.trim().isNotEmpty)
+                    GlassSurface(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'No match stats yet',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Linked as ${_profile.linkedPlayerName} — score a match to see your runs, wickets, and MVP points here.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
                     )
                   else
                     GlassSurface(

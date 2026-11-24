@@ -12,6 +12,7 @@ import 'features/home/home_screen.dart';
 import 'features/scorecard/scorecard_screen.dart';
 import 'features/scoring/scoring_screen.dart';
 import 'features/teams/team_invite_sheets.dart';
+import 'features/tournaments/tournament_detail_screen.dart';
 import 'theme/crease_theme.dart';
 
 /// Supabase project configuration (overridable via --dart-define).
@@ -119,6 +120,18 @@ class _CreaseAppState extends State<CreaseApp> {
         if (ctx != null) {
           showJoinTeamSheet(ctx, initialCode: teamCode);
         }
+      });
+      return;
+    }
+
+    final tournamentId = CreaseLinks.parseTournamentId(uri);
+    if (tournamentId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => TournamentDetailScreen(tournamentId: tournamentId),
+          ),
+        );
       });
       return;
     }

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../domain/models.dart';
 import '../../domain/stats_engine.dart';
@@ -8,6 +7,7 @@ import '../../domain/tournament_engine.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../profile/player_profile_screen.dart';
 
 enum _StatsBoard { mvp, batting, bowling, boundaries }
 
@@ -30,8 +30,16 @@ class StatsTabView extends StatefulWidget {
 class _StatsTabViewState extends State<StatsTabView> {
   _StatsBoard _board = _StatsBoard.mvp;
   String? _selectedTournamentId;
+  String? _selectedTeamId;
   String? _selectedTeamName;
   bool _userChangedScope = false;
+
+  List<DerivedMatchState>? _cachedMatchesRef;
+  _StatsBoard? _cachedBoard;
+  String? _cachedTournamentId;
+  String? _cachedTeamId;
+  String? _cachedTeamName;
+  List<PlayerCareerStats>? _cachedRanked;
 
   @override
   void initState() {
@@ -44,6 +52,7 @@ class _StatsTabViewState extends State<StatsTabView> {
     super.didUpdateWidget(oldWidget);
     if (!_userChangedScope &&
         _selectedTeamName == null &&
+        _selectedTeamId == null &&
         _selectedTournamentId == null) {
       _applyDefaultScope();
     }
@@ -52,27 +61,45 @@ class _StatsTabViewState extends State<StatsTabView> {
   void _applyDefaultScope() {
     final myTeams = widget.savedTeams.where((t) => t.isMyTeam).toList();
     if (myTeams.isNotEmpty) {
+      _selectedTeamId = myTeams.first.id;
       _selectedTeamName = myTeams.first.name;
     }
   }
 
   List<PlayerCareerStats> get _ranked {
+    if (_cachedRanked != null &&
+        identical(_cachedMatchesRef, widget.matches) &&
+        _cachedBoard == _board &&
+        _cachedTournamentId == _selectedTournamentId &&
+        _cachedTeamId == _selectedTeamId &&
+        _cachedTeamName == _selectedTeamName) {
+      return _cachedRanked!;
+    }
     final hasRealMatches = widget.matches.any((m) => !m.config.isDemo);
     final excludeDemo = hasRealMatches ||
+        _selectedTeamId != null ||
         _selectedTeamName != null ||
         _selectedTournamentId != null;
     final all = StatsEngine.derive(
       widget.matches,
       tournamentId: _selectedTournamentId,
+      teamId: _selectedTeamId,
       teamName: _selectedTeamName,
       excludeDemo: excludeDemo,
     );
-    return switch (_board) {
+    final ranked = switch (_board) {
       _StatsBoard.mvp => StatsEngine.byMvp(all),
       _StatsBoard.batting => StatsEngine.byRuns(all),
       _StatsBoard.bowling => StatsEngine.byWickets(all),
       _StatsBoard.boundaries => StatsEngine.bySixes(all),
     };
+    _cachedMatchesRef = widget.matches;
+    _cachedBoard = _board;
+    _cachedTournamentId = _selectedTournamentId;
+    _cachedTeamId = _selectedTeamId;
+    _cachedTeamName = _selectedTeamName;
+    _cachedRanked = ranked;
+    return ranked;
   }
 
   String _primaryMetric(PlayerCareerStats p) => switch (_board) {
@@ -94,105 +121,14 @@ class _StatsTabViewState extends State<StatsTabView> {
       };
 
   void _openPlayerCard(PlayerCareerStats p) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final c = ctx.crease;
-        return GlassSurface(
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(CreaseRadius.sheet),
-          ),
-          fillColor: c.surfaceSheet,
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: c.hairline,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  CreaseTeamBadge(name: p.name, size: 46, highlighted: true),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          p.name,
-                          style: Theme.of(ctx).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${p.matchesPlayed} match${p.matchesPlayed == 1 ? '' : 'es'} · ${p.mvpPoints} MVP pts',
-                          style: Theme.of(ctx)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(color: c.pitchGreen),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Share player stats',
-                    icon: const Icon(Icons.share_rounded, size: 20),
-                    onPressed: () {
-                      Share.share(
-                        '${p.name} · Crease Career Stats\n'
-                        'Batting: ${p.runs} runs (${p.ballsFaced}b), HS ${p.highestScoreText}, SR ${p.strikeRate.toStringAsFixed(0)}, 4s:${p.fours} 6s:${p.sixes}\n'
-                        'Bowling: ${p.wickets} wkts (${p.oversBowledText} ov), Econ ${p.economy.toStringAsFixed(1)}, Best ${p.bestBowlingText}\n'
-                        'MVP: ${p.mvpPoints} pts',
-                      );
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  _StatBox(label: 'Runs', value: '${p.runs}'),
-                  const SizedBox(width: 8),
-                  _StatBox(
-                    label: 'SR',
-                    value: p.strikeRate.toStringAsFixed(0),
-                  ),
-                  const SizedBox(width: 8),
-                  _StatBox(label: 'Wkts', value: '${p.wickets}'),
-                  const SizedBox(width: 8),
-                  _StatBox(
-                    label: 'Econ',
-                    value: p.legalBallsBowled == 0
-                        ? '-'
-                        : p.economy.toStringAsFixed(1),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  _StatBox(label: 'High', value: p.highestScoreText),
-                  const SizedBox(width: 8),
-                  _StatBox(label: '4s / 6s', value: '${p.fours} / ${p.sixes}'),
-                  const SizedBox(width: 8),
-                  _StatBox(label: 'Best', value: p.bestBowlingText),
-                  const SizedBox(width: 8),
-                  _StatBox(label: 'Fielding', value: '${p.fieldingDismissals}'),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerProfileScreen(
+          playerName: p.name,
+          teams: p.teamName != null ? [p.teamName!] : const [],
+          matches: widget.matches,
+        ),
+      ),
     );
   }
 
@@ -330,9 +266,10 @@ class _StatsTabViewState extends State<StatsTabView> {
                       for (final team in myTeams)
                         _ScopePill(
                           label: team.name,
-                          selected: _selectedTeamName == team.name,
+                          selected: _selectedTeamId == team.id,
                           onTap: () => setState(() {
                             _userChangedScope = true;
+                            _selectedTeamId = team.id;
                             _selectedTeamName = team.name;
                             _selectedTournamentId = null;
                           }),
@@ -344,16 +281,19 @@ class _StatsTabViewState extends State<StatsTabView> {
                           onTap: () => setState(() {
                             _userChangedScope = true;
                             _selectedTournamentId = t.id;
+                            _selectedTeamId = null;
                             _selectedTeamName = null;
                           }),
                         ),
                       _ScopePill(
                         label: 'All matches',
                         selected: _selectedTournamentId == null &&
+                            _selectedTeamId == null &&
                             _selectedTeamName == null,
                         onTap: () => setState(() {
                           _userChangedScope = true;
                           _selectedTournamentId = null;
+                          _selectedTeamId = null;
                           _selectedTeamName = null;
                         }),
                       ),
@@ -568,7 +508,15 @@ class _ScopePill extends StatelessWidget {
       padding: const EdgeInsets.only(right: 6),
       child: InkWell(
         borderRadius: BorderRadius.circular(CreaseRadius.pill),
-        onTap: onTap,
+        onTap: () {
+          onTap();
+          Scrollable.ensureVisible(
+            context,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+            alignment: 0.5,
+          );
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
@@ -586,46 +534,6 @@ class _ScopePill extends StatelessWidget {
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StatBox extends StatelessWidget {
-  const _StatBox({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.crease;
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-        decoration: BoxDecoration(
-          color: c.surfaceKey,
-          borderRadius: BorderRadius.circular(CreaseRadius.control),
-          border: Border.all(color: c.hairlineSubtle),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: creaseNumeralStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: c.inkPrimary,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontSize: 11,
-                  ),
-            ),
-          ],
         ),
       ),
     );

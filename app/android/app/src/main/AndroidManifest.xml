@@ -50,6 +50,9 @@
                     android:host="match"/>
                 <data
                     android:scheme="crease"
+                    android:host="tournament"/>
+                <data
+                    android:scheme="crease"
                     android:host="join-team"/>
                 <data
                     android:scheme="crease"

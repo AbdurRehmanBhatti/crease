@@ -50,7 +50,19 @@ class LiveCreaseCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             child: Row(
               children: [
-                Expanded(child: Text('Batter', style: headerStyle)),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Text('Batter', style: headerStyle),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.swap_vert_rounded,
+                        size: 13,
+                        color: c.inkSecondary.withValues(alpha: 0.7),
+                      ),
+                    ],
+                  ),
+                ),
                 _ColHeader('R', width: 32, style: headerStyle),
                 _ColHeader('B', width: 30, style: headerStyle),
                 _ColHeader('4s', width: 26, style: headerStyle),
@@ -116,14 +128,29 @@ class LiveCreaseCard extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        bowler.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: c.inkPrimary,
-                              fontWeight: FontWeight.w600,
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              bowler.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    color: c.inkPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.swap_horiz_rounded,
+                            size: 14,
+                            color: c.inkSecondary.withValues(alpha: 0.7),
+                          ),
+                        ],
                       ),
                     ),
                     _NumCell(bowler.oversText, width: 32),

@@ -114,69 +114,90 @@ Future<void> showMatchOptionsSheet(
             children: [
               const CreaseSheetHeader(title: 'Match options'),
               const SizedBox(height: 14),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 2.35,
+              Text(
+                'Scoring events',
+                style: Theme.of(ctx).textTheme.labelMedium,
+              ),
+              const SizedBox(height: 8),
+              Row(
                 children: [
-                  _OptionTile(
-                    icon: Icons.looks_5_outlined,
-                    title: '5 runs',
-                    subtitle: 'Overthrow',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      onFiveRuns();
-                    },
+                  Expanded(
+                    child: _OptionTile(
+                      icon: Icons.looks_5_outlined,
+                      title: '5 runs',
+                      subtitle: 'Overthrow',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onFiveRuns();
+                      },
+                    ),
                   ),
-                  _OptionTile(
-                    icon: Icons.flag_outlined,
-                    title: '+5 Penalty',
-                    subtitle: 'Dead-ball award',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      onPenaltyRuns();
-                    },
-                  ),
-                  _OptionTile(
-                    icon: Icons.healing_outlined,
-                    title: 'Retired hurt',
-                    subtitle: 'No wicket lost',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      onRetiredHurt();
-                    },
-                  ),
-                  _OptionTile(
-                    icon: Icons.stop_circle_outlined,
-                    title: 'End innings',
-                    subtitle: 'Close or declare',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      onEndInnings();
-                    },
-                  ),
-                  _OptionTile(
-                    icon: Icons.thunderstorm_outlined,
-                    title: 'Revise rules',
-                    subtitle: 'Rain or target',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      onReviseRules();
-                    },
-                  ),
-                  _OptionTile(
-                    icon: Icons.swap_horiz_rounded,
-                    title: 'Hand over',
-                    subtitle: 'Switch scorer',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      onHandOver();
-                    },
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _OptionTile(
+                      icon: Icons.flag_outlined,
+                      title: '+5 Penalty',
+                      subtitle: 'Dead-ball',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onPenaltyRuns();
+                      },
+                    ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 10),
+              _OptionTile(
+                icon: Icons.healing_outlined,
+                title: 'Retired hurt',
+                subtitle: 'Batter leaves · no wicket lost',
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onRetiredHurt();
+                },
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Match controls',
+                style: Theme.of(ctx).textTheme.labelMedium,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _OptionTile(
+                      icon: Icons.stop_circle_outlined,
+                      title: 'End innings',
+                      subtitle: 'Close or declare',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onEndInnings();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _OptionTile(
+                      icon: Icons.thunderstorm_outlined,
+                      title: 'Revise rules',
+                      subtitle: 'Rain or target',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onReviseRules();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _OptionTile(
+                icon: Icons.swap_horiz_rounded,
+                title: 'Hand over scoring',
+                subtitle: 'Transfer live control to another device',
+                onTap: () {
+                  Navigator.pop(ctx);
+                  onHandOver();
+                },
               ),
               const SizedBox(height: 14),
               OutlinedButton.icon(

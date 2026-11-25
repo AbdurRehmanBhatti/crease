@@ -432,9 +432,8 @@ class CreaseSheetHeader extends StatelessWidget {
             if (showCloseButton)
               IconButton(
                 tooltip: 'Close',
-                visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                 icon: Icon(
                   Icons.close_rounded,
                   size: 20,
@@ -762,10 +761,7 @@ class CreaseMenuButton<T> extends StatelessWidget {
     return IconButton(
       tooltip: tooltip,
       padding: compact ? EdgeInsets.zero : null,
-      constraints: compact
-          ? const BoxConstraints(minWidth: 32, minHeight: 32)
-          : null,
-      visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
       icon: Icon(icon, size: iconSize, color: c.inkSecondary),
       onPressed: () async {
         HapticFeedback.selectionClick();

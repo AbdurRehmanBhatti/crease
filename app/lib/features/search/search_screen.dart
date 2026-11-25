@@ -315,6 +315,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   : raw.isEmpty
                       ? null
                       : IconButton(
+                          tooltip: 'Clear search',
                           icon: const Icon(Icons.close_rounded, size: 18),
                           onPressed: () {
                             _ctrl.clear();
@@ -354,7 +355,9 @@ class _SearchScreenState extends State<SearchScreen> {
                         visualDensity: VisualDensity.compact,
                         labelStyle: TextStyle(
                           fontSize: 12.5,
-                          color: _filter == item.$1 ? Colors.white : c.inkPrimary,
+                          color: _filter == item.$1
+                              ? c.onPitchGreen
+                              : c.inkPrimary,
                           fontWeight: _filter == item.$1
                               ? FontWeight.w600
                               : FontWeight.w500,

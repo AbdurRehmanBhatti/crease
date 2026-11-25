@@ -292,7 +292,27 @@ class _ScoringScreenState extends State<ScoringScreen> {
       _manualNonStriker = null;
       _manualBowler = null;
     });
-    _showSnack('Undid last ball (${undone.shortMark})');
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: Text('Undid last ball (${undone.shortMark})'),
+          action: SnackBarAction(
+            label: 'Redo',
+            onPressed: () async {
+              await LocalEventStore.instance.updateBallEvent(
+                undone.copyWith(voided: false),
+              );
+              final restored =
+                  await LocalEventStore.instance.getBallEvents(widget.matchId);
+              if (!mounted) return;
+              setState(() => _events = restored);
+              LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+            },
+          ),
+        ),
+      );
   }
 
   void _swapStrike() {
@@ -328,6 +348,42 @@ class _ScoringScreenState extends State<ScoringScreen> {
         _manualBowler = picked;
       });
     }
+  }
+
+  Future<void> _handleExtraTap(ExtraType type) async {
+    if (type != ExtraType.wide) {
+      await _openExtrasSheet(type);
+      return;
+    }
+    // 1-tap plain Wide (+1). Hold Wide or tap "+Runs" on the snackbar for
+    // additional runs (e.g. wide + 4).
+    final beforeIds = _events.map((e) => e.id).toSet();
+    await _recordBall(extraType: ExtraType.wide, extraRuns: 1);
+    if (!mounted) return;
+    final recorded = _events
+        .where((e) => !beforeIds.contains(e.id) && e.extraType == ExtraType.wide)
+        .lastOrNull;
+    if (recorded == null) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 3),
+          content: const Text('Wide (+1) recorded · hold Wide for +runs'),
+          action: SnackBarAction(
+            label: '+Runs',
+            onPressed: () async {
+              final chosen = await showExtrasRunsSheet(context, ExtraType.wide);
+              if (chosen == null || chosen == 0 || !mounted) return;
+              await LocalEventStore.instance.updateBallEvent(
+                recorded.copyWith(extraRuns: 1 + chosen),
+              );
+              await _load();
+              LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+            },
+          ),
+        ),
+      );
   }
 
   Future<void> _openExtrasSheet(ExtraType type) async {
@@ -764,7 +820,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
                         backgroundColor: c.pitchGreen,
-                        foregroundColor: Colors.white,
+                        foregroundColor: c.onPitchGreen,
                         minimumSize: const Size.fromHeight(48),
                       ),
                       onPressed: () => Navigator.pop(ctx, true),
@@ -1133,58 +1189,6 @@ class _ScoringScreenState extends State<ScoringScreen> {
                               ),
                             ),
 
-                          if (state.status == MatchStatus.inningsBreak &&
-                              !_handedOverToOther)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: FilledButton(
-                                      onPressed: () {
-                                        if (!state.config.isTestMatch &&
-                                            state.activeInningsNumber == 3) {
-                                          _startSuperOver(
-                                            state,
-                                            targetInnings: 4,
-                                          );
-                                          return;
-                                        }
-                                        setState(
-                                          () => _forcedInnings =
-                                              state.activeInningsNumber + 1,
-                                        );
-                                      },
-                                      child: Text(
-                                        !state.config.isTestMatch &&
-                                                state.activeInningsNumber == 3
-                                            ? 'Start Super Over chase'
-                                            : 'Start Innings ${state.activeInningsNumber + 1}',
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  OutlinedButton.icon(
-                                    onPressed: () => showHandOverScoringSheet(
-                                      context,
-                                      state,
-                                    ),
-                                    icon: const Icon(
-                                      Icons.swap_horiz_rounded,
-                                      size: 18,
-                                    ),
-                                    label: const Text('Hand over'),
-                                  ),
-                                  if (state.canEnforceFollowOn) ...[
-                                    const SizedBox(width: 8),
-                                    OutlinedButton(
-                                      onPressed: () => _enforceFollowOn(state),
-                                      child: const Text('Follow-on'),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
                         ],
                       ),
                     ),
@@ -1193,7 +1197,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
               ),
             ),
 
-            // 3. Raised Scoring Pad / Match Complete Sheet / Handed Over Banner
+            // 3. Raised Scoring Pad / Innings Break / Match Complete / Handed Over
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 240),
               switchInCurve: Curves.easeOutCubic,
@@ -1204,6 +1208,28 @@ class _ScoringScreenState extends State<ScoringScreen> {
                       reclaiming: _reclaiming,
                       onReclaim: _reclaimScoring,
                     )
+                  : state.status == MatchStatus.inningsBreak
+                      ? InningsBreakSheet(
+                          key: const ValueKey('innings-break'),
+                          state: state,
+                          onStartNextInnings: () {
+                            if (!state.config.isTestMatch &&
+                                state.activeInningsNumber == 3) {
+                              _startSuperOver(state, targetInnings: 4);
+                              return;
+                            }
+                            setState(
+                              () => _forcedInnings =
+                                  state.activeInningsNumber + 1,
+                            );
+                          },
+                          onHandOver: () =>
+                              showHandOverScoringSheet(context, state),
+                          onEnforceFollowOn: state.canEnforceFollowOn
+                              ? () => _enforceFollowOn(state)
+                              : null,
+                          onUndoLastBall: _undoLastBall,
+                        )
                   : state.status == MatchStatus.completed
                       ? MatchCompleteSheet(
                           key: const ValueKey('match-complete'),
@@ -1238,7 +1264,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
                       : GlassScoringSheet(
                           key: const ValueKey('keypad'),
                           onRunTap: (runs) => _recordBall(runsOffBat: runs),
-                          onExtraTap: _openExtrasSheet,
+                          onExtraTap: _handleExtraTap,
+                          onExtraLongPress: _openExtrasSheet,
                           onWicketTap: () => _openWicketSheet(),
                           onRunOutTap: () => _openWicketSheet(
                             initialType: WicketType.runOut,

@@ -442,6 +442,7 @@ Future<Map<String, List<String>>?> showAddTournamentTeamsSheet(
                             : query.isEmpty
                                 ? null
                                 : IconButton(
+                                    tooltip: 'Clear search',
                                     icon: const Icon(
                                       Icons.close_rounded,
                                       size: 18,

@@ -223,10 +223,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               label: Text(role),
                               selected: selectedRole == role,
                               selectedColor: c.pitchGreen,
-                              checkmarkColor: Colors.white,
+                              checkmarkColor: c.onPitchGreen,
                               labelStyle: TextStyle(
                                 color: selectedRole == role
-                                    ? Colors.white
+                                    ? c.onPitchGreen
                                     : c.inkPrimary,
                                 fontWeight: selectedRole == role
                                     ? FontWeight.w600
@@ -336,7 +336,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           return FilledButton(
                             style: FilledButton.styleFrom(
                               backgroundColor: c.pitchGreen,
-                              foregroundColor: Colors.white,
+                              foregroundColor: c.onPitchGreen,
                               disabledBackgroundColor: c.surfaceKey,
                               disabledForegroundColor: c.inkSecondary,
                               minimumSize: const Size.fromHeight(48),
@@ -420,7 +420,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 if (idToken == null) {
                   setModalState(() {
                     errorText =
-                        'Could not get Google ID token. Verify your Android OAuth Client ID (SHA-1) in Google Cloud Console.';
+                        'Google sign-in didn\'t finish. Please try again or sign in with email.';
                     busyAction = null;
                   });
                   return;
@@ -484,7 +484,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               } catch (e) {
                 setModalState(() {
                   errorText =
-                      'Google sign-in failed. Make sure the Android OAuth client (app.crease.crease + SHA-1) is added in Google Cloud Console.';
+                      'Google sign-in didn\'t finish. Check your connection and try again, or use email.';
                   busyAction = null;
                 });
               }
@@ -677,6 +677,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               isSignInMode ? 'Password' : 'Create a password',
                           hintText: 'At least 6 characters',
                           suffixIcon: IconButton(
+                            tooltip: obscurePassword
+                                ? 'Show password'
+                                : 'Hide password',
                             icon: Icon(
                               obscurePassword
                                   ? Icons.visibility_off_outlined
@@ -889,7 +892,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: context.crease.wicketRed,
-              foregroundColor: Colors.white,
+              foregroundColor: context.crease.onWicketRed,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Sign out'),
@@ -918,7 +921,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
     } catch (_) {
-      if (mounted) await _load();
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Couldn\'t sign out while offline. Connect to back up your matches first.',
+          ),
+        ),
+      );
     }
   }
 

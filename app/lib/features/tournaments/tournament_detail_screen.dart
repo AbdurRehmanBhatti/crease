@@ -309,9 +309,13 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                         ),
                       ),
                       if (onClear != null)
-                        GestureDetector(
-                          onTap: onClear,
-                          child: Icon(
+                        IconButton(
+                          tooltip: 'Clear date',
+                          padding: EdgeInsets.zero,
+                          constraints:
+                              const BoxConstraints(minWidth: 40, minHeight: 40),
+                          onPressed: onClear,
+                          icon: Icon(
                             Icons.close_rounded,
                             size: 16,
                             color: c.inkSecondary,

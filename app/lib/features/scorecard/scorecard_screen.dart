@@ -1071,10 +1071,10 @@ class _InningsSwitcher extends StatelessWidget {
                   ),
                   selected: selectedInnings == inn.inningsNumber,
                   selectedColor: c.pitchGreen,
-                  checkmarkColor: Colors.white,
+                  checkmarkColor: c.onPitchGreen,
                   labelStyle: TextStyle(
                     color: selectedInnings == inn.inningsNumber
-                        ? Colors.white
+                        ? c.onPitchGreen
                         : c.inkPrimary,
                     fontWeight: FontWeight.w500,
                   ),

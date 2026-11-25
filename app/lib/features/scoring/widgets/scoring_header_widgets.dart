@@ -217,7 +217,7 @@ class ChaseOrRateStack extends StatelessWidget {
                   ),
                 ),
                 TextSpan(
-                  text: ' balls',
+                  text: innings.ballsRemaining == 1 ? ' ball' : ' balls',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
@@ -271,7 +271,7 @@ class ChaseOrRateStack extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          '${innings.ballsRemaining} balls left',
+          '${innings.ballsRemaining} ball${innings.ballsRemaining == 1 ? '' : 's'} left',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
@@ -429,32 +429,46 @@ class _BallCircle extends StatelessWidget {
     if (ball.isWicket) {
       bg = c.wicketRed;
       border = c.wicketRed;
-      fg = Colors.white;
+      fg = c.onWicketRed;
     } else if (isBoundary) {
       bg = c.pitchGreenSoft;
       border = c.pitchGreen;
       fg = c.pitchGreen;
     }
 
-    return CreasePressable(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      scale: 0.9,
-      child: Container(
-        width: 34,
-        height: 34,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: bg,
-          shape: BoxShape.circle,
-          border: Border.all(color: border, width: 1.1),
-        ),
-        child: Text(
-          ball.shortMark,
-          style: creaseNumeralStyle(
-            fontSize: ball.shortMark.length > 2 ? 10.5 : 14,
-            fontWeight: FontWeight.w700,
-            color: fg,
+    return Semantics(
+      button: true,
+      label: 'Edit delivery ${ball.shortMark}',
+      child: CreasePressable(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        scale: 0.9,
+        child: SizedBox(
+          width: 40,
+          height: 48,
+          child: Center(
+            child: Container(
+              width: 34,
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: bg,
+                shape: BoxShape.circle,
+                border: Border.all(color: border, width: 1.1),
+              ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  ball.shortMark,
+                  style: creaseNumeralStyle(
+                    fontSize: ball.shortMark.length > 2 ? 10.5 : 14,
+                    fontWeight: FontWeight.w700,
+                    color: fg,
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

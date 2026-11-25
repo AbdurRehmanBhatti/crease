@@ -884,7 +884,8 @@ class _FormRow extends StatelessWidget {
           if (i > 0) const SizedBox(width: 6),
           Expanded(
             child: Container(
-              height: 36,
+              constraints: const BoxConstraints(minHeight: 36),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: values[i] == '—' ? c.surfaceKey : c.pillMutedBg,

@@ -46,11 +46,15 @@ class CreaseColors {
   // Semantic accents (strictly reserved)
   static const Color pitchGreen = Color(0xFF0B7A4B);
   static const Color pitchGreenDark = Color(0xFF19A96B);
+  static const Color onPitchGreenLight = Color(0xFFFFFFFF);
+  static const Color onPitchGreenDark = Color(0xFF07120D);
   static const Color pitchGreenSoftLight = Color(0xFFE6F4ED);
   static const Color pitchGreenSoftDark = Color(0xFF132D22);
 
   static const Color wicketRed = Color(0xFFD63949);
   static const Color wicketRedDark = Color(0xFFEC5463);
+  static const Color onWicketRedLight = Color(0xFFFFFFFF);
+  static const Color onWicketRedDark = Color(0xFF1A0709);
   static const Color wicketRedSoftLight = Color(0xFFFCEAEB);
   static const Color wicketRedSoftDark = Color(0xFF34181C);
 
@@ -72,8 +76,10 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
     required this.hairlineSubtle,
     required this.pillMutedBg,
     required this.pitchGreen,
+    required this.onPitchGreen,
     required this.pitchGreenSoft,
     required this.wicketRed,
+    required this.onWicketRed,
     required this.wicketRedSoft,
     required this.chartSecondary,
   });
@@ -89,8 +95,10 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
   final Color hairlineSubtle;
   final Color pillMutedBg;
   final Color pitchGreen;
+  final Color onPitchGreen;
   final Color pitchGreenSoft;
   final Color wicketRed;
+  final Color onWicketRed;
   final Color wicketRedSoft;
   final Color chartSecondary;
 
@@ -106,8 +114,10 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
     hairlineSubtle: CreaseColors.hairlineSubtleLight,
     pillMutedBg: CreaseColors.pillMutedBgLight,
     pitchGreen: CreaseColors.pitchGreen,
+    onPitchGreen: CreaseColors.onPitchGreenLight,
     pitchGreenSoft: CreaseColors.pitchGreenSoftLight,
     wicketRed: CreaseColors.wicketRed,
+    onWicketRed: CreaseColors.onWicketRedLight,
     wicketRedSoft: CreaseColors.wicketRedSoftLight,
     chartSecondary: CreaseColors.chartSecondaryLight,
   );
@@ -124,8 +134,10 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
     hairlineSubtle: CreaseColors.hairlineSubtleDark,
     pillMutedBg: CreaseColors.pillMutedBgDark,
     pitchGreen: CreaseColors.pitchGreenDark,
+    onPitchGreen: CreaseColors.onPitchGreenDark,
     pitchGreenSoft: CreaseColors.pitchGreenSoftDark,
     wicketRed: CreaseColors.wicketRedDark,
+    onWicketRed: CreaseColors.onWicketRedDark,
     wicketRedSoft: CreaseColors.wicketRedSoftDark,
     chartSecondary: CreaseColors.chartSecondaryDark,
   );
@@ -143,8 +155,10 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
     Color? hairlineSubtle,
     Color? pillMutedBg,
     Color? pitchGreen,
+    Color? onPitchGreen,
     Color? pitchGreenSoft,
     Color? wicketRed,
+    Color? onWicketRed,
     Color? wicketRedSoft,
     Color? chartSecondary,
   }) {
@@ -160,8 +174,10 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
       hairlineSubtle: hairlineSubtle ?? this.hairlineSubtle,
       pillMutedBg: pillMutedBg ?? this.pillMutedBg,
       pitchGreen: pitchGreen ?? this.pitchGreen,
+      onPitchGreen: onPitchGreen ?? this.onPitchGreen,
       pitchGreenSoft: pitchGreenSoft ?? this.pitchGreenSoft,
       wicketRed: wicketRed ?? this.wicketRed,
+      onWicketRed: onWicketRed ?? this.onWicketRed,
       wicketRedSoft: wicketRedSoft ?? this.wicketRedSoft,
       chartSecondary: chartSecondary ?? this.chartSecondary,
     );
@@ -182,8 +198,10 @@ class CreaseThemeExtension extends ThemeExtension<CreaseThemeExtension> {
       hairlineSubtle: Color.lerp(hairlineSubtle, other.hairlineSubtle, t)!,
       pillMutedBg: Color.lerp(pillMutedBg, other.pillMutedBg, t)!,
       pitchGreen: Color.lerp(pitchGreen, other.pitchGreen, t)!,
+      onPitchGreen: Color.lerp(onPitchGreen, other.onPitchGreen, t)!,
       pitchGreenSoft: Color.lerp(pitchGreenSoft, other.pitchGreenSoft, t)!,
       wicketRed: Color.lerp(wicketRed, other.wicketRed, t)!,
+      onWicketRed: Color.lerp(onWicketRed, other.onWicketRed, t)!,
       wicketRedSoft: Color.lerp(wicketRedSoft, other.wicketRedSoft, t)!,
       chartSecondary: Color.lerp(chartSecondary, other.chartSecondary, t)!,
     );
@@ -380,7 +398,7 @@ class CreaseTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: ext.pitchGreen,
-          foregroundColor: Colors.white,
+          foregroundColor: ext.onPitchGreen,
           elevation: 0,
           minimumSize: const Size(0, 48),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -467,6 +485,8 @@ class CreaseTheme {
         behavior: SnackBarBehavior.floating,
         elevation: 0,
         backgroundColor: isDark ? ext.inkPrimary : CreaseColors.inkPrimaryLight,
+        actionTextColor:
+            isDark ? CreaseColors.pitchGreen : CreaseColors.pitchGreenDark,
         contentTextStyle: GoogleFonts.plusJakartaSans(
           color: isDark ? CreaseColors.groundDark : Colors.white,
           fontSize: 13.5,
@@ -501,11 +521,11 @@ class CreaseTheme {
   static ThemeData dark() {
     const scheme = ColorScheme.dark(
       primary: CreaseColors.pitchGreenDark,
-      onPrimary: Colors.white,
+      onPrimary: CreaseColors.onPitchGreenDark,
       secondary: CreaseColors.pitchGreenDark,
-      onSecondary: Colors.white,
+      onSecondary: CreaseColors.onPitchGreenDark,
       error: CreaseColors.wicketRedDark,
-      onError: Colors.white,
+      onError: CreaseColors.onWicketRedDark,
       surface: CreaseColors.groundDark,
       onSurface: CreaseColors.inkPrimaryDark,
       outline: CreaseColors.hairlineDark,

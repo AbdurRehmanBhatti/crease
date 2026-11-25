@@ -267,7 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: context.crease.wicketRed,
-              foregroundColor: Colors.white,
+              foregroundColor: context.crease.onWicketRed,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete'),
@@ -389,45 +389,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      if (_navIndex == 1 ||
-                          (_navIndex == 0 && _matches.isNotEmpty) ||
-                          (_navIndex == 2 && _tournaments.isNotEmpty))
-                        FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: c.inkPrimary,
-                            foregroundColor: c.ground,
-                            minimumSize: const Size(0, 38),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 0,
-                            ),
-                            textStyle: Theme.of(context)
-                                .textTheme
-                                .labelLarge
-                                ?.copyWith(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(CreaseRadius.control),
-                            ),
-                          ),
-                          onPressed: _navIndex == 1
-                              ? _createTeam
-                              : _navIndex == 2
-                                  ? _createTournament
-                                  : _createQuickMatch,
-                          icon: const Icon(Icons.add_rounded, size: 17),
-                          label: Text(
-                            _navIndex == 1
-                                ? 'Team'
-                                : _navIndex == 2
-                                    ? 'Tournament'
-                                    : 'New match',
-                          ),
-                        ),
-                      const SizedBox(width: 8),
                       Tooltip(
                         message: 'Search Crease',
                         child: CreasePressable(
@@ -435,39 +396,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           borderRadius:
                               BorderRadius.circular(CreaseRadius.control),
                           scale: 0.94,
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: c.surfaceGlass,
-                              borderRadius: BorderRadius.circular(
-                                CreaseRadius.control,
-                              ),
-                              border: Border.all(color: c.hairline),
-                            ),
-                            alignment: Alignment.center,
-                            child: Icon(
-                              Icons.search_rounded,
-                              size: 20,
-                              color: c.inkPrimary,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Tooltip(
-                        message: 'Profile & account',
-                        child: CreasePressable(
-                          onTap: _openProfile,
-                          borderRadius:
-                              BorderRadius.circular(CreaseRadius.control),
-                          scale: 0.94,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
+                          child: SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Center(
+                              child: Container(
+                                width: 42,
+                                height: 42,
                                 decoration: BoxDecoration(
                                   color: c.surfaceGlass,
                                   borderRadius: BorderRadius.circular(
@@ -476,41 +411,79 @@ class _HomeScreenState extends State<HomeScreen> {
                                   border: Border.all(color: c.hairline),
                                 ),
                                 alignment: Alignment.center,
-                                child: (_profile.avatarUrl != null &&
-                                        _profile.avatarUrl!.isNotEmpty)
-                                    ? ClipRRect(
-                                        borderRadius: BorderRadius.circular(
-                                          CreaseRadius.control - 1,
-                                        ),
-                                        child: Image.network(
-                                          _profile.avatarUrl!,
-                                          width: double.infinity,
-                                          height: double.infinity,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, _, _) =>
-                                              _avatarFallback(context, c),
-                                        ),
-                                      )
-                                    : _avatarFallback(context, c),
+                                child: Icon(
+                                  Icons.search_rounded,
+                                  size: 20,
+                                  color: c.inkPrimary,
+                                ),
                               ),
-                              if (_isGuestAccount)
-                                Positioned(
-                                  right: -2,
-                                  top: -2,
-                                  child: Container(
-                                    width: 10,
-                                    height: 10,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Tooltip(
+                        message: 'Profile & account',
+                        child: CreasePressable(
+                          onTap: _openProfile,
+                          borderRadius:
+                              BorderRadius.circular(CreaseRadius.control),
+                          scale: 0.94,
+                          child: SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Center(
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
                                     decoration: BoxDecoration(
-                                      color: c.pitchGreen,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: c.ground,
-                                        width: 2,
+                                      color: c.surfaceGlass,
+                                      borderRadius: BorderRadius.circular(
+                                        CreaseRadius.control,
+                                      ),
+                                      border: Border.all(color: c.hairline),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: (_profile.avatarUrl != null &&
+                                            _profile.avatarUrl!.isNotEmpty)
+                                        ? ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              CreaseRadius.control - 1,
+                                            ),
+                                            child: Image.network(
+                                              _profile.avatarUrl!,
+                                              width: double.infinity,
+                                              height: double.infinity,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, _, _) =>
+                                                  _avatarFallback(context, c),
+                                            ),
+                                          )
+                                        : _avatarFallback(context, c),
+                                  ),
+                                  if (_isGuestAccount)
+                                    Positioned(
+                                      right: -2,
+                                      top: -2,
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          color: c.pitchGreen,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: c.ground,
+                                            width: 2,
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ),
-                            ],
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -647,7 +620,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
                       sliver: SliverList.separated(
                         itemCount: recentMatches.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -731,7 +704,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
                     sliver: SliverList.separated(
                       itemCount: _tournaments.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -746,7 +719,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ? 'Champion: ${overview.champion} · ${t.formatLabel}'
                             : overview.totalPlannedMatches > 0
                                 ? '${t.structure.shortLabel} · ${overview.completedTotalCount}/${overview.totalPlannedMatches} matches · ${t.formatLabel}'
-                                : '${t.teams.length} teams · ${tMatches.length} match${tMatches.length == 1 ? '' : 'es'} · ${t.formatLabel}';
+                                : '${t.teams.length} team${t.teams.length == 1 ? '' : 's'} · ${tMatches.length} match${tMatches.length == 1 ? '' : 'es'} · ${t.formatLabel}';
                         return CreasePressable(
                           onTap: () async {
                             await Navigator.of(context).push(
@@ -839,6 +812,29 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+      floatingActionButton: (!_loading &&
+              ((_navIndex == 0 && _matches.isNotEmpty) ||
+                  (_navIndex == 1 && _teams.isNotEmpty) ||
+                  (_navIndex == 2 && _tournaments.isNotEmpty)))
+          ? FloatingActionButton.extended(
+              backgroundColor: c.pitchGreen,
+              foregroundColor: c.onPitchGreen,
+              elevation: 2,
+              onPressed: _navIndex == 1
+                  ? _createTeam
+                  : _navIndex == 2
+                      ? _createTournament
+                      : _createQuickMatch,
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: Text(
+                _navIndex == 1
+                    ? 'New team'
+                    : _navIndex == 2
+                        ? 'New tournament'
+                        : 'New match',
+              ),
+            )
+          : null,
       bottomNavigationBar: _CreaseBottomNav(
         selectedIndex: _navIndex,
         onSelect: (i) {

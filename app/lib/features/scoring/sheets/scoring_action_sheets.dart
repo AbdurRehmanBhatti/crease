@@ -310,64 +310,38 @@ Future<WicketSheetResult?> showRecordWicketSheet(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: c.hairline,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      selectedType == WicketType.retiredHurt
+                    CreaseSheetHeader(
+                      title: selectedType == WicketType.retiredHurt
                           ? 'Retire batter (hurt)'
                           : 'Record wicket',
-                      style: Theme.of(ctx).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final wt in WicketType.values)
-                          ChoiceChip(
-                            label: Text(wt.label),
-                            selected: selectedType == wt,
-                            selectedColor: wt == WicketType.retiredHurt
-                                ? c.pitchGreen
-                                : c.wicketRed,
-                            checkmarkColor: Colors.white,
-                            labelStyle: TextStyle(
-                              color: selectedType == wt
-                                  ? Colors.white
-                                  : c.inkPrimary,
-                              fontWeight: selectedType == wt
-                                  ? FontWeight.w600
-                                  : FontWeight.w500,
-                            ),
-                            side: BorderSide(
-                              color: selectedType == wt
-                                  ? (wt == WicketType.retiredHurt
-                                      ? c.pitchGreen
-                                      : c.wicketRed)
-                                  : c.hairline,
-                            ),
-                            onSelected: (_) => setModalState(() {
-                              selectedType = wt;
-                              if (wt != WicketType.stumped &&
-                                  wt != WicketType.runOut &&
-                                  wt != WicketType.hitWicket) {
-                                deliveryExtra = ExtraType.none;
-                              }
-                              if (wt != WicketType.runOut) {
-                                completedRuns = 0;
-                              }
-                            }),
-                          ),
-                      ],
+                    StatefulBuilder(
+                      builder: (ctx, setTypeState) {
+                        const primaryTypes = [
+                          WicketType.caught,
+                          WicketType.bowled,
+                          WicketType.lbw,
+                          WicketType.runOut,
+                        ];
+                        final isRareSelected =
+                            !primaryTypes.contains(selectedType);
+                        return _WicketTypePicker(
+                          selectedType: selectedType,
+                          initiallyExpanded: isRareSelected,
+                          onSelect: (wt) => setModalState(() {
+                            selectedType = wt;
+                            if (wt != WicketType.stumped &&
+                                wt != WicketType.runOut &&
+                                wt != WicketType.hitWicket) {
+                              deliveryExtra = ExtraType.none;
+                            }
+                            if (wt != WicketType.runOut) {
+                              completedRuns = 0;
+                            }
+                          }),
+                        );
+                      },
                     ),
                     if (canPickBatter) ...[
                       const SizedBox(height: 14),
@@ -519,8 +493,12 @@ Future<WicketSheetResult?> showRecordWicketSheet(
                     const SizedBox(height: 18),
                     FilledButton(
                       style: FilledButton.styleFrom(
-                        backgroundColor: c.wicketRed,
-                        foregroundColor: Colors.white,
+                        backgroundColor: selectedType == WicketType.retiredHurt
+                            ? c.pitchGreen
+                            : c.wicketRed,
+                        foregroundColor: selectedType == WicketType.retiredHurt
+                            ? c.onPitchGreen
+                            : c.onWicketRed,
                         minimumSize: const Size.fromHeight(52),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
@@ -786,7 +764,34 @@ Future<String?> showEditBallSheet(BuildContext context, BallEvent ball) {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              onPressed: () => Navigator.pop(ctx, 'delete'),
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: ctx,
+                  builder: (dCtx) => AlertDialog(
+                    title: const Text('Remove this ball?'),
+                    content: Text(
+                      'Void delivery "${ball.shortMark}" and recalculate the scorecard?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dCtx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: c.wicketRed,
+                          foregroundColor: c.onWicketRed,
+                        ),
+                        onPressed: () => Navigator.pop(dCtx, true),
+                        child: const Text('Remove'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true && ctx.mounted) {
+                  Navigator.pop(ctx, 'delete');
+                }
+              },
               icon: const Icon(Icons.delete_outline_rounded, size: 20),
               label: const Text('Remove this ball from log'),
             ),
@@ -795,4 +800,76 @@ Future<String?> showEditBallSheet(BuildContext context, BallEvent ball) {
       );
     },
   );
+}
+
+class _WicketTypePicker extends StatefulWidget {
+  const _WicketTypePicker({
+    required this.selectedType,
+    required this.initiallyExpanded,
+    required this.onSelect,
+  });
+
+  final WicketType selectedType;
+  final bool initiallyExpanded;
+  final ValueChanged<WicketType> onSelect;
+
+  @override
+  State<_WicketTypePicker> createState() => _WicketTypePickerState();
+}
+
+class _WicketTypePickerState extends State<_WicketTypePicker> {
+  static const _primaryTypes = [
+    WicketType.caught,
+    WicketType.bowled,
+    WicketType.lbw,
+    WicketType.runOut,
+  ];
+
+  late bool _showMore = widget.initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    final visibleTypes = _showMore ? WicketType.values : _primaryTypes;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final wt in visibleTypes)
+          ChoiceChip(
+            label: Text(wt.label),
+            selected: widget.selectedType == wt,
+            selectedColor:
+                wt == WicketType.retiredHurt ? c.pitchGreen : c.wicketRed,
+            checkmarkColor:
+                wt == WicketType.retiredHurt ? c.onPitchGreen : c.onWicketRed,
+            labelStyle: TextStyle(
+              color: widget.selectedType == wt
+                  ? (wt == WicketType.retiredHurt
+                      ? c.onPitchGreen
+                      : c.onWicketRed)
+                  : c.inkPrimary,
+              fontWeight:
+                  widget.selectedType == wt ? FontWeight.w600 : FontWeight.w500,
+            ),
+            side: BorderSide(
+              color: widget.selectedType == wt
+                  ? (wt == WicketType.retiredHurt ? c.pitchGreen : c.wicketRed)
+                  : c.hairline,
+            ),
+            onSelected: (_) => widget.onSelect(wt),
+          ),
+        ActionChip(
+          label: Text(_showMore ? 'Less ▴' : 'More ▾'),
+          labelStyle: TextStyle(
+            color: c.inkSecondary,
+            fontWeight: FontWeight.w600,
+            fontSize: 12.5,
+          ),
+          side: BorderSide(color: c.hairline),
+          onPressed: () => setState(() => _showMore = !_showMore),
+        ),
+      ],
+    );
+  }
 }

@@ -232,7 +232,7 @@ class MatchCompleteSheet extends StatelessWidget {
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
                     backgroundColor: c.pitchGreen,
-                    foregroundColor: Colors.white,
+                    foregroundColor: c.onPitchGreen,
                     minimumSize: const Size.fromHeight(48),
                   ),
                   onPressed: onShare,
@@ -292,6 +292,145 @@ class MatchCompleteSheet extends StatelessWidget {
   }
 }
 
+/// Clean post-innings sheet that replaces the inactive scoring keypad during
+/// [MatchStatus.inningsBreak], keeping Undo 1 tap away.
+class InningsBreakSheet extends StatelessWidget {
+  const InningsBreakSheet({
+    super.key,
+    required this.state,
+    required this.onStartNextInnings,
+    required this.onHandOver,
+    required this.onUndoLastBall,
+    this.onEnforceFollowOn,
+  });
+
+  final DerivedMatchState state;
+  final VoidCallback onStartNextInnings;
+  final VoidCallback onHandOver;
+  final VoidCallback onUndoLastBall;
+  final VoidCallback? onEnforceFollowOn;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    final inn = state.activeInnings;
+    final isSuperOverBreak =
+        !state.config.isTestMatch && state.activeInningsNumber == 3;
+    final nextInningsNum = state.activeInningsNumber + 1;
+    final headline = isSuperOverBreak
+        ? '${state.config.battingFirstTeam} need ${inn.totalRuns + 1} in 1 over'
+        : state.config.isTestMatch
+            ? 'Innings ${inn.inningsNumber} complete'
+            : '${state.config.battingSecondTeam} need ${inn.totalRuns + 1} in ${state.config.oversLimit} ov';
+
+    return GlassSurface(
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(CreaseRadius.sheet),
+      ),
+      fillColor: c.surfaceSheet,
+      borderColor: c.hairline,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: c.pitchGreenSoft,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  isSuperOverBreak ? 'SUPER OVER' : 'INNINGS BREAK',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: c.pitchGreen,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10.5,
+                        letterSpacing: 0.7,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  headline,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${inn.battingTeam} finished on ${inn.scoreText} (${inn.oversText} ov)',
+            style: creaseNumeralStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: c.inkSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: c.pitchGreen,
+                    foregroundColor: c.onPitchGreen,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  onPressed: onStartNextInnings,
+                  child: Text(
+                    isSuperOverBreak
+                        ? 'Start Super Over chase'
+                        : 'Start Innings $nextInningsNum',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                ),
+                onPressed: onHandOver,
+                icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                label: const Text('Hand over'),
+              ),
+            ],
+          ),
+          if (onEnforceFollowOn != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: onEnforceFollowOn,
+              child: const Text('Enforce follow-on'),
+            ),
+          ],
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: c.inkSecondary,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: onUndoLastBall,
+              icon: const Icon(Icons.undo_rounded, size: 17),
+              label: const Text('Undo last ball'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class HandedOverSheet extends StatelessWidget {
   const HandedOverSheet({
     super.key,
@@ -336,12 +475,12 @@ class HandedOverSheet extends StatelessWidget {
           FilledButton.icon(
             onPressed: reclaiming ? null : onReclaim,
             icon: reclaiming
-                ? const SizedBox(
+                ? SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: c.onPitchGreen,
                     ),
                   )
                 : const Icon(Icons.swap_horiz_rounded, size: 20),
@@ -358,6 +497,7 @@ class GlassScoringSheet extends StatelessWidget {
     super.key,
     required this.onRunTap,
     required this.onExtraTap,
+    this.onExtraLongPress,
     required this.onWicketTap,
     required this.onRunOutTap,
     required this.onUndoTap,
@@ -365,6 +505,7 @@ class GlassScoringSheet extends StatelessWidget {
 
   final ValueChanged<int> onRunTap;
   final ValueChanged<ExtraType> onExtraTap;
+  final ValueChanged<ExtraType>? onExtraLongPress;
   final VoidCallback onWicketTap;
   final VoidCallback onRunOutTap;
   final VoidCallback onUndoTap;
@@ -424,7 +565,7 @@ class GlassScoringSheet extends StatelessWidget {
 
           // Row 3: 4-segment extras bar (Wide | No ball | Bye | Leg bye)
           Container(
-            height: 46,
+            height: 50,
             decoration: BoxDecoration(
               color: keyBg,
               borderRadius: BorderRadius.circular(CreaseRadius.control),
@@ -446,11 +587,17 @@ class GlassScoringSheet extends StatelessWidget {
                   _ExtraSegment(
                     label: 'Wide',
                     onTap: () => onExtraTap(ExtraType.wide),
+                    onLongPress: onExtraLongPress == null
+                        ? null
+                        : () => onExtraLongPress!(ExtraType.wide),
                   ),
                   VerticalDivider(width: 1, color: c.hairline),
                   _ExtraSegment(
                     label: 'No ball',
                     onTap: () => onExtraTap(ExtraType.noBall),
+                    onLongPress: onExtraLongPress == null
+                        ? null
+                        : () => onExtraLongPress!(ExtraType.noBall),
                   ),
                   VerticalDivider(width: 1, color: c.hairline),
                   _ExtraSegment(
@@ -484,10 +631,10 @@ class GlassScoringSheet extends StatelessWidget {
                       color: c.wicketRed,
                       borderRadius: BorderRadius.circular(CreaseRadius.control),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Wicket',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: c.onWicketRed,
                         fontSize: 15.5,
                         fontWeight: FontWeight.w700,
                       ),
@@ -594,7 +741,7 @@ class KeypadButton extends StatelessWidget {
     final bg = isAccent
         ? c.pitchGreen
         : (isDark ? const Color(0xFF1D2227) : Colors.white);
-    final fg = isAccent ? Colors.white : c.inkPrimary;
+    final fg = isAccent ? c.onPitchGreen : c.inkPrimary;
 
     return CreasePressable(
       onTap: onTap,
@@ -633,16 +780,22 @@ class KeypadButton extends StatelessWidget {
 }
 
 class _ExtraSegment extends StatelessWidget {
-  const _ExtraSegment({required this.label, required this.onTap});
+  const _ExtraSegment({
+    required this.label,
+    required this.onTap,
+    this.onLongPress,
+  });
 
   final String label;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Container(
           alignment: Alignment.center,
           padding: const EdgeInsets.symmetric(horizontal: 4),

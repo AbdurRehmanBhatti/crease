@@ -341,6 +341,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                               : q.isEmpty
                                   ? null
                                   : IconButton(
+                                      tooltip: 'Clear search',
                                       icon: const Icon(
                                         Icons.close_rounded,
                                         size: 18,

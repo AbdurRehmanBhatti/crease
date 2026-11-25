@@ -356,7 +356,7 @@ class _TeamsTabViewState extends State<TeamsTabView> {
     final hasSavedTeams = widget.savedTeams.isNotEmpty;
 
     return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 96),
       sliver: SliverList(
         delegate: SliverChildListDelegate([
           if (!hasSavedTeams) ...[
@@ -439,6 +439,7 @@ class _TeamsTabViewState extends State<TeamsTabView> {
                     suffixIcon: rawQuery.isEmpty
                         ? null
                         : IconButton(
+                            tooltip: 'Clear filter',
                             icon: const Icon(Icons.close_rounded, size: 18),
                             onPressed: () {
                               _searchCtrl.clear();
@@ -1081,6 +1082,8 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                     );
                                   } catch (_) {}
                                 }
+                                final prevPlayers =
+                                    List<String>.from(_profile.players);
                                 final nextPlayers =
                                     List<String>.from(_profile.players)
                                       ..remove(playerName);
@@ -1089,6 +1092,25 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                 );
                                 await _loadClaimed();
                                 if (ctx.mounted) Navigator.pop(ctx);
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context)
+                                  ..hideCurrentSnackBar()
+                                  ..showSnackBar(
+                                    SnackBar(
+                                      duration: const Duration(seconds: 4),
+                                      content: Text(
+                                        'Removed $playerName from ${_profile.name}',
+                                      ),
+                                      action: SnackBarAction(
+                                        label: 'Undo',
+                                        onPressed: () => _persist(
+                                          _profile.copyWith(
+                                            players: prevPlayers,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
                               },
                               child: const Text('Remove player'),
                             ),
@@ -2300,7 +2322,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                               style: creaseNumeralStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
-                                color: Colors.white,
+                                color: c.onPitchGreen,
                               ),
                             ),
                           ),

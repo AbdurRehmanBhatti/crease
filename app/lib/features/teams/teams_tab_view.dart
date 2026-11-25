@@ -198,16 +198,15 @@ class _TeamsTabViewState extends State<TeamsTabView> {
     var p = 0, w = 0, l = 0;
     for (final m in widget.matches) {
       if (m.status != MatchStatus.completed) continue;
-      final sideName = m.config.sideNameForTeam(
+      final side = m.config.sideForTeam(
         teamId: teamId,
         teamName: teamName,
       );
-      if (sideName == null) continue;
+      if (side == null) continue;
       p++;
-      final summary = (m.resultSummary ?? '').toLowerCase();
-      if (summary.startsWith(sideName.toLowerCase())) {
+      if (m.winnerSide == side) {
         w++;
-      } else if (!summary.contains('tied')) {
+      } else if (m.winnerSide != null) {
         l++;
       }
     }
@@ -1130,13 +1129,15 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
 
   String? _matchOutcomeForTeam(DerivedMatchState m) {
     if (m.status != MatchStatus.completed) return null;
-    final sideName = m.config.sideNameForTeam(
+    final side = m.config.sideForTeam(
       teamId: _profile.id.isNotEmpty ? _profile.id : null,
       teamName: _profile.name,
     );
-    if (sideName == null) return null;
+    if (side == null) return null;
+    if (m.config.isAbandoned) return 'NR';
+    if (m.winnerSide == side) return 'W';
+    if (m.winnerSide != null) return 'L';
     final summary = (m.resultSummary ?? '').toLowerCase();
-    if (summary.startsWith(sideName.toLowerCase())) return 'W';
     if (summary.contains('tied') || summary.contains('draw')) return 'T';
     if (summary.contains('abandoned') || summary.contains('no result')) {
       return 'NR';
@@ -1150,13 +1151,12 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     var played = 0, won = 0, lost = 0, tied = 0;
     for (final m in teamMatches) {
       if (m.status != MatchStatus.completed) continue;
-      final sideName = m.config.sideNameForTeam(
+      final side = m.config.sideForTeam(
         teamId: _profile.id.isNotEmpty ? _profile.id : null,
         teamName: _profile.name,
       );
-      if (sideName == null) continue;
-      final battedFirst =
-          m.config.battingFirstTeam.toLowerCase() == sideName.toLowerCase();
+      if (side == null) continue;
+      final battedFirst = m.config.battingFirstSide == side;
       if (_winLossScope == _WinLossScope.batFirst && !battedFirst) continue;
       if (_winLossScope == _WinLossScope.bowlFirst && battedFirst) continue;
       final outcome = _matchOutcomeForTeam(m);

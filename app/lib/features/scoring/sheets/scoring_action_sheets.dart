@@ -34,7 +34,7 @@ Future<String?> showNextBowlerSheet(
 }) async {
   final controller = TextEditingController();
   final rosterSet = <String>{
-    if (config != null) ...config.rosterForTeam(innings.bowlingTeam),
+    if (config != null) ...config.rosterForSide(innings.bowlingSide),
     ...innings.bowlers.map((b) => b.name),
   }..remove(innings.currentBowler);
   final availableBowlers = rosterSet.toList();
@@ -274,7 +274,7 @@ Future<WicketSheetResult?> showRecordWicketSheet(
   final customFielderCtrl = TextEditingController();
 
   final fieldingRoster = <String>{
-    ...state.config.rosterForTeam(inn.bowlingTeam),
+    ...state.config.rosterForSide(inn.bowlingSide),
     ...inn.bowlers.map((b) => b.name),
   }.toList();
 
@@ -535,7 +535,7 @@ Future<String?> showNextBatterSheet(
 ) async {
   final inn = state.activeInnings;
   final roster = <String>{
-    ...state.config.rosterForTeam(inn.battingTeam),
+    ...state.config.rosterForSide(inn.battingSide),
     ...inn.batters.map((b) => b.name),
   }.toList();
 

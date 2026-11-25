@@ -45,10 +45,8 @@ Phase 3 (undecided detail): live-stream overlays, club pages, notifications, opt
   - **Viewer / Player (Read-Only):** Can follow live standings, NRR, fixtures, knockouts, and squads with all mutating controls (FAB, Add/Rename/Remove, Discard, Unlock early) hidden and enforced by Supabase RLS.
 
 ### Future Architecture / Known Edge Cases (Post-MVP Roadmap)
-- **Same-Name Derbies (`batting_first_side` in `CricketEngine`):**
-  - **Implemented:** `matches` now stores both immutable team IDs (`team_a_id`, `team_b_id`) and historical display-name snapshots (`team_a`, `team_b`). `StatsEngine`, the **Stats** tab, and **Team Match History** match by `teamId` first (with name fallback for legacy/ad-hoc matches), so same-named clubs never mix stats and team renames preserve history.
-  - **Display disambiguation:** When two different clubs with the same name play each other in Quick Match, the second club's match display label is disambiguated with its location or `(2)` so the scoreboard and `CricketEngine` innings labels stay unambiguous.
-  - **Optional future enhancement:** Track `batting_first_side` (`'a'` | `'b'`) in `CricketEngine` if exact identical scoreboard strings are ever needed without display disambiguation.
+- **Same-Name Derbies (`MatchSide` tracking in `CricketEngine`):**
+  - **Implemented:** `matches` stores immutable team IDs (`team_a_id`, `team_b_id`) and untouched display-name snapshots (`team_a`, `team_b`) with no `(2)` suffix mutation in Quick Match. `CricketEngine` tracks `battingSide` (`MatchSide.a` | `MatchSide.b`) and `winnerSide`, while `StatsEngine`, team win/loss records, and roster lookups match by `MatchSide` / `teamId` so same-named clubs never collide. In Quick Match, identical names show their location as a subtle subtitle when available, and plain-text result banners append `(A)` / `(B)` only when both team names match case-insensitively.
 - **In-Match Super Over (Implemented):**
   - Tied limited-overs matches surface a 1-tap **`Play Super Over`** CTA inside `MatchCompleteSheet` that runs Super Over Innings 1 & 2 as `innings_number` 3 & 4 inside the **same match record** (`1 over`, `2 wickets all-out`, 2nd-innings team batting first per ICC rules), keeps a single unified scorecard with Super Over tabs, excludes Super Over runs/wickets from official career averages per ICC rules, and credits the Super Over winner in team records & tournament standings.
 

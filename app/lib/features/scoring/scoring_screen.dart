@@ -389,6 +389,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
         widget.matchId,
         inn.bowlingTeam,
         picked,
+        side: inn.bowlingSide,
       );
       if (!mounted) return;
       setState(() {
@@ -489,6 +490,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
         widget.matchId,
         inn.bowlingTeam,
         result.customFielder,
+        side: inn.bowlingSide,
       );
       if (updatedCfg != null && mounted) {
         setState(() => _config = updatedCfg);
@@ -587,6 +589,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
       widget.matchId,
       inn.battingTeam,
       picked,
+      side: inn.battingSide,
     );
 
     final activeInningsEvents = _events
@@ -646,12 +649,14 @@ class _ScoringScreenState extends State<ScoringScreen> {
     final cfg = state.config;
     // ICC Super Over rule: team that batted 2nd in regulation bats 1st (inn 3);
     // team that batted 1st in regulation chases (inn 4).
-    final batFirst =
-        targetInnings == 3 ? cfg.battingSecondTeam : cfg.battingFirstTeam;
-    final batSecond =
-        targetInnings == 3 ? cfg.battingFirstTeam : cfg.battingSecondTeam;
+    final batFirstSide =
+        targetInnings == 3 ? cfg.battingSecondSide : cfg.battingFirstSide;
+    final batSecondSide =
+        targetInnings == 3 ? cfg.battingFirstSide : cfg.battingSecondSide;
+    final batFirst = cfg.teamNameForSide(batFirstSide);
+    final batSecond = cfg.teamNameForSide(batSecondSide);
 
-    List<String> mergeTeamPlayers(String teamName) {
+    List<String> mergeTeamPlayers(MatchSide side) {
       final seen = <String>{};
       final out = <String>[];
       void add(String name) {
@@ -659,16 +664,16 @@ class _ScoringScreenState extends State<ScoringScreen> {
         if (t.isEmpty || LocalEventStore.isPlaceholderPlayerName(t)) return;
         if (seen.add(t.toLowerCase())) out.add(t);
       }
-      for (final p in cfg.rosterForTeam(teamName)) {
+      for (final p in cfg.rosterForSide(side)) {
         add(p);
       }
       for (final inn in state.allInnings) {
-        if (inn.battingTeam == teamName) {
+        if (inn.battingSide == side) {
           for (final b in inn.batters) {
             add(b.name);
           }
         }
-        if (inn.bowlingTeam == teamName) {
+        if (inn.bowlingSide == side) {
           for (final bw in inn.bowlers) {
             add(bw.name);
           }
@@ -677,8 +682,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
       return out;
     }
 
-    final batFirstRoster = mergeTeamPlayers(batFirst);
-    final batSecondRoster = mergeTeamPlayers(batSecond);
+    final batFirstRoster = mergeTeamPlayers(batFirstSide);
+    final batSecondRoster = mergeTeamPlayers(batSecondSide);
 
     var striker =
         batFirstRoster.isNotEmpty ? batFirstRoster[0] : 'Batter 1';

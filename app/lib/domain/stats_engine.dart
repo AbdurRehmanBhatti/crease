@@ -120,14 +120,13 @@ class StatsEngine {
     }
 
     for (final match in filtered) {
-      String? matchedSideLower;
+      MatchSide? matchedSide;
       if (hasTeamFilter) {
-        final side = match.config.sideNameForTeam(
+        matchedSide = match.config.sideForTeam(
           teamId: teamId,
           teamName: teamName,
         );
-        if (side == null) continue;
-        matchedSideLower = side.toLowerCase();
+        if (matchedSide == null) continue;
       }
       final participants = <String>{};
       final inningsList = match.allInnings;
@@ -136,10 +135,10 @@ class StatsEngine {
         // ICC rule: Super Over innings (3 & 4 in limited-overs) do not count
         // toward official career batting/bowling averages.
         if (!match.config.isTestMatch && inn.inningsNumber >= 3) continue;
-        final includeBatting = matchedSideLower == null ||
-            inn.battingTeam.toLowerCase() == matchedSideLower;
-        final includeBowling = matchedSideLower == null ||
-            inn.bowlingTeam.toLowerCase() == matchedSideLower;
+        final includeBatting =
+            matchedSide == null || inn.battingSide == matchedSide;
+        final includeBowling =
+            matchedSide == null || inn.bowlingSide == matchedSide;
 
         if (includeBatting) {
           for (final b in inn.batters) {

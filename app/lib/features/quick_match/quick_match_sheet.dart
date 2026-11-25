@@ -42,9 +42,9 @@ class _QuickMatchSheet extends StatefulWidget {
 
 class _QuickMatchSheetState extends State<_QuickMatchSheet> {
   static const _uuid = Uuid();
-  final _strikerCtrl = TextEditingController(text: 'Batter 1');
-  final _nonStrikerCtrl = TextEditingController(text: 'Batter 2');
-  final _bowlerCtrl = TextEditingController(text: 'Bowler 1');
+  final _strikerCtrl = TextEditingController();
+  final _nonStrikerCtrl = TextEditingController();
+  final _bowlerCtrl = TextEditingController();
   final _customOversCtrl = TextEditingController(text: '30');
 
   String? _teamA;
@@ -53,6 +53,8 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
   String? _teamBId;
   String? _teamALocation;
   String? _teamBLocation;
+  List<String> _teamARoster = const [];
+  List<String> _teamBRoster = const [];
   Map<String, List<String>> _knownTeams = {};
   Set<String> _savedTeamIds = {};
   Map<String, String> _savedTeamIdByLowerName = {};
@@ -75,8 +77,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     if (myTeam != null && myTeam.isNotEmpty) {
       _teamA = myTeam;
       final roster = _knownTeams[myTeam] ?? const [];
-      if (roster.isNotEmpty) _strikerCtrl.text = roster[0];
-      if (roster.length > 1) _nonStrikerCtrl.text = roster[1];
+      _teamARoster = List<String>.from(roster);
     }
     _loadKnownTeams();
   }
@@ -112,12 +113,8 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
         final key = _teamA!.trim().toLowerCase();
         _teamAId ??= idByLower[key];
         _teamALocation ??= locByLower[key];
-        final roster = _knownTeams[_teamA!] ?? const [];
-        if (_strikerCtrl.text == 'Batter 1' && roster.isNotEmpty) {
-          _strikerCtrl.text = roster[0];
-        }
-        if (_nonStrikerCtrl.text == 'Batter 2' && roster.length > 1) {
-          _nonStrikerCtrl.text = roster[1];
+        if (_teamARoster.isEmpty) {
+          _teamARoster = List<String>.from(_knownTeams[_teamA!] ?? const []);
         }
       }
     });
@@ -129,17 +126,18 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
       final prevA = _teamA;
       final prevAId = _teamAId;
       final prevALoc = _teamALocation;
+      final prevARoster = _teamARoster;
       _teamA = _teamB;
       _teamAId = _teamBId;
       _teamALocation = _teamBLocation;
+      _teamARoster = _teamBRoster;
       _teamB = prevA;
       _teamBId = prevAId;
       _teamBLocation = prevALoc;
-      final rosterA = _teamA != null ? (_knownTeams[_teamA!] ?? const []) : const <String>[];
-      final rosterB = _teamB != null ? (_knownTeams[_teamB!] ?? const []) : const <String>[];
-      _strikerCtrl.text = rosterA.isNotEmpty ? rosterA[0] : 'Batter 1';
-      _nonStrikerCtrl.text = rosterA.length > 1 ? rosterA[1] : 'Batter 2';
-      _bowlerCtrl.text = rosterB.isNotEmpty ? rosterB[0] : 'Bowler 1';
+      _teamBRoster = prevARoster;
+      _strikerCtrl.clear();
+      _nonStrikerCtrl.clear();
+      _bowlerCtrl.clear();
     });
   }
 
@@ -147,7 +145,6 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     final otherSideName = ((isBatting ? _teamB : _teamA) ?? '').trim();
     final otherSide = otherSideName.toLowerCase();
     final otherSideId = isBatting ? _teamBId : _teamAId;
-    final otherSideLocation = (isBatting ? _teamBLocation : _teamALocation)?.trim();
     final searchCtrl = TextEditingController();
     var remoteMatches =
         <({String id, String name, String? location, List<String> players})>[];
@@ -560,40 +557,259 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     Future<void>.delayed(const Duration(milliseconds: 500), searchCtrl.dispose);
 
     if (picked == null || !mounted) return;
-    final roster = picked.players;
-    var finalPickedName = picked.name.trim();
-
-    // Keep the already-selected opposition's display name untouched so your
-    // primary team stays clean; disambiguate only the newly picked second side
-    // using its location (if distinct) or "(2)".
-    if (otherSide.isNotEmpty && finalPickedName.toLowerCase() == otherSide) {
-      final pickedLoc = picked.location?.trim() ?? '';
-      final otherLoc = otherSideLocation ?? '';
-      final sameLoc = pickedLoc.isNotEmpty &&
-          otherLoc.isNotEmpty &&
-          pickedLoc.toLowerCase() == otherLoc.toLowerCase();
-      if (pickedLoc.isNotEmpty && !sameLoc) {
-        finalPickedName = '$finalPickedName ($pickedLoc)';
-      } else {
-        finalPickedName = '$finalPickedName (2)';
-      }
-    }
+    final roster = List<String>.from(picked.players);
+    final finalPickedName = picked.name.trim();
 
     setState(() {
-      if (roster.isNotEmpty) {
-        _knownTeams[finalPickedName] = List<String>.from(roster);
-      }
       if (isBatting) {
         _teamA = finalPickedName;
         _teamAId = picked.id;
         _teamALocation = picked.location;
-        _strikerCtrl.text = roster.isNotEmpty ? roster[0] : 'Batter 1';
-        _nonStrikerCtrl.text = roster.length > 1 ? roster[1] : 'Batter 2';
+        _teamARoster = roster;
+        _strikerCtrl.clear();
+        _nonStrikerCtrl.clear();
       } else {
         _teamB = finalPickedName;
         _teamBId = picked.id;
         _teamBLocation = picked.location;
-        _bowlerCtrl.text = roster.isNotEmpty ? roster[0] : 'Bowler 1';
+        _teamBRoster = roster;
+        _bowlerCtrl.clear();
+      }
+    });
+  }
+
+  Future<void> _openOpeningPlayerPicker({
+    required String title,
+    required String? teamName,
+    required List<String> roster,
+    required TextEditingController controller,
+    String? excludePlayer,
+    required bool isBattingSide,
+  }) async {
+    final current = controller.text.trim();
+    final excludeLower = excludePlayer?.trim().toLowerCase();
+    final searchCtrl = TextEditingController();
+    final squad = roster
+        .where((p) => p.trim().isNotEmpty && !LocalEventStore.isPlaceholderPlayerName(p))
+        .toList();
+
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = ctx.crease;
+        final maxSheetHeight = MediaQuery.sizeOf(ctx).height * 0.65;
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final q = searchCtrl.text.trim();
+            final qLower = q.toLowerCase();
+            final filtered = squad
+                .where((p) => q.isEmpty || p.toLowerCase().contains(qLower))
+                .toList();
+            final exactInSquad =
+                q.isNotEmpty && squad.any((p) => p.toLowerCase() == qLower);
+            final matchesExcluded =
+                q.isNotEmpty && excludeLower != null && qLower == excludeLower;
+            final showCustom =
+                q.isNotEmpty && !exactInSquad && !matchesExcluded;
+
+            void submitQuery() {
+              if (q.isEmpty || matchesExcluded) return;
+              final exact = squad
+                  .where((p) => p.toLowerCase() == qLower)
+                  .firstOrNull;
+              Navigator.pop(ctx, exact ?? q);
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxSheetHeight),
+                child: GlassSurface(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(CreaseRadius.sheet),
+                  ),
+                  fillColor: c.surfaceSheet,
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        CreaseSheetHeader(
+                          title: title,
+                          subtitle: teamName != null && teamName.isNotEmpty
+                              ? teamName
+                              : 'Pick from squad or type a player name',
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: searchCtrl,
+                          autofocus: squad.isEmpty,
+                          textCapitalization: TextCapitalization.words,
+                          textInputAction: TextInputAction.done,
+                          onChanged: (_) => setModalState(() {}),
+                          onSubmitted: (_) => submitQuery(),
+                          decoration: InputDecoration(
+                            hintText: squad.isEmpty
+                                ? 'Type player name'
+                                : 'Search squad or type a name',
+                            prefixIcon: const Icon(
+                              Icons.search_rounded,
+                              size: 19,
+                            ),
+                            suffixIcon: searchCtrl.text.isEmpty
+                                ? null
+                                : IconButton(
+                                    icon: const Icon(
+                                      Icons.close_rounded,
+                                      size: 18,
+                                    ),
+                                    onPressed: () {
+                                      searchCtrl.clear();
+                                      setModalState(() {});
+                                    },
+                                  ),
+                          ),
+                        ),
+                        if (matchesExcluded) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Already selected for the other crease end.',
+                            style: Theme.of(ctx)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(color: c.inkSecondary),
+                          ),
+                        ],
+                        if (showCustom || filtered.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Flexible(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: c.surfaceKey,
+                                borderRadius: BorderRadius.circular(
+                                  CreaseRadius.control,
+                                ),
+                                border: Border.all(color: c.hairline),
+                              ),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                itemCount:
+                                    (showCustom ? 1 : 0) + filtered.length,
+                                separatorBuilder: (_, _) => Divider(
+                                  height: 1,
+                                  indent: 14,
+                                  endIndent: 14,
+                                  color: c.hairline,
+                                ),
+                                itemBuilder: (ctx, i) {
+                                  if (showCustom && i == 0) {
+                                    return ListTile(
+                                      dense: true,
+                                      leading: Container(
+                                        width: 28,
+                                        height: 28,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: c.pitchGreen
+                                              .withValues(alpha: 0.14),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        child: Icon(
+                                          Icons.person_add_alt_1_rounded,
+                                          size: 15,
+                                          color: c.pitchGreen,
+                                        ),
+                                      ),
+                                      title: Text(
+                                        'Use "$q"',
+                                        style: TextStyle(
+                                          color: c.pitchGreen,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      onTap: () => Navigator.pop(ctx, q),
+                                    );
+                                  }
+                                  final name =
+                                      filtered[i - (showCustom ? 1 : 0)];
+                                  final isExcluded = excludeLower != null &&
+                                      name.toLowerCase() == excludeLower;
+                                  final isSelected =
+                                      name.toLowerCase() ==
+                                          current.toLowerCase();
+                                  return ListTile(
+                                    dense: true,
+                                    enabled: !isExcluded,
+                                    title: Text(
+                                      name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: isSelected
+                                            ? FontWeight.w600
+                                            : FontWeight.w500,
+                                      ),
+                                    ),
+                                    subtitle: isExcluded
+                                        ? const Text('Already on crease')
+                                        : null,
+                                    trailing: isSelected
+                                        ? Icon(
+                                            Icons.check_rounded,
+                                            size: 18,
+                                            color: c.pitchGreen,
+                                          )
+                                        : null,
+                                    onTap: isExcluded
+                                        ? null
+                                        : () => Navigator.pop(ctx, name),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ] else if (squad.isEmpty && q.isEmpty) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            'No saved squad yet — type a name above and tap done.',
+                            style: Theme.of(ctx)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: c.inkSecondary),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    Future<void>.delayed(const Duration(milliseconds: 500), searchCtrl.dispose);
+    if (picked == null || picked.trim().isEmpty || !mounted) return;
+    final clean = picked.trim();
+    setState(() {
+      controller.text = clean;
+      final targetRoster = isBattingSide ? _teamARoster : _teamBRoster;
+      if (!targetRoster.any((p) => p.toLowerCase() == clean.toLowerCase())) {
+        final updated = [...targetRoster, clean];
+        if (isBattingSide) {
+          _teamARoster = updated;
+        } else {
+          _teamBRoster = updated;
+        }
       }
     });
   }
@@ -605,6 +821,18 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     _bowlerCtrl.dispose();
     _customOversCtrl.dispose();
     super.dispose();
+  }
+
+  String get _openingPlayersPreview {
+    final s = _strikerCtrl.text.trim();
+    final ns = _nonStrikerCtrl.text.trim();
+    final bw = _bowlerCtrl.text.trim();
+    final batters = [if (s.isNotEmpty) s, if (ns.isNotEmpty) ns].join(', ');
+    if (batters.isEmpty && bw.isEmpty) {
+      return 'Pick from squad, or set on the scoring pad';
+    }
+    if (batters.isNotEmpty && bw.isNotEmpty) return '$batters · $bw';
+    return batters.isNotEmpty ? batters : bw;
   }
 
   int get _resolvedOvers {
@@ -636,8 +864,12 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
         ? 'Bowler 1'
         : _bowlerCtrl.text.trim();
 
-    final savedRosterA = List<String>.from(_knownTeams[teamA] ?? const []);
-    final savedRosterB = List<String>.from(_knownTeams[teamB] ?? const []);
+    final savedRosterA = List<String>.from(
+      _teamARoster.isNotEmpty ? _teamARoster : (_knownTeams[teamA] ?? const []),
+    );
+    final savedRosterB = List<String>.from(
+      _teamBRoster.isNotEmpty ? _teamBRoster : (_knownTeams[teamB] ?? const []),
+    );
     final rosterA =
         savedRosterA.isNotEmpty ? savedRosterA : [striker, nonStriker];
     final rosterB = savedRosterB.isNotEmpty ? savedRosterB : [bowler];
@@ -694,39 +926,57 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                   subtitle: 'Pick both teams and overs to open the scoring pad.',
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _TeamSelectorTile(
-                        label: 'Batting first',
-                        teamName: _teamA,
-                        onTap: () => _openTeamPicker(isBatting: true),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: IconButton(
-                        tooltip: 'Swap batting & bowling',
-                        visualDensity: VisualDensity.compact,
-                        onPressed:
-                            (_teamA != null || _teamB != null) ? _swapTeams : null,
-                        icon: Icon(
-                          Icons.swap_horiz_rounded,
-                          size: 20,
-                          color: (_teamA != null || _teamB != null)
-                              ? c.inkPrimary
-                              : c.inkSecondary,
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _TeamSelectorTile(
+                          label: 'Batting first',
+                          teamName: _teamA,
+                          subtitle: (_teamA != null &&
+                                  _teamB != null &&
+                                  _teamA!.trim().toLowerCase() ==
+                                      _teamB!.trim().toLowerCase())
+                              ? _teamALocation
+                              : null,
+                          onTap: () => _openTeamPicker(isBatting: true),
                         ),
                       ),
-                    ),
-                    Expanded(
-                      child: _TeamSelectorTile(
-                        label: 'Bowling first',
-                        teamName: _teamB,
-                        onTap: () => _openTeamPicker(isBatting: false),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Center(
+                          child: IconButton(
+                            tooltip: 'Swap batting & bowling',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: (_teamA != null || _teamB != null)
+                                ? _swapTeams
+                                : null,
+                            icon: Icon(
+                              Icons.swap_horiz_rounded,
+                              size: 20,
+                              color: (_teamA != null || _teamB != null)
+                                  ? c.inkPrimary
+                                  : c.inkSecondary,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      Expanded(
+                        child: _TeamSelectorTile(
+                          label: 'Bowling first',
+                          teamName: _teamB,
+                          subtitle: (_teamA != null &&
+                                  _teamB != null &&
+                                  _teamA!.trim().toLowerCase() ==
+                                      _teamB!.trim().toLowerCase())
+                              ? _teamBLocation
+                              : null,
+                          onTap: () => _openTeamPicker(isBatting: false),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -829,38 +1079,163 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 10),
-                TextButton.icon(
-                  style: TextButton.styleFrom(alignment: Alignment.centerLeft),
-                  onPressed: () => setState(() => _showPlayers = !_showPlayers),
-                  icon: Icon(
-                    _showPlayers
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
+                const SizedBox(height: 14),
+                Container(
+                  decoration: BoxDecoration(
+                    color: c.surfaceKey,
+                    borderRadius: BorderRadius.circular(CreaseRadius.control),
+                    border: Border.all(color: c.hairline),
                   ),
-                  label: const Text('Opening batters & bowler (optional)'),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      CreasePressable(
+                        onTap: () =>
+                            setState(() => _showPlayers = !_showPlayers),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Opening players',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleSmall
+                                              ?.copyWith(
+                                                color: c.inkPrimary,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Optional',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelSmall
+                                              ?.copyWith(
+                                                color: c.inkSecondary,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (!_showPlayers) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _openingPlayersPreview,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(color: c.inkSecondary),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                _showPlayers
+                                    ? Icons.keyboard_arrow_up_rounded
+                                    : Icons.keyboard_arrow_down_rounded,
+                                size: 20,
+                                color: c.inkSecondary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment.topCenter,
+                        child: _showPlayers
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Divider(height: 1, color: c.hairline),
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      10,
+                                      12,
+                                      12,
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: _PlayerSelectorField(
+                                                label: 'Striker',
+                                                playerName:
+                                                    _strikerCtrl.text.trim(),
+                                                placeholder: 'Select batter',
+                                                onTap: () =>
+                                                    _openOpeningPlayerPicker(
+                                                  title: 'Select striker',
+                                                  teamName: _teamA,
+                                                  roster: _teamARoster,
+                                                  controller: _strikerCtrl,
+                                                  excludePlayer:
+                                                      _nonStrikerCtrl.text,
+                                                  isBattingSide: true,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: _PlayerSelectorField(
+                                                label: 'Non-striker',
+                                                playerName:
+                                                    _nonStrikerCtrl.text.trim(),
+                                                placeholder: 'Select batter',
+                                                onTap: () =>
+                                                    _openOpeningPlayerPicker(
+                                                  title: 'Select non-striker',
+                                                  teamName: _teamA,
+                                                  roster: _teamARoster,
+                                                  controller: _nonStrikerCtrl,
+                                                  excludePlayer:
+                                                      _strikerCtrl.text,
+                                                  isBattingSide: true,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 10),
+                                        _PlayerSelectorField(
+                                          label: 'Opening bowler',
+                                          playerName: _bowlerCtrl.text.trim(),
+                                          placeholder: 'Select bowler',
+                                          onTap: () =>
+                                              _openOpeningPlayerPicker(
+                                            title: 'Select opening bowler',
+                                            teamName: _teamB,
+                                            roster: _teamBRoster,
+                                            controller: _bowlerCtrl,
+                                            isBattingSide: false,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
                 ),
-                if (_showPlayers) ...[
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _strikerCtrl,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(labelText: 'Striker'),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _nonStrikerCtrl,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(labelText: 'Non-striker'),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _bowlerCtrl,
-                    textCapitalization: TextCapitalization.words,
-                    decoration:
-                        const InputDecoration(labelText: 'Opening bowler'),
-                  ),
-                ],
                 const SizedBox(height: 18),
                 FilledButton(
                   style: FilledButton.styleFrom(
@@ -884,17 +1259,21 @@ class _TeamSelectorTile extends StatelessWidget {
   const _TeamSelectorTile({
     required this.label,
     required this.teamName,
+    this.subtitle,
     required this.onTap,
   });
 
   final String label;
   final String? teamName;
+  final String? subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
     final hasTeam = teamName != null && teamName!.isNotEmpty;
+    final cleanSub = subtitle?.trim();
+    final hasSub = hasTeam && cleanSub != null && cleanSub.isNotEmpty;
     return CreasePressable(
       onTap: onTap,
       child: Container(
@@ -938,15 +1317,32 @@ class _TeamSelectorTile extends StatelessWidget {
                   ),
                 const SizedBox(width: 7),
                 Expanded(
-                  child: Text(
-                    hasTeam ? teamName! : 'Select team',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: hasTeam ? c.inkPrimary : c.inkSecondary,
-                          fontWeight:
-                              hasTeam ? FontWeight.w600 : FontWeight.w500,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        hasTeam ? teamName! : 'Select team',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: hasTeam ? c.inkPrimary : c.inkSecondary,
+                              fontWeight:
+                                  hasTeam ? FontWeight.w600 : FontWeight.w500,
+                            ),
+                      ),
+                      if (hasSub)
+                        Text(
+                          cleanSub,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    fontSize: 10,
+                                    color: c.inkSecondary,
+                                  ),
                         ),
+                    ],
                   ),
                 ),
                 Icon(
@@ -955,6 +1351,74 @@ class _TeamSelectorTile extends StatelessWidget {
                   color: c.inkSecondary,
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerSelectorField extends StatelessWidget {
+  const _PlayerSelectorField({
+    required this.label,
+    required this.playerName,
+    required this.placeholder,
+    required this.onTap,
+  });
+
+  final String label;
+  final String playerName;
+  final String placeholder;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    final display = playerName.isEmpty ? placeholder : playerName;
+    final isPlaceholder =
+        playerName.isEmpty || LocalEventStore.isPlaceholderPlayerName(playerName);
+    return CreasePressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+        decoration: BoxDecoration(
+          color: c.surfaceSheet,
+          borderRadius: BorderRadius.circular(CreaseRadius.control - 2),
+          border: Border.all(color: c.hairline),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontSize: 10,
+                          color: c.inkSecondary,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    display,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: isPlaceholder ? c.inkSecondary : c.inkPrimary,
+                          fontWeight:
+                              isPlaceholder ? FontWeight.w400 : FontWeight.w600,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.unfold_more_rounded,
+              size: 16,
+              color: c.inkSecondary,
             ),
           ],
         ),

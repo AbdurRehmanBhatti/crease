@@ -1025,16 +1025,19 @@ class LocalEventStore {
   }
 
   /// Adds [playerName] to [teamName]'s roster on [matchId] if not already present.
+  /// Pass [side] when available so same-name teams never add to the wrong roster.
   Future<MatchConfig?> addPlayerToTeam(
     String matchId,
     String teamName,
-    String playerName,
-  ) async {
+    String playerName, {
+    MatchSide? side,
+  }) async {
     final trimmed = playerName.trim();
     if (trimmed.isEmpty || isPlaceholderPlayerName(trimmed)) return null;
     final match = await getMatch(matchId);
     if (match == null) return null;
-    final isTeamA = teamName == match.teamA;
+    final isTeamA =
+        side != null ? side == MatchSide.a : teamName == match.teamA;
     final current = List<String>.from(
       isTeamA ? match.teamAPlayers : match.teamBPlayers,
     );

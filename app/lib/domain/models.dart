@@ -83,6 +83,10 @@ enum MatchStatus {
       );
 }
 
+/// Identifies a match side independent of its display name so same-name
+/// derbies (e.g. two clubs both named "Bhatti XI") never collide.
+enum MatchSide { a, b }
+
 @immutable
 class MatchConfig {
   const MatchConfig({
@@ -143,39 +147,61 @@ class MatchConfig {
   final bool isDemo;
   final DateTime createdAt;
 
-  String get battingSecondTeam =>
-      battingFirstTeam == teamA ? teamB : teamA;
+  MatchSide get battingFirstSide =>
+      battingFirstTeam == teamA ? MatchSide.a : MatchSide.b;
+
+  MatchSide get battingSecondSide =>
+      battingFirstSide == MatchSide.a ? MatchSide.b : MatchSide.a;
+
+  String get battingSecondTeam => teamNameForSide(battingSecondSide);
+
+  bool get hasSameTeamNames =>
+      teamA.trim().toLowerCase() == teamB.trim().toLowerCase();
 
   String get title => '$teamA v $teamB';
 
   /// Matches abandoned due to rain / mutual agreement encode `-1` in `declaredInnings`.
   bool get isAbandoned => declaredInnings.contains(-1);
 
+  String teamNameForSide(MatchSide side) =>
+      side == MatchSide.a ? teamA : teamB;
+
+  List<String> rosterForSide(MatchSide side) =>
+      side == MatchSide.a ? teamAPlayers : teamBPlayers;
+
   List<String> rosterForTeam(String teamName) =>
       teamName == teamA ? teamAPlayers : teamBPlayers;
+
+  /// Returns which side (`MatchSide.a` or `MatchSide.b`) corresponds to
+  /// [teamId] (preferred) or [teamName] (fallback for legacy/ad-hoc matches
+  /// without IDs), or `null` if this match does not involve that team.
+  MatchSide? sideForTeam({String? teamId, String? teamName}) {
+    final cleanId = teamId?.trim();
+    if (cleanId != null && cleanId.isNotEmpty) {
+      if (teamAId == cleanId) return MatchSide.a;
+      if (teamBId == cleanId) return MatchSide.b;
+    }
+    final lower = teamName?.trim().toLowerCase();
+    if (lower == null || lower.isEmpty) return null;
+    if (teamAId == null && teamA.toLowerCase() == lower) return MatchSide.a;
+    if (teamBId == null && teamB.toLowerCase() == lower) return MatchSide.b;
+    if (cleanId == null || cleanId.isEmpty) {
+      if (teamA.toLowerCase() == lower) return MatchSide.a;
+      if (teamB.toLowerCase() == lower) return MatchSide.b;
+    }
+    return null;
+  }
 
   /// Returns the match's display name for the side corresponding to [teamId]
   /// (preferred) or [teamName] (fallback for legacy/ad-hoc matches without IDs),
   /// or `null` if this match does not involve that team.
   String? sideNameForTeam({String? teamId, String? teamName}) {
-    final cleanId = teamId?.trim();
-    if (cleanId != null && cleanId.isNotEmpty) {
-      if (teamAId == cleanId) return teamA;
-      if (teamBId == cleanId) return teamB;
-    }
-    final lower = teamName?.trim().toLowerCase();
-    if (lower == null || lower.isEmpty) return null;
-    if (teamAId == null && teamA.toLowerCase() == lower) return teamA;
-    if (teamBId == null && teamB.toLowerCase() == lower) return teamB;
-    if (cleanId == null || cleanId.isEmpty) {
-      if (teamA.toLowerCase() == lower) return teamA;
-      if (teamB.toLowerCase() == lower) return teamB;
-    }
-    return null;
+    final side = sideForTeam(teamId: teamId, teamName: teamName);
+    return side == null ? null : teamNameForSide(side);
   }
 
   bool involvesTeam({String? teamId, String? teamName}) =>
-      sideNameForTeam(teamId: teamId, teamName: teamName) != null;
+      sideForTeam(teamId: teamId, teamName: teamName) != null;
 
   MatchConfig copyWith({
     int? oversLimit,
@@ -605,6 +631,7 @@ class DerivedInningsState {
     required this.inningsNumber,
     required this.battingTeam,
     required this.bowlingTeam,
+    this.battingSide = MatchSide.a,
     required this.totalRuns,
     required this.wickets,
     required this.legalBalls,
@@ -629,7 +656,11 @@ class DerivedInningsState {
   final int inningsNumber;
   final String battingTeam;
   final String bowlingTeam;
+  final MatchSide battingSide;
   final int totalRuns;
+
+  MatchSide get bowlingSide =>
+      battingSide == MatchSide.a ? MatchSide.b : MatchSide.a;
   final int wickets;
   final int legalBalls;
   final int oversLimit; // 0 = unlimited (Test)
@@ -705,6 +736,7 @@ class DerivedMatchState {
     this.innings4,
     required this.activeInningsNumber,
     required this.status,
+    this.winnerSide,
     this.resultSummary,
     this.leadTrailText,
     this.canEnforceFollowOn = false,
@@ -718,6 +750,7 @@ class DerivedMatchState {
   final DerivedInningsState? innings4;
   final int activeInningsNumber;
   final MatchStatus status;
+  final MatchSide? winnerSide;
   final String? resultSummary;
   final String? leadTrailText;
   final bool canEnforceFollowOn;

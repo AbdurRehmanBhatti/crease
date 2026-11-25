@@ -192,7 +192,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              CreaseTeamBadge(
+              CreasePlayerAvatar(
                 name: widget.playerName,
                 size: 56,
                 highlighted: true,

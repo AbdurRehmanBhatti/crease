@@ -1178,36 +1178,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 8),
                   if (_myStats != null)
-                    GridView.count(
-                      crossAxisCount: 2,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: 1.85,
+                    Column(
                       children: [
-                        _StatTile(
-                          label: 'Runs',
-                          value: '${_myStats!.runs}',
-                          sub:
-                              'SR ${_myStats!.strikeRate.toStringAsFixed(1)} · HS ${_myStats!.highestScoreText}',
+                        IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: _StatTile(
+                                  label: 'Runs',
+                                  value: '${_myStats!.runs}',
+                                  sub:
+                                      'SR ${_myStats!.strikeRate.toStringAsFixed(1)} · HS ${_myStats!.highestScoreText}',
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _StatTile(
+                                  label: 'Wickets',
+                                  value: '${_myStats!.wickets}',
+                                  sub:
+                                      'Econ ${_myStats!.economy.toStringAsFixed(1)}',
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        _StatTile(
-                          label: 'Wickets',
-                          value: '${_myStats!.wickets}',
-                          sub: 'Econ ${_myStats!.economy.toStringAsFixed(1)}',
-                        ),
-                        _StatTile(
-                          label: 'Matches',
-                          value: '${_myStats!.matchesPlayed}',
-                          sub:
-                              '${_myStats!.fours} fours · ${_myStats!.sixes} sixes',
-                        ),
-                        _StatTile(
-                          label: 'MVP points',
-                          value: '${_myStats!.mvpPoints}',
-                          sub: '${_myStats!.fieldingDismissals} fielding',
-                          highlight: true,
+                        const SizedBox(height: 10),
+                        IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: _StatTile(
+                                  label: 'Matches',
+                                  value: '${_myStats!.matchesPlayed}',
+                                  sub:
+                                      '${_myStats!.fours} fours · ${_myStats!.sixes} sixes',
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _StatTile(
+                                  label: 'MVP points',
+                                  value: '${_myStats!.mvpPoints}',
+                                  sub:
+                                      '${_myStats!.fieldingDismissals} fielding',
+                                  highlight: true,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     )

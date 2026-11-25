@@ -296,6 +296,144 @@ class CreaseTeamBadge extends StatelessWidget {
   }
 }
 
+/// Circular avatar for human players — visually distinct from the squircle
+/// [CreaseTeamBadge] used for clubs/teams and [CreaseTournamentBadge] for
+/// competitions.
+class CreasePlayerAvatar extends StatelessWidget {
+  const CreasePlayerAvatar({
+    super.key,
+    required this.name,
+    this.size = 36,
+    this.highlighted = false,
+    this.avatarUrl,
+  });
+
+  final String name;
+  final double size;
+  final bool highlighted;
+  final String? avatarUrl;
+
+  int get _hashIndex {
+    final normalized = name.trim().toLowerCase();
+    var hash = 0;
+    for (var i = 0; i < normalized.length; i++) {
+      hash = (hash * 31 + normalized.codeUnitAt(i)) & 0x7FFFFFFF;
+    }
+    return hash % CreaseTeamBadge._lightPalettes.length;
+  }
+
+  String get _initials {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) {
+      final word = parts.first;
+      return word.length >= 2
+          ? word.substring(0, 2).toUpperCase()
+          : word.toUpperCase();
+    }
+    return (parts.first[0] + parts[1][0]).toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final palette = isDark
+        ? CreaseTeamBadge._darkPalettes[_hashIndex]
+        : CreaseTeamBadge._lightPalettes[_hashIndex];
+
+    final fallback = Text(
+      _initials,
+      style: creaseNumeralStyle(
+        fontSize: size * 0.36,
+        fontWeight: FontWeight.w700,
+        color: palette.fg,
+        letterSpacing: 0.2,
+      ),
+    );
+    final url = avatarUrl?.trim();
+    final hasPhoto = url != null && url.isNotEmpty;
+
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: palette.bg,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: palette.fg.withValues(
+            alpha: highlighted ? (isDark ? 0.45 : 0.34) : (isDark ? 0.24 : 0.16),
+          ),
+          width: highlighted ? 1.4 : 1,
+        ),
+      ),
+      child: hasPhoto
+          ? ClipOval(
+              child: Image.network(
+                url,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => fallback,
+              ),
+            )
+          : fallback,
+    );
+  }
+}
+
+/// Trophy badge for tournaments & leagues — visually distinct from team
+/// monograms and circular player avatars.
+class CreaseTournamentBadge extends StatelessWidget {
+  const CreaseTournamentBadge({
+    super.key,
+    this.size = 40,
+    this.hasChampion = false,
+  });
+
+  final double size;
+  final bool hasChampion;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final Color bg;
+    final Color fg;
+    if (hasChampion) {
+      bg = isDark ? const Color(0xFF2E2616) : const Color(0xFFF6EFE0);
+      fg = isDark ? const Color(0xFFE5BA5C) : const Color(0xFF9A6B16);
+    } else {
+      bg = c.pitchGreenSoft;
+      fg = c.pitchGreen;
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(size * 0.28),
+        border: Border.all(
+          color: fg.withValues(alpha: isDark ? 0.28 : 0.2),
+          width: 1,
+        ),
+      ),
+      child: Icon(
+        Icons.emoji_events_rounded,
+        size: size * 0.5,
+        color: fg,
+      ),
+    );
+  }
+}
+
 /// Consistent segmented control used across Stats, Scorecard, and Profile.
 class CreaseSegmentedControl<T> extends StatelessWidget {
   const CreaseSegmentedControl({

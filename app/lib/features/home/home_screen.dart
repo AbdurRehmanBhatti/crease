@@ -586,7 +586,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemBuilder: (context, index) => _MatchScoreCard(
                           match: liveMatches[index],
                           onTap: () => _openMatch(liveMatches[index].config.id),
-                          onLongPress: () =>
+                          onOpenScoring: () =>
+                              _openMatch(liveMatches[index].config.id),
+                          onOpenScorecard: () =>
+                              _openScorecard(liveMatches[index].config.id),
+                          onDelete: () =>
                               _confirmDeleteMatch(liveMatches[index]),
                         ),
                       ),
@@ -628,7 +632,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           match: recentMatches[index],
                           onTap: () =>
                               _openScorecard(recentMatches[index].config.id),
-                          onLongPress: () =>
+                          onOpenScoring: () =>
+                              _openMatch(recentMatches[index].config.id),
+                          onOpenScorecard: () =>
+                              _openScorecard(recentMatches[index].config.id),
+                          onDelete: () =>
                               _confirmDeleteMatch(recentMatches[index]),
                         ),
                       ),
@@ -734,10 +742,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             padding: const EdgeInsets.all(16),
                             child: Row(
                               children: [
-                                CreaseTeamBadge(
-                                  name: t.name,
+                                CreaseTournamentBadge(
                                   size: 40,
-                                  highlighted: true,
+                                  hasChampion: overview.champion != null,
                                 ),
                                 const SizedBox(width: 14),
                                 Expanded(
@@ -869,18 +876,23 @@ class _MatchScoreCard extends StatelessWidget {
   const _MatchScoreCard({
     required this.match,
     required this.onTap,
-    required this.onLongPress,
+    required this.onOpenScoring,
+    required this.onOpenScorecard,
+    required this.onDelete,
   });
 
   final DerivedMatchState match;
   final VoidCallback onTap;
-  final VoidCallback onLongPress;
+  final VoidCallback onOpenScoring;
+  final VoidCallback onOpenScorecard;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
     final isLive = match.status == MatchStatus.live;
     final isBreak = match.status == MatchStatus.inningsBreak;
+    final isCompleted = match.status == MatchStatus.completed;
     final inn1 = match.innings1;
     final inn2 = match.innings2;
     final inn2Started =
@@ -898,8 +910,9 @@ class _MatchScoreCard extends StatelessWidget {
       footerText = match.leadTrailText!;
       footerColor = c.inkPrimary;
     } else if (match.activeInnings.runsNeeded != null && isLive) {
+      final rem = match.activeInnings.ballsRemaining;
       footerText =
-          '${match.activeInnings.battingTeam} need ${match.activeInnings.runsNeeded} from ${match.activeInnings.ballsRemaining} balls';
+          '${match.activeInnings.battingTeam} need ${match.activeInnings.runsNeeded} from $rem ball${rem == 1 ? '' : 's'}';
       footerColor = c.inkPrimary;
     } else if (isBreak) {
       footerText = 'Innings break';
@@ -907,10 +920,10 @@ class _MatchScoreCard extends StatelessWidget {
 
     return CreasePressable(
       onTap: onTap,
-      onLongPress: onLongPress,
+      onLongPress: onDelete,
       child: GlassSurface(
         borderColor: c.hairline,
-        padding: const EdgeInsets.fromLTRB(16, 13, 16, 14),
+        padding: const EdgeInsets.fromLTRB(16, 4, 4, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -952,7 +965,7 @@ class _MatchScoreCard extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                if (match.unsyncedCount > 0)
+                if (match.unsyncedCount > 0) ...[
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -970,51 +983,114 @@ class _MatchScoreCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(width: 2),
+                ],
+                CreaseMenuButton<String>(
+                  compact: true,
+                  iconSize: 18,
+                  sheetTitle: match.config.title,
+                  tooltip: 'Match options',
+                  items: [
+                    if (isCompleted) ...[
+                      const CreaseMenuItem(
+                        value: 'scorecard',
+                        label: 'View scorecard',
+                        icon: Icons.table_chart_outlined,
+                      ),
+                      const CreaseMenuItem(
+                        value: 'scoring',
+                        label: 'Reopen scoring',
+                        subtitle: 'Edit a ball or play Super Over',
+                        icon: Icons.sports_cricket_rounded,
+                      ),
+                    ] else ...[
+                      const CreaseMenuItem(
+                        value: 'scoring',
+                        label: 'Resume scoring',
+                        icon: Icons.sports_cricket_rounded,
+                      ),
+                      const CreaseMenuItem(
+                        value: 'scorecard',
+                        label: 'View scorecard',
+                        icon: Icons.table_chart_outlined,
+                      ),
+                    ],
+                    const CreaseMenuItem(
+                      value: 'delete',
+                      label: 'Delete match',
+                      icon: Icons.delete_outline_rounded,
+                      isDestructive: true,
+                    ),
+                  ],
+                  onSelected: (value) {
+                    if (value == 'scorecard') {
+                      onOpenScorecard();
+                    } else if (value == 'scoring') {
+                      onOpenScoring();
+                    } else if (value == 'delete') {
+                      onDelete();
+                    }
+                  },
+                ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
 
             // Team 1 scoreline
-            _TeamScoreRow(
-              teamName: team1Name,
-              score: inn1.scoreText,
-              overs: '${inn1.oversText} ov',
-              isHighlighted: isLive && activeTeam == team1Name,
-              dimmed: match.status == MatchStatus.completed &&
-                  match.resultSummary != null &&
-                  !match.resultSummary!
-                      .toLowerCase()
-                      .startsWith(team1Name.toLowerCase()),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: _TeamScoreRow(
+                teamName: team1Name,
+                score: inn1.scoreText,
+                overs: '${inn1.oversText} ov',
+                isHighlighted: isLive && activeTeam == team1Name,
+                dimmed: isCompleted &&
+                    match.resultSummary != null &&
+                    !match.resultSummary!
+                        .toLowerCase()
+                        .startsWith(team1Name.toLowerCase()),
+              ),
             ),
             const SizedBox(height: 8),
 
             // Team 2 scoreline
-            _TeamScoreRow(
-              teamName: team2Name,
-              score: inn2Started ? inn2.scoreText : null,
-              overs: inn2Started ? '${inn2.oversText} ov' : 'Yet to bat',
-              isHighlighted: isLive && activeTeam == team2Name,
-              dimmed: !inn2Started ||
-                  (match.status == MatchStatus.completed &&
-                      match.resultSummary != null &&
-                      !match.resultSummary!
-                          .toLowerCase()
-                          .startsWith(team2Name.toLowerCase())),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: _TeamScoreRow(
+                teamName: team2Name,
+                score: inn2Started ? inn2.scoreText : null,
+                overs: inn2Started ? '${inn2.oversText} ov' : 'Yet to bat',
+                isHighlighted: isLive && activeTeam == team2Name,
+                dimmed: !inn2Started ||
+                    (isCompleted &&
+                        match.resultSummary != null &&
+                        !match.resultSummary!
+                            .toLowerCase()
+                            .startsWith(team2Name.toLowerCase())),
+              ),
             ),
 
             if (footerText != null) ...[
               const SizedBox(height: 11),
-              Divider(height: 1, color: c.hairlineSubtle),
-              const SizedBox(height: 9),
-              Text(
-                footerText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: footerColor,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12.5,
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Divider(height: 1, color: c.hairlineSubtle),
+                    const SizedBox(height: 9),
+                    Text(
+                      footerText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: footerColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12.5,
+                          ),
                     ),
+                  ],
+                ),
               ),
             ],
           ],

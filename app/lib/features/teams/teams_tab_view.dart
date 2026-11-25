@@ -849,7 +849,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        CreaseTeamBadge(
+                        CreasePlayerAvatar(
                           name: playerName,
                           size: 48,
                           highlighted: true,
@@ -1831,7 +1831,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                               ),
                               child: Row(
                                 children: [
-                                  CreaseTeamBadge(
+                                  CreasePlayerAvatar(
                                     name: entry.$2.player.name,
                                     size: 38,
                                     highlighted: entry.$1 == 0,
@@ -2036,7 +2036,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                       ),
                                       child: Row(
                                         children: [
-                                          CreaseTeamBadge(
+                                          CreasePlayerAvatar(
                                             name: p,
                                             size: 38,
                                             highlighted:

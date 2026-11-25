@@ -1,8 +1,136 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../domain/models.dart';
 import '../../../theme/crease_theme.dart';
 import '../../../widgets/crease_ui.dart';
+
+/// Compact, unobtrusive offline / sync pill shown directly below [TopMatchBar]
+/// only when local ball events are pending cloud upload after a sync attempt.
+/// Takes zero height when online & synced so there is no flicker during scoring.
+class ScoringSyncPill extends StatelessWidget {
+  const ScoringSyncPill({
+    super.key,
+    required this.unsyncedCount,
+    required this.isSyncing,
+    required this.showOffline,
+    required this.onRetry,
+  });
+
+  final int unsyncedCount;
+  final bool isSyncing;
+  final bool showOffline;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    final visible = showOffline && unsyncedCount > 0;
+
+    return AnimatedSize(
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: visible
+          ? Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 2),
+              child: Center(
+                child: Semantics(
+                  button: true,
+                  label: isSyncing
+                      ? 'Syncing match to cloud'
+                      : 'Saved offline, $unsyncedCount pending. Tap to retry sync.',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(CreaseRadius.pill),
+                    onTap: isSyncing
+                        ? null
+                        : () {
+                            HapticFeedback.selectionClick();
+                            onRetry();
+                          },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 4,
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: c.pillMutedBg,
+                          borderRadius:
+                              BorderRadius.circular(CreaseRadius.pill),
+                          border: Border.all(color: c.hairlineSubtle),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isSyncing) ...[
+                              SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.8,
+                                  color: c.pitchGreen,
+                                ),
+                              ),
+                              const SizedBox(width: 7),
+                              Text(
+                                'Syncing…',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                      fontSize: 11.5,
+                                      color: c.inkSecondary,
+                                    ),
+                              ),
+                            ] else ...[
+                              Icon(
+                                Icons.cloud_off_rounded,
+                                size: 13.5,
+                                color: c.inkSecondary,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Saved offline · $unsyncedCount pending',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                      fontSize: 11.5,
+                                      color: c.inkSecondary,
+                                    ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Retry',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: c.pitchGreen,
+                                    ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : const SizedBox.shrink(),
+    );
+  }
+}
 
 class TopMatchBar extends StatelessWidget {
   const TopMatchBar({

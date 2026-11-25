@@ -41,6 +41,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
 
   bool _handedOverToOther = false;
   bool _reclaiming = false;
+  bool _syncing = false;
+  bool _syncOffline = false;
   RealtimeChannel? _handoverChannel;
 
   @override
@@ -148,11 +150,56 @@ class _ScoringScreenState extends State<ScoringScreen> {
     final config = await store.getMatch(widget.matchId);
     final events = await store.getBallEvents(widget.matchId);
     if (!mounted) return;
+    final hasUnsynced = events.any((e) => !e.synced);
     setState(() {
       _config = config;
       _events = events;
       _loading = false;
+      if (!hasUnsynced) _syncOffline = false;
     });
+    if (hasUnsynced && !_syncing) {
+      _syncInBackground();
+    }
+  }
+
+  Future<void> _syncInBackground({bool showFeedback = false}) async {
+    if (_syncing) return;
+    if (mounted) {
+      setState(() => _syncing = true);
+    }
+    var totalSynced = 0;
+    List<BallEvent> refreshed;
+    int stillPending;
+    while (true) {
+      final synced =
+          await LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+      totalSynced += synced;
+      refreshed = await LocalEventStore.instance.getBallEvents(widget.matchId);
+      stillPending = refreshed.where((e) => !e.synced).length;
+      // If new balls were recorded while a successful sync was in flight,
+      // drain them right away instead of flagging offline.
+      if (synced > 0 && stillPending > 0) {
+        continue;
+      }
+      break;
+    }
+    if (!mounted) return;
+    setState(() {
+      _events = refreshed;
+      _syncing = false;
+      _syncOffline = stillPending > 0;
+    });
+    if (showFeedback) {
+      if (stillPending == 0 && totalSynced > 0) {
+        _showSnack(
+          'Synced $totalSynced ball${totalSynced == 1 ? '' : 's'} to cloud.',
+        );
+      } else if (stillPending == 0) {
+        _showSnack('Match is up to date.');
+      } else {
+        _showSnack('Still offline — saved locally, will sync when connected.');
+      }
+    }
   }
 
   DerivedMatchState? get _matchState {
@@ -260,7 +307,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
     });
 
     // Fire-and-forget idempotent Supabase sync
-    LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+    _syncInBackground();
 
     // Check if an over just completed and innings is still live
     final nextState = _matchState;
@@ -292,6 +339,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
       _manualNonStriker = null;
       _manualBowler = null;
     });
+    _syncInBackground();
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -308,7 +356,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                   await LocalEventStore.instance.getBallEvents(widget.matchId);
               if (!mounted) return;
               setState(() => _events = restored);
-              LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+              _syncInBackground();
             },
           ),
         ),
@@ -379,7 +427,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                 recorded.copyWith(extraRuns: 1 + chosen),
               );
               await _load();
-              LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+              _syncInBackground();
             },
           ),
         ),
@@ -564,6 +612,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
       if (updatedCfg != null) _config = updatedCfg;
       _events = updatedEvents;
     });
+    _syncInBackground();
   }
 
   Future<void> _openEditBallSheet(BallEvent ball) async {
@@ -586,6 +635,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
     final updated = await LocalEventStore.instance.getBallEvents(widget.matchId);
     if (!mounted) return;
     setState(() => _events = updated);
+    _syncInBackground();
     _showSnack('Ball updated. Scorecard recalculated.');
   }
 
@@ -902,7 +952,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
     await LocalEventStore.instance.saveMatch(updated);
     if (!mounted) return;
     setState(() => _config = updated);
-    LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+    _syncInBackground();
   }
 
   Future<void> _enforceFollowOn(DerivedMatchState state) async {
@@ -913,7 +963,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
       _config = updated;
       _forcedInnings = 3;
     });
-    LocalEventStore.instance.syncPendingToSupabase(widget.matchId);
+    _syncInBackground();
   }
 
   void _showSnack(String message) {
@@ -999,6 +1049,14 @@ class _ScoringScreenState extends State<ScoringScreen> {
                 );
                 _load();
               },
+            ),
+
+            // 1b. Offline / pending-sync status pill (0 height when online & synced)
+            ScoringSyncPill(
+              unsyncedCount: state.unsyncedCount,
+              isSyncing: _syncing,
+              showOffline: _syncOffline,
+              onRetry: () => _syncInBackground(showFeedback: true),
             ),
 
             // 2. Scoreboard Area (scrollable safeguard for large font scales)

@@ -543,10 +543,8 @@ class _SearchScreenState extends State<SearchScreen> {
                             _SectionLabel('Tournaments'),
                             for (final t in localTournaments)
                               _ResultCard(
-                                leading: CreaseTeamBadge(
-                                  name: t.name,
+                                leading: const CreaseTournamentBadge(
                                   size: 38,
-                                  highlighted: true,
                                 ),
                                 title: t.name,
                                 subtitle: [
@@ -567,8 +565,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               ),
                             for (final rt in _remoteTournaments)
                               _ResultCard(
-                                leading: CreaseTeamBadge(
-                                  name: rt.name,
+                                leading: const CreaseTournamentBadge(
                                   size: 38,
                                 ),
                                 title: rt.name,
@@ -597,7 +594,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             _SectionLabel('Players'),
                             for (final p in playerEntries)
                               _ResultCard(
-                                leading: CreaseTeamBadge(
+                                leading: CreasePlayerAvatar(
                                   name: p.name,
                                   size: 38,
                                 ),
@@ -615,7 +612,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               ),
                             for (final rp in _remotePlayers)
                               _ResultCard(
-                                leading: CreaseTeamBadge(
+                                leading: CreasePlayerAvatar(
                                   name: rp.playerName,
                                   size: 38,
                                 ),

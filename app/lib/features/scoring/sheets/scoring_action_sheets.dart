@@ -39,131 +39,128 @@ Future<String?> showNextBowlerSheet(
   }..remove(innings.currentBowler);
   final availableBowlers = rosterSet.toList();
 
-  return showModalBottomSheet<String>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) {
-      final c = ctx.crease;
-      return Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: GlassSurface(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          fillColor: c.surfaceSheet,
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: c.hairline,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Select next bowler · ${innings.bowlingTeam}',
-                style: Theme.of(ctx).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              if (availableBowlers.isNotEmpty) ...[
-                Text(
-                  'Available bowlers',
-                  style: Theme.of(ctx).textTheme.labelMedium,
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final name in availableBowlers)
-                      ActionChip(
-                        label: Text(name),
-                        backgroundColor: c.surfaceKey,
-                        side: BorderSide(color: c.pitchGreen, width: 1),
-                        labelStyle: TextStyle(
-                          color: c.inkPrimary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        onPressed: () => Navigator.pop(ctx, name),
-                      ),
-                  ],
+  try {
+    return await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = ctx.crease;
+        return Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: GlassSurface(
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(24)),
+            fillColor: c.surfaceSheet,
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                CreaseSheetHeader(
+                  title: 'Select next bowler · ${innings.bowlingTeam}',
                 ),
                 const SizedBox(height: 12),
-              ],
-              // Show who just bowled as muted/disabled so it's clear why they can't bowl back-to-back overs
-              if (innings.legalBalls > 0 && innings.currentBowler.isNotEmpty) ...[
-                Text(
-                  'Bowled previous over',
-                  style: Theme.of(ctx).textTheme.labelMedium,
-                ),
-                const SizedBox(height: 6),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Opacity(
-                    opacity: 0.45,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: c.pillMutedBg,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: c.hairline),
-                      ),
-                      child: Text(
-                        '${innings.currentBowler} · ${innings.bowlerByName(innings.currentBowler).figuresText}',
-                        style: Theme.of(ctx).textTheme.labelMedium,
+                if (availableBowlers.isNotEmpty) ...[
+                  Text(
+                    'Available bowlers',
+                    style: Theme.of(ctx).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final name in availableBowlers)
+                        ActionChip(
+                          label: Text(name),
+                          backgroundColor: c.surfaceKey,
+                          side: BorderSide(color: c.pitchGreen, width: 1),
+                          labelStyle: TextStyle(
+                            color: c.inkPrimary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          onPressed: () => Navigator.pop(ctx, name),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                // Show who just bowled as muted/disabled so it's clear why they can't bowl back-to-back overs
+                if (innings.legalBalls > 0 &&
+                    innings.currentBowler.isNotEmpty) ...[
+                  Text(
+                    'Bowled previous over',
+                    style: Theme.of(ctx).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Opacity(
+                      opacity: 0.45,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: c.pillMutedBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: c.hairline),
+                        ),
+                        child: Text(
+                          '${innings.currentBowler} · ${innings.bowlerByName(innings.currentBowler).figuresText}',
+                          style: Theme.of(ctx).textTheme.labelMedium,
+                        ),
                       ),
                     ),
                   ),
+                  const SizedBox(height: 14),
+                ],
+                TextField(
+                  controller: controller,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    hintText: '+ Add new bowler',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onSubmitted: (val) {
+                    if (val.trim().isNotEmpty) Navigator.pop(ctx, val.trim());
+                  },
                 ),
                 const SizedBox(height: 14),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: controller,
+                  builder: (_, val, _) {
+                    final trimmed = val.text.trim();
+                    return FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: c.pitchGreen,
+                        foregroundColor: c.onPitchGreen,
+                        minimumSize: const Size.fromHeight(48),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: trimmed.isEmpty
+                          ? null
+                          : () => Navigator.pop(ctx, trimmed),
+                      child: const Text('Add & select bowler'),
+                    );
+                  },
+                ),
               ],
-              TextField(
-                controller: controller,
-                textCapitalization: TextCapitalization.words,
-                decoration: InputDecoration(
-                  hintText: '+ Add new bowler',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onSubmitted: (val) {
-                  if (val.trim().isNotEmpty) Navigator.pop(ctx, val.trim());
-                },
-              ),
-              const SizedBox(height: 14),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: c.pitchGreen,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onPressed: () {
-                  final text = controller.text.trim();
-                  Navigator.pop(
-                    ctx,
-                    text.isEmpty ? 'Bowler ${innings.bowlers.length + 1}' : text,
-                  );
-                },
-                child: const Text('Confirm bowler'),
-              ),
-            ],
+            ),
           ),
-        ),
-      );
-    },
-  );
+        );
+      },
+    );
+  } finally {
+    controller.dispose();
+  }
 }
 
 Future<int?> showExtrasRunsSheet(BuildContext context, ExtraType type) {
@@ -267,7 +264,7 @@ Future<WicketSheetResult?> showRecordWicketSheet(
   BuildContext context,
   DerivedMatchState state, {
   WicketType initialType = WicketType.caught,
-}) {
+}) async {
   final inn = state.activeInnings;
   WicketType selectedType = initialType;
   ExtraType deliveryExtra = ExtraType.none;
@@ -281,7 +278,8 @@ Future<WicketSheetResult?> showRecordWicketSheet(
     ...inn.bowlers.map((b) => b.name),
   }.toList();
 
-  return showModalBottomSheet<WicketSheetResult>(
+  try {
+    return await showModalBottomSheet<WicketSheetResult>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
@@ -381,10 +379,10 @@ Future<WicketSheetResult?> showRecordWicketSheet(
                               ),
                               selected: deliveryExtra == ex,
                               selectedColor: c.pitchGreen,
-                              checkmarkColor: Colors.white,
+                              checkmarkColor: c.onPitchGreen,
                               labelStyle: TextStyle(
                                 color: deliveryExtra == ex
-                                    ? Colors.white
+                                    ? c.onPitchGreen
                                     : c.inkPrimary,
                                 fontWeight: deliveryExtra == ex
                                     ? FontWeight.w600
@@ -416,10 +414,10 @@ Future<WicketSheetResult?> showRecordWicketSheet(
                               label: Text('$r'),
                               selected: completedRuns == r,
                               selectedColor: c.pitchGreen,
-                              checkmarkColor: Colors.white,
+                              checkmarkColor: c.onPitchGreen,
                               labelStyle: TextStyle(
                                 color: completedRuns == r
-                                    ? Colors.white
+                                    ? c.onPitchGreen
                                     : c.inkPrimary,
                               ),
                               side: BorderSide(
@@ -450,10 +448,10 @@ Future<WicketSheetResult?> showRecordWicketSheet(
                                 label: Text(player),
                                 selected: selectedFielder == player,
                                 selectedColor: c.pitchGreen,
-                                checkmarkColor: Colors.white,
+                                checkmarkColor: c.onPitchGreen,
                                 labelStyle: TextStyle(
                                   color: selectedFielder == player
-                                      ? Colors.white
+                                      ? c.onPitchGreen
                                       : c.inkPrimary,
                                   fontWeight: selectedFielder == player
                                       ? FontWeight.w600
@@ -526,12 +524,15 @@ Future<WicketSheetResult?> showRecordWicketSheet(
       );
     },
   );
+  } finally {
+    customFielderCtrl.dispose();
+  }
 }
 
 Future<String?> showNextBatterSheet(
   BuildContext context,
   DerivedMatchState state,
-) {
+) async {
   final inn = state.activeInnings;
   final roster = <String>{
     ...state.config.rosterForTeam(inn.battingTeam),
@@ -552,7 +553,8 @@ Future<String?> showNextBatterSheet(
 
   final newBatterCtrl = TextEditingController();
 
-  return showModalBottomSheet<String>(
+  try {
+    return await showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
@@ -668,20 +670,25 @@ Future<String?> showNextBatterSheet(
                       ),
                     ),
                     const SizedBox(width: 10),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: c.pitchGreen,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(0, 52),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      onPressed: () {
-                        final text = newBatterCtrl.text.trim();
-                        if (text.isNotEmpty) Navigator.pop(ctx, text);
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: newBatterCtrl,
+                      builder: (_, val, _) {
+                        final trimmed = val.text.trim();
+                        return FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: c.pitchGreen,
+                            foregroundColor: c.onPitchGreen,
+                            minimumSize: const Size(0, 52),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          onPressed: trimmed.isEmpty
+                              ? null
+                              : () => Navigator.pop(ctx, trimmed),
+                          child: const Text('Add'),
+                        );
                       },
-                      child: const Text('Add'),
                     ),
                   ],
                 ),
@@ -692,6 +699,9 @@ Future<String?> showNextBatterSheet(
       );
     },
   );
+  } finally {
+    newBatterCtrl.dispose();
+  }
 }
 
 Future<String?> showEditBallSheet(BuildContext context, BallEvent ball) {

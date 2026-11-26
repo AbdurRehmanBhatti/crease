@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../config/app_links.dart';
+import '../../config/security_guards.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/models.dart';
 import '../../theme/crease_theme.dart';
@@ -245,9 +246,13 @@ class _JoinScorerSheetState extends State<_JoinScorerSheet> {
       Navigator.of(context).pop(matchId);
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().contains('Invalid scorer code')
-          ? 'Code not found. Check the 6 digits with the current scorer.'
-          : 'Could not join right now. Check your connection and try again.';
+      final msg = e is CreaseRpcException
+          ? (e.code == 'invalid_code'
+              ? 'Code not found or expired. Check the 6 digits with the current scorer.'
+              : e.userMessage)
+          : e.toString().contains('Invalid scorer code')
+              ? 'Code not found or expired. Check the 6 digits with the current scorer.'
+              : 'Could not join right now. Check your connection and try again.';
       setState(() {
         _error = msg;
         _submitting = false;

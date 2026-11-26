@@ -1,3 +1,5 @@
+import 'security_guards.dart';
+
 /// Public live web scorecard base URL (GitHub Pages from /docs) and
 /// deep-link parsing helpers for both HTTPS App Links and `crease://` links.
 class CreaseLinks {
@@ -21,35 +23,41 @@ class CreaseLinks {
   static String teamInviteUrl(String code) =>
       '$liveScorecardBaseUrl?team-code=${Uri.encodeQueryComponent(code)}';
 
-  /// Extracts a match ID from either:
-  /// - `https://abdurrehmanbhatti.github.io/crease/?match=<id>`
-  /// - `crease://match/<id>` or `crease://match?match=<id>`
+  /// Extracts a canonical UUID match ID from either:
+  /// - `https://abdurrehmanbhatti.github.io/crease/?match=<uuid>`
+  /// - `crease://match/<uuid>` or `crease://match?match=<uuid>`
   static String? parseMatchId(Uri uri) {
     final queryId = uri.queryParameters['match']?.trim();
-    if (queryId != null && queryId.isNotEmpty) {
+    if (CreaseSecurity.isValidUuid(queryId)) {
       return queryId;
     }
     if (uri.scheme == 'crease' && uri.host == 'match') {
       final segs = uri.pathSegments.where((s) => s.trim().isNotEmpty).toList();
       if (segs.isNotEmpty) {
-        return Uri.decodeComponent(segs.first).trim();
+        final decoded = Uri.decodeComponent(segs.first).trim();
+        if (CreaseSecurity.isValidUuid(decoded)) {
+          return decoded;
+        }
       }
     }
     return null;
   }
 
-  /// Extracts a tournament ID from either:
-  /// - `https://abdurrehmanbhatti.github.io/crease/?tournament=<id>`
-  /// - `crease://tournament/<id>` or `crease://tournament?tournament=<id>`
+  /// Extracts a canonical UUID tournament ID from either:
+  /// - `https://abdurrehmanbhatti.github.io/crease/?tournament=<uuid>`
+  /// - `crease://tournament/<uuid>` or `crease://tournament?tournament=<uuid>`
   static String? parseTournamentId(Uri uri) {
     final queryId = uri.queryParameters['tournament']?.trim();
-    if (queryId != null && queryId.isNotEmpty) {
+    if (CreaseSecurity.isValidUuid(queryId)) {
       return queryId;
     }
     if (uri.scheme == 'crease' && uri.host == 'tournament') {
       final segs = uri.pathSegments.where((s) => s.trim().isNotEmpty).toList();
       if (segs.isNotEmpty) {
-        return Uri.decodeComponent(segs.first).trim();
+        final decoded = Uri.decodeComponent(segs.first).trim();
+        if (CreaseSecurity.isValidUuid(decoded)) {
+          return decoded;
+        }
       }
     }
     return null;

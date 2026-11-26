@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/security_guards.dart';
 import '../domain/cricket_engine.dart';
 import '../domain/guest_merge.dart';
 import '../domain/guest_sync_guards.dart';
@@ -444,13 +445,16 @@ class LocalEventStore {
         whereArgs: ['user_profile_dirty'],
       );
     } catch (e) {
-      debugPrint('syncPendingUserProfile deferred: $e');
+      if (kDebugMode) debugPrint('syncPendingUserProfile deferred: $e');
     }
   }
 
   Future<String> uploadProfileAvatar(Uint8List bytes) async {
     final client = Supabase.instance.client;
     final uid = requireSignedInUserId();
+    if (!CreaseSecurity.isValidUuid(uid)) {
+      throw StateError('Invalid user session.');
+    }
     final path = '$uid/avatar.jpg';
     await client.storage.from('avatars').uploadBinary(
           path,
@@ -465,8 +469,14 @@ class LocalEventStore {
   }
 
   Future<String> uploadTeamLogo(String teamId, Uint8List bytes) async {
+    if (!CreaseSecurity.isValidUuid(teamId)) {
+      throw ArgumentError('Invalid team ID.');
+    }
     final client = Supabase.instance.client;
     final uid = requireSignedInUserId();
+    if (!CreaseSecurity.isValidUuid(uid)) {
+      throw StateError('Invalid user session.');
+    }
     final path = '$uid/team_$teamId.jpg';
     await client.storage.from('avatars').uploadBinary(
           path,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../config/security_guards.dart';
 import '../data/local_event_store.dart';
 import '../theme/crease_theme.dart';
 
@@ -269,12 +270,13 @@ class CreaseTeamBadge extends StatelessWidget {
       ),
     );
     final explicitUrl = avatarUrl?.trim();
-    final url = (explicitUrl != null && explicitUrl.isNotEmpty)
+    final rawUrl = (explicitUrl != null && explicitUrl.isNotEmpty)
         ? explicitUrl
         : (teamId != null && teamId!.isNotEmpty)
             ? LocalEventStore.instance.directory.teamLogosById[teamId!]
             : null;
-    final hasPhoto = url != null && url.isNotEmpty;
+    final url = CreaseSecurity.sanitizeImageUrl(rawUrl);
+    final hasPhoto = url != null;
 
     return Container(
       width: size,
@@ -362,8 +364,11 @@ class CreasePlayerAvatar extends StatelessWidget {
         letterSpacing: 0.2,
       ),
     );
-    final url = avatarUrl?.trim();
-    final hasPhoto = url != null && url.isNotEmpty;
+    final url = CreaseSecurity.sanitizeImageUrl(
+      avatarUrl,
+      allowGoogleProfilePhotos: true,
+    );
+    final hasPhoto = url != null;
 
     return Container(
       width: size,

@@ -249,7 +249,7 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
         teamNamesById: teamNames,
       );
     } catch (e) {
-      debugPrint('fetchRemoteMatch error: $e');
+      if (kDebugMode) debugPrint('fetchRemoteMatch error: $e');
       return null;
     }
   }
@@ -338,39 +338,55 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
       await syncTeamToSupabase(match.teamBId!);
     }
 
-    await client.from('matches').upsert(
-      {
+    final existingMatch = await client
+        .from('matches')
+        .select('id, owner_id')
+        .eq('id', match.id)
+        .maybeSingle();
+
+    final sharedFields = <String, Object?>{
+      'team_a_id': match.teamAId,
+      'team_b_id': match.teamBId,
+      'team_a': match.teamA,
+      'team_b': match.teamB,
+      'batting_first_side': match.battingFirstSide.name,
+      'overs_limit': match.oversLimit,
+      'players_per_side': match.playersPerSide,
+      'format_label': match.formatLabel,
+      'opening_striker_1_id': match.openingStriker1Id,
+      'opening_non_striker_1_id': match.openingNonStriker1Id,
+      'opening_bowler_1_id': match.openingBowler1Id,
+      'opening_striker_2_id': match.openingStriker2Id,
+      'opening_non_striker_2_id': match.openingNonStriker2Id,
+      'opening_bowler_2_id': match.openingBowler2Id,
+      'team_a_player_ids': match.teamAPlayerIds,
+      'team_b_player_ids': match.teamBPlayerIds,
+      'ad_hoc_players': match.adHocPlayers,
+      'tournament_stage': match.tournamentStage,
+      'fixture_index': match.fixtureIndex,
+      'is_test_match': match.isTestMatch,
+      'declared_innings': match.declaredInnings,
+      'follow_on_enforced': match.followOnEnforced,
+      'first_innings_target_override': match.firstInningsTargetOverride,
+    };
+
+    if (existingMatch == null) {
+      await client.from('matches').insert({
         'id': match.id,
         'owner_id': uid,
         'tournament_id': match.tournamentId,
-        'team_a_id': match.teamAId,
-        'team_b_id': match.teamBId,
-        'team_a': match.teamA,
-        'team_b': match.teamB,
-        'batting_first_side': match.battingFirstSide.name,
-        'overs_limit': match.oversLimit,
-        'players_per_side': match.playersPerSide,
-        'format_label': match.formatLabel,
-        'opening_striker_1_id': match.openingStriker1Id,
-        'opening_non_striker_1_id': match.openingNonStriker1Id,
-        'opening_bowler_1_id': match.openingBowler1Id,
-        'opening_striker_2_id': match.openingStriker2Id,
-        'opening_non_striker_2_id': match.openingNonStriker2Id,
-        'opening_bowler_2_id': match.openingBowler2Id,
-        'team_a_player_ids': match.teamAPlayerIds,
-        'team_b_player_ids': match.teamBPlayerIds,
-        'ad_hoc_players': match.adHocPlayers,
-        'tournament_stage': match.tournamentStage,
-        'fixture_index': match.fixtureIndex,
-        'is_test_match': match.isTestMatch,
-        'declared_innings': match.declaredInnings,
-        'follow_on_enforced': match.followOnEnforced,
-        'first_innings_target_override': match.firstInningsTargetOverride,
         'is_demo': match.isDemo,
         'created_at': match.createdAt.millisecondsSinceEpoch,
-      },
-      onConflict: 'id',
-    );
+        ...sharedFields,
+      });
+    } else {
+      final isOwner = existingMatch['owner_id'] == uid;
+      await client.from('matches').update({
+        ...sharedFields,
+        if (isOwner) 'tournament_id': match.tournamentId,
+        if (isOwner) 'is_demo': match.isDemo,
+      }).eq('id', match.id);
+    }
 
     final db = await database;
     await db.update(
@@ -401,32 +417,64 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
 
       final events = unsyncedRows.map(BallEvent.fromMap).toList();
       final client = Supabase.instance.client;
-      await client.from('ball_events').upsert(
-        [
-          for (final e in events)
-            {
-              'id': e.id,
-              'match_id': e.matchId,
-              'owner_id': uid,
-              'innings_number': e.inningsNumber,
-              'sequence_number': e.sequenceNumber,
-              'striker_id': e.strikerId,
-              'non_striker_id': e.nonStrikerId,
-              'bowler_id': e.bowlerId,
-              'runs_off_bat': e.runsOffBat,
-              'extra_type': e.extraType.name,
-              'extra_runs': e.extraRuns,
-              'is_wicket': e.isWicket,
-              'wicket_type': e.wicketType?.name,
-              'dismissed_batter_id': e.dismissedBatterId,
-              'fielder_id': e.fielderId,
-              'next_batter_id': e.nextBatterId,
-              'voided': e.voided,
-              'created_at': e.createdAt.millisecondsSinceEpoch,
-            },
-        ],
-        onConflict: 'id',
-      );
+      final existingRows = await client
+          .from('ball_events')
+          .select('id')
+          .inFilter('id', [for (final e in events) e.id]);
+      final existingIds = <String>{
+        for (final r in (existingRows as List)) (r as Map)['id'].toString(),
+      };
+
+      final toInsert = <Map<String, Object?>>[];
+      final toUpdate = <BallEvent>[];
+      for (final e in events) {
+        if (existingIds.contains(e.id)) {
+          toUpdate.add(e);
+        } else {
+          toInsert.add({
+            'id': e.id,
+            'match_id': e.matchId,
+            'owner_id': uid,
+            'innings_number': e.inningsNumber,
+            'sequence_number': e.sequenceNumber,
+            'striker_id': e.strikerId,
+            'non_striker_id': e.nonStrikerId,
+            'bowler_id': e.bowlerId,
+            'runs_off_bat': e.runsOffBat,
+            'extra_type': e.extraType.name,
+            'extra_runs': e.extraRuns,
+            'is_wicket': e.isWicket,
+            'wicket_type': e.wicketType?.name,
+            'dismissed_batter_id': e.dismissedBatterId,
+            'fielder_id': e.fielderId,
+            'next_batter_id': e.nextBatterId,
+            'voided': e.voided,
+            'created_at': e.createdAt.millisecondsSinceEpoch,
+          });
+        }
+      }
+
+      if (toInsert.isNotEmpty) {
+        await client.from('ball_events').insert(toInsert);
+      }
+      for (final e in toUpdate) {
+        await client.from('ball_events').update({
+          'innings_number': e.inningsNumber,
+          'sequence_number': e.sequenceNumber,
+          'striker_id': e.strikerId,
+          'non_striker_id': e.nonStrikerId,
+          'bowler_id': e.bowlerId,
+          'runs_off_bat': e.runsOffBat,
+          'extra_type': e.extraType.name,
+          'extra_runs': e.extraRuns,
+          'is_wicket': e.isWicket,
+          'wicket_type': e.wicketType?.name,
+          'dismissed_batter_id': e.dismissedBatterId,
+          'fielder_id': e.fielderId,
+          'next_batter_id': e.nextBatterId,
+          'voided': e.voided,
+        }).eq('id', e.id);
+      }
 
       final batch = db.batch();
       for (final e in events) {
@@ -440,7 +488,7 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
       await batch.commit(noResult: true);
       return events.length;
     } catch (e) {
-      debugPrint('syncPendingToSupabase skipped: $e');
+      if (kDebugMode) debugPrint('syncPendingToSupabase skipped: $e');
       return 0;
     }
   }
@@ -459,11 +507,18 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
 
   Future<String> claimScorerBaton(String joinCode) async {
     requireSignedInUserId();
-    final result = await Supabase.instance.client.rpc(
+    final raw = await Supabase.instance.client.rpc(
       'claim_scorer_baton',
       params: {'p_join_code': joinCode.trim()},
     );
-    final matchId = result.toString();
+    final map = Map<String, dynamic>.from(raw as Map);
+    if (map['ok'] != true) {
+      throw CreaseRpcException(
+        (map['error'] as String?) ?? 'invalid_code',
+        retryAfterSeconds: (map['retry_after_seconds'] as num?)?.toInt(),
+      );
+    }
+    final matchId = map['match_id'] as String;
     await pullRemoteMatchToLocal(matchId);
     return matchId;
   }
@@ -491,6 +546,7 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
   }
 
   Future<int> pullMatchesForTeam(String teamId, {String? teamName}) async {
+    if (!CreaseSecurity.isValidUuid(teamId)) return 0;
     try {
       final client = Supabase.instance.client;
       final rows = await client

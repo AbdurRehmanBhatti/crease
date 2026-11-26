@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -61,9 +62,13 @@ Future<void> _syncIfSignedIn() async {
     if (uid == null) return;
     final synced = await LocalEventStore.instance.syncAllPendingToSupabase();
     final pulled = await LocalEventStore.instance.pullLatestForMyTeams();
-    debugPrint('[Crease Sync] Auth ready ($uid), synced $synced events, pulled $pulled team matches.');
+    if (kDebugMode) {
+      debugPrint(
+        '[Crease Sync] Auth ready ($uid), synced $synced events, pulled $pulled team matches.',
+      );
+    }
   } catch (e) {
-    debugPrint('[Crease Sync] Startup sync skipped: $e');
+    if (kDebugMode) debugPrint('[Crease Sync] Startup sync skipped: $e');
   }
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0+2 — 2026-11-26
+### Security & Hardening
+- Hardened backend invite & scorer handover flows with private RLS-locked tables, CSPRNG 6-digit codes, 30-minute single-use handover TTL, and server-side rate limiting.
+- Removed raw user IDs from public discovery payloads and added fail-closed column integrity guards across matches, ball events, players, teams, and tournaments.
+- Disabled Android backup (`allowBackup="false"`) and cleartext traffic (`usesCleartextTraffic="false"`), enabled R8 shrinking/obfuscation, and enforced release keystore signing.
+- Added strict HTTPS image URL allowlists, canonical UUID validation on deep links & filters, 8-character sign-up password minimum, and pinned SRI + CSP on the live web scorecard.
+
 ## 1.0.0+1 — 2026-11-26
 
 ### Added

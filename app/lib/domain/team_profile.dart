@@ -53,6 +53,7 @@ class PlayerProfile {
     required this.teamId,
     this.ownerId,
     this.userId,
+    this.isClaimed = false,
     required this.displayName,
     this.role = '',
     this.designation,
@@ -69,6 +70,10 @@ class PlayerProfile {
   final String teamId;
   final String? ownerId;
   final String? userId;
+
+  /// True when a Crease account has claimed this player spot, even when
+  /// public RPCs intentionally omit raw `user_id` UUIDs for privacy.
+  final bool isClaimed;
   final String displayName;
   final String role;
   final String? designation;
@@ -80,7 +85,8 @@ class PlayerProfile {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  bool get isLinked => userId != null && userId!.trim().isNotEmpty;
+  bool get isLinked =>
+      isClaimed || (userId != null && userId!.trim().isNotEmpty);
   bool get isCaptain => designation == 'C' || memberRole == 'captain';
 
   SquadPlayerMeta get meta => SquadPlayerMeta(
@@ -95,6 +101,7 @@ class PlayerProfile {
     String? ownerId,
     String? userId,
     bool clearUserId = false,
+    bool? isClaimed,
     String? displayName,
     String? role,
     String? designation,
@@ -113,6 +120,12 @@ class PlayerProfile {
         teamId: teamId ?? this.teamId,
         ownerId: ownerId ?? this.ownerId,
         userId: clearUserId ? null : (userId ?? this.userId),
+        isClaimed: clearUserId
+            ? false
+            : (isClaimed ??
+                (userId != null && userId.trim().isNotEmpty
+                    ? true
+                    : this.isClaimed)),
         displayName: displayName ?? this.displayName,
         role: role ?? this.role,
         designation: clearDesignation ? null : (designation ?? this.designation),
@@ -156,11 +169,13 @@ class PlayerProfile {
     final rawAvatar = (map['avatar_url'] as String?)?.trim();
     final rawDes = (map['designation'] as String?)?.trim();
     final rawUid = (map['user_id'] as String?)?.trim();
+    final hasUid = rawUid != null && rawUid.isNotEmpty;
     return PlayerProfile(
       id: map['id']! as String,
       teamId: (map['team_id'] as String?) ?? '',
       ownerId: map['owner_id'] as String?,
-      userId: (rawUid != null && rawUid.isNotEmpty) ? rawUid : null,
+      userId: hasUid ? rawUid : null,
+      isClaimed: _decodeBool(map['is_claimed']) || hasUid,
       displayName: (map['display_name'] as String?) ?? 'Player',
       role: (map['role'] as String?) ?? '',
       designation: (rawDes != null && rawDes.isNotEmpty) ? rawDes : null,

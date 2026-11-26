@@ -173,6 +173,7 @@ extension LocalEventStoreSyncAuth on LocalEventStore {
         matchIds.add((r as Map)['match_id'].toString());
       }
       for (final tid in teamIdSet) {
+        if (!CreaseSecurity.isValidUuid(tid)) continue;
         final tmRows = await client
             .from('matches')
             .select('id')
@@ -212,7 +213,7 @@ extension LocalEventStoreSyncAuth on LocalEventStore {
 
       await refreshDirectory();
     } catch (e) {
-      debugPrint('restoreAccountDataFromCloud error: $e');
+      if (kDebugMode) debugPrint('restoreAccountDataFromCloud error: $e');
     }
     return restored;
   }
@@ -303,7 +304,7 @@ extension LocalEventStoreSyncAuth on LocalEventStore {
           }
         }
       } catch (e) {
-        debugPrint('Guest team merge check skipped: $e');
+        if (kDebugMode) debugPrint('Guest team merge check skipped: $e');
       }
     }
 

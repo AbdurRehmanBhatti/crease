@@ -202,9 +202,11 @@ Future<String?> showCreaseAuthSheet(
           Future<void> submitEmail() async {
             final email = emailCtrl.text.trim();
             final pass = passCtrl.text;
-            if (!email.contains('@') || pass.length < 6) {
+            final minLen = isSignInMode ? 6 : 8;
+            if (!email.contains('@') || pass.length < minLen) {
               setModalState(() {
-                errorText = 'Enter a valid email and at least 6 characters.';
+                errorText =
+                    'Enter a valid email and at least $minLen characters.';
               });
               return;
             }
@@ -450,7 +452,9 @@ Future<String?> showCreaseAuthSheet(
                             labelText: isSignInMode
                                 ? 'Password'
                                 : 'Create a password',
-                            hintText: 'At least 6 characters',
+                            hintText: isSignInMode
+                                ? 'Enter your password'
+                                : 'At least 8 characters',
                             suffixIcon: IconButton(
                               tooltip: obscurePassword
                                   ? 'Show password'

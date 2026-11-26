@@ -51,12 +51,27 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val isReleaseBuild = allTasks.any {
+        it.name.contains("Release", ignoreCase = true)
+    }
+    if (isReleaseBuild && !keystorePropertiesFile.exists()) {
+        throw GradleException(
+            "Missing android/key.properties. Release builds must be signed with the upload keystore."
+        )
     }
 }
 

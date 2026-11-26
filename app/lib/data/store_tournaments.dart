@@ -141,7 +141,7 @@ extension LocalEventStoreTournaments on LocalEventStore {
         whereArgs: [tournamentId],
       );
     } catch (e) {
-      debugPrint('syncTournamentToSupabase skipped: $e');
+      if (kDebugMode) debugPrint('syncTournamentToSupabase skipped: $e');
     }
   }
 

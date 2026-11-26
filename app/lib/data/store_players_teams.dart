@@ -465,7 +465,7 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
       }
       await refreshDirectory();
     } catch (e) {
-      debugPrint('syncTeamToSupabase skipped: $e');
+      if (kDebugMode) debugPrint('syncTeamToSupabase skipped: $e');
     }
   }
 
@@ -500,7 +500,7 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
         player,
       );
     } catch (e) {
-      debugPrint('syncPlayerToSupabase skipped: $e');
+      if (kDebugMode) debugPrint('syncPlayerToSupabase skipped: $e');
     }
   }
 
@@ -564,6 +564,12 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
       params: {'p_join_code': joinCode.trim()},
     );
     final map = Map<String, dynamic>.from(raw as Map);
+    if (map['ok'] != true) {
+      throw CreaseRpcException(
+        (map['error'] as String?) ?? 'invalid_code',
+        retryAfterSeconds: (map['retry_after_seconds'] as num?)?.toInt(),
+      );
+    }
     final teamId = map['team_id'] as String;
     final rawPlayers = (map['players'] as List?) ?? const [];
     final players = <PlayerProfile>[];
@@ -598,6 +604,12 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
       },
     );
     final map = Map<String, dynamic>.from(raw as Map);
+    if (map['ok'] != true) {
+      throw CreaseRpcException(
+        (map['error'] as String?) ?? 'unknown',
+        retryAfterSeconds: (map['retry_after_seconds'] as num?)?.toInt(),
+      );
+    }
     final teamId = map['team_id'] as String;
     final teamName = map['team_name'] as String;
     final claimedId = map['player_id'] as String;
@@ -726,6 +738,9 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
           : null;
 
       if (isSignedInAccount) {
+        if (!CreaseSecurity.isValidUuid(uid)) {
+          throw StateError('Invalid user session.');
+        }
         final updatedRows = await Supabase.instance.client
             .from('players')
             .update({

@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://ajwqkcblakfojsbyqjqt.supabase.co wss://ajwqkcblakfojsbyqjqt.supabase.co; img-src 'self' data: https://ajwqkcblakfojsbyqjqt.supabase.co https://lh3.googleusercontent.com https://lh4.googleusercontent.com https://lh5.googleusercontent.com https://lh6.googleusercontent.com; base-uri 'self'; form-action 'none'; object-src 'none';" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>Crease · Live Cricket Scorecard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js" integrity="sha384-rwykjmWNwVxboyFmvK9OXN0wj9hnMHA2aAHtits54DuACyCq0M2PrSNxhRb+hvXT" crossorigin="anonymous"></script>
   <style>
     :root {
       --ground: #f4f6f7;
@@ -337,6 +339,9 @@
     let currentPlayersById = {};
     let currentTeamsById = {};
 
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isValidUuid = (v) => typeof v === 'string' && UUID_RE.test(v.trim());
+
     function esc(str) {
       return String(str ?? '').replace(/[&<>"']/g, s => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -526,7 +531,7 @@
       const tabsHtml = inningsList.length > 1 ? `
         <div class="innings-tabs">
           ${inningsList.map(x => `
-            <button class="inn-btn ${x.innNum === inn.innNum ? 'active' : ''}" onclick="selectInnings(${x.innNum})">
+            <button type="button" class="inn-btn ${x.innNum === inn.innNum ? 'active' : ''}" data-innings="${x.innNum}">
               ${esc(x.battingTeam)} ${m.is_test_match ? `#${x.innNum}` : ''} (${esc(x.scoreText)})
             </button>
           `).join('')}
@@ -619,10 +624,15 @@
       `;
     }
 
-    window.selectInnings = (n) => {
-      selectedInnings = n;
-      renderMatch();
-    };
+    document.getElementById('app').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-innings]');
+      if (!btn) return;
+      const n = Number(btn.getAttribute('data-innings'));
+      if (Number.isInteger(n) && n >= 1 && n <= 4) {
+        selectedInnings = n;
+        renderMatch();
+      }
+    });
 
     const MATCH_COLS = 'id,team_a_id,team_b_id,team_a,team_b,batting_first_side,overs_limit,players_per_side,format_label,opening_striker_1_id,opening_non_striker_1_id,opening_bowler_1_id,opening_striker_2_id,opening_non_striker_2_id,opening_bowler_2_id,ad_hoc_players,tournament_stage,is_test_match,declared_innings,follow_on_enforced,first_innings_target_override';
     const BALL_COLS = 'id,match_id,innings_number,sequence_number,striker_id,non_striker_id,bowler_id,runs_off_bat,extra_type,extra_runs,is_wicket,wicket_type,dismissed_batter_id,fielder_id,next_batter_id,voided';
@@ -730,38 +740,35 @@
       `;
     }
 
-    async function loadTeamInvite(code) {
+    function loadTeamInvite(code) {
       const clean = String(code || '').replace(/[^0-9]/g, '');
-      const formatted = clean.length === 6 ? `${clean.slice(0, 3)} ${clean.slice(3)}` : clean;
-      const fallback = encodeURIComponent(window.location.href);
-      const intentUrl = `intent://join-team/${encodeURIComponent(clean)}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
-      try {
-        const { data, error } = await sb.rpc('preview_team_by_code', { p_join_code: clean });
-        if (error || !data) throw error || new Error('Not found');
-        const players = Array.isArray(data.players) ? data.players : [];
+      if (clean.length !== 6) {
         document.getElementById('app').innerHTML = `
           <div class="glass">
-            <div class="muted" style="font-size:12px;font-weight:600;letter-spacing:0.8px;color:var(--green);">TEAM INVITATION</div>
-            <h1 style="font-size:24px;font-weight:700;margin:6px 0 4px;">Join ${esc(data.team_name)}</h1>
-            <p class="muted">${players.length} squad players · Claim your name in Crease to unlock your career stats.</p>
-            <div style="margin:18px 0;padding:16px;border-radius:16px;background:var(--green-soft);text-align:center;">
-              <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;color:var(--green);">TEAM CODE</div>
-              <div style="font-size:34px;font-weight:700;letter-spacing:6px;color:var(--green);margin-top:4px;">${esc(formatted)}</div>
-            </div>
-            ${/Android/i.test(navigator.userAgent)
-              ? `<a href="${intentUrl}" style="display:block;text-align:center;background:var(--green);color:#fff;padding:13px 16px;border-radius:999px;font-weight:600;text-decoration:none;">Open in Crease App</a>`
-              : `<p class="muted" style="text-align:center;">Open Crease on Android → Teams → Join and enter <strong>${esc(formatted)}</strong>.</p>`
-            }
-          </div>
-        `;
-      } catch (_) {
-        document.getElementById('app').innerHTML = `
-          <div class="glass">
-            <div class="section-title">Invalid or expired team code</div>
+            <div class="section-title">Invalid team code</div>
             <p class="muted" style="margin-top:8px;">Ask your team captain for the latest 6-digit Crease team code.</p>
           </div>
         `;
+        return;
       }
+      const formatted = `${clean.slice(0, 3)} ${clean.slice(3)}`;
+      const fallback = encodeURIComponent(window.location.href);
+      const intentUrl = `intent://join-team/${encodeURIComponent(clean)}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
+      document.getElementById('app').innerHTML = `
+        <div class="glass">
+          <div class="muted" style="font-size:12px;font-weight:600;letter-spacing:0.8px;color:var(--green);">TEAM INVITATION</div>
+          <h1 style="font-size:24px;font-weight:700;margin:6px 0 4px;">Join your squad on Crease</h1>
+          <p class="muted">Sign in on the Crease Android app and claim your name to unlock career stats across matches.</p>
+          <div style="margin:18px 0;padding:16px;border-radius:16px;background:var(--green-soft);text-align:center;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;color:var(--green);">TEAM CODE</div>
+            <div style="font-size:34px;font-weight:700;letter-spacing:6px;color:var(--green);margin-top:4px;">${esc(formatted)}</div>
+          </div>
+          ${/Android/i.test(navigator.userAgent)
+            ? `<a href="${esc(intentUrl)}" style="display:block;text-align:center;background:var(--green);color:#fff;padding:13px 16px;border-radius:999px;font-weight:600;text-decoration:none;">Open in Crease App</a>`
+            : `<p class="muted" style="text-align:center;">Open Crease on Android → Teams → Join and enter <strong>${esc(formatted)}</strong>.</p>`
+          }
+        </div>
+      `;
     }
 
     function formatShortDateMs(ms) {
@@ -912,15 +919,19 @@
     if (teamCode) {
       loadTeamInvite(teamCode);
     } else if (tournamentId) {
-      if (/Android/i.test(navigator.userAgent)) {
-        const openBtn = document.getElementById('open-app-btn');
-        if (openBtn) {
-          const fallback = encodeURIComponent(window.location.href);
-          openBtn.href = `intent://tournament/${encodeURIComponent(tournamentId)}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
-          openBtn.style.display = 'inline-flex';
+      if (!isValidUuid(tournamentId)) {
+        document.getElementById('app').innerHTML = `<div class="glass">Invalid tournament link.</div>`;
+      } else {
+        if (/Android/i.test(navigator.userAgent)) {
+          const openBtn = document.getElementById('open-app-btn');
+          if (openBtn) {
+            const fallback = encodeURIComponent(window.location.href);
+            openBtn.href = `intent://tournament/${encodeURIComponent(tournamentId.trim())}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
+            openBtn.style.display = 'inline-flex';
+          }
         }
+        loadTournament(tournamentId.trim());
       }
-      loadTournament(tournamentId);
     } else if (authCode && !matchId) {
       document.getElementById('app').innerHTML = `
         <div class="glass">
@@ -929,17 +940,19 @@
         </div>
       `;
     } else if (matchId) {
-      // On Android browsers, expose a zero-error "Open in App" button using intent://
-      // with fallback to the current live web scorecard URL.
-      if (/Android/i.test(navigator.userAgent)) {
-        const openBtn = document.getElementById('open-app-btn');
-        if (openBtn) {
-          const fallback = encodeURIComponent(window.location.href);
-          openBtn.href = `intent://match/${encodeURIComponent(matchId)}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
-          openBtn.style.display = 'inline-flex';
+      if (!isValidUuid(matchId)) {
+        document.getElementById('app').innerHTML = `<div class="glass">Invalid match link.</div>`;
+      } else {
+        if (/Android/i.test(navigator.userAgent)) {
+          const openBtn = document.getElementById('open-app-btn');
+          if (openBtn) {
+            const fallback = encodeURIComponent(window.location.href);
+            openBtn.href = `intent://match/${encodeURIComponent(matchId.trim())}#Intent;scheme=crease;package=app.awventures.crease;S.browser_fallback_url=${fallback};end`;
+            openBtn.style.display = 'inline-flex';
+          }
         }
+        loadSingleMatch(matchId.trim());
       }
-      loadSingleMatch(matchId);
     } else {
       loadRecentMatches();
     }

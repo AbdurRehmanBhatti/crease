@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../config/app_links.dart';
+import '../../config/security_guards.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/team_profile.dart';
 import '../../theme/crease_theme.dart';
@@ -295,13 +296,21 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
       });
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString();
-      setState(() {
-        _error = msg.contains('Invalid team code')
+      final String errText;
+      if (e is CreaseRpcException) {
+        errText = e.code == 'invalid_code'
+            ? 'Team code not found. Double-check with your captain.'
+            : e.userMessage;
+      } else {
+        final msg = e.toString();
+        errText = msg.contains('Invalid team code')
             ? 'Team code not found. Double-check with your captain.'
             : (msg.contains('Authentication') || e is StateError)
                 ? 'Please sign in to look up this team code.'
                 : 'Check your internet connection and try again.';
+      }
+      setState(() {
+        _error = errText;
         _busy = false;
       });
     }
@@ -348,9 +357,11 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().contains('already claimed')
-            ? 'That player spot is already claimed by another account.'
-            : 'Could not join right now. Check connection and retry.';
+        _error = e is CreaseRpcException
+            ? e.userMessage
+            : e.toString().contains('already claimed')
+                ? 'That player spot is already claimed by another account.'
+                : 'Could not join right now. Check connection and retry.';
         _busy = false;
       });
     }

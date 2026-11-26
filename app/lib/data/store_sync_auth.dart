@@ -392,6 +392,8 @@ extension LocalEventStoreSyncAuth on LocalEventStore {
     if (!isSignedInAccount) return 0;
     var total = 0;
 
+    await syncPendingUserProfile();
+
     final teams = await listTeams();
     for (final t in teams.where((t) => t.isOwner)) {
       if (!t.synced || t.squad.any((p) => !p.synced)) {

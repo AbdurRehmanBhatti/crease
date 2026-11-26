@@ -55,6 +55,8 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
   String? _teamBLocation;
   List<String> _teamARoster = const [];
   List<String> _teamBRoster = const [];
+  List<PlayerProfile> _teamASquad = const [];
+  List<PlayerProfile> _teamBSquad = const [];
   Map<String, List<String>> _knownTeams = {};
   Set<String> _savedTeamIds = {};
   Map<String, String> _savedTeamIdByLowerName = {};
@@ -127,14 +129,17 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
       final prevAId = _teamAId;
       final prevALoc = _teamALocation;
       final prevARoster = _teamARoster;
+      final prevASquad = _teamASquad;
       _teamA = _teamB;
       _teamAId = _teamBId;
       _teamALocation = _teamBLocation;
       _teamARoster = _teamBRoster;
+      _teamASquad = _teamBSquad;
       _teamB = prevA;
       _teamBId = prevAId;
       _teamBLocation = prevALoc;
       _teamBRoster = prevARoster;
+      _teamBSquad = prevASquad;
       _strikerCtrl.clear();
       _nonStrikerCtrl.clear();
       _bowlerCtrl.clear();
@@ -152,13 +157,20 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
       String? location,
       String profileCode,
       List<String> players,
+      List<PlayerProfile> squad,
     })>[];
     var searchingRemote = false;
     Timer? debounce;
     var searchSeq = 0;
 
     final picked = await showModalBottomSheet<
-        ({String? id, String name, String? location, List<String> players})>(
+        ({
+          String? id,
+          String name,
+          String? location,
+          List<String> players,
+          List<PlayerProfile> squad,
+        })>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -187,6 +199,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                     String? location,
                     String profileCode,
                     List<String> players,
+                    List<PlayerProfile> squad,
                   })>[]
                 : remoteMatches;
 
@@ -238,6 +251,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                             location: hit.location,
                             profileCode: hit.profileCode,
                             players: hit.squad.map((p) => p.displayName).toList(),
+                            squad: hit.squad,
                           ),
                         ]
                       : const [];
@@ -265,6 +279,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                       location: _savedTeamLocationByLowerName[
                           localHit.key.toLowerCase()],
                       players: localHit.value,
+                      squad: const <PlayerProfile>[],
                     ),
                   );
                   return;
@@ -281,6 +296,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                     name: remoteHit.name,
                     location: remoteHit.location,
                     players: remoteHit.players,
+                    squad: remoteHit.squad,
                   ),
                 );
                 return;
@@ -293,6 +309,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                   name: q,
                   location: null,
                   players: const <String>[],
+                  squad: const <PlayerProfile>[],
                 ),
               );
             }
@@ -430,6 +447,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                                           name: q,
                                           location: null,
                                           players: const <String>[],
+                                          squad: const <PlayerProfile>[],
                                         ),
                                       ),
                                     );
@@ -509,6 +527,9 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                                               name: name,
                                               location: rowLocation,
                                               players: players,
+                                              squad: isLocal
+                                                  ? const <PlayerProfile>[]
+                                                  : remoteItem!.squad,
                                             ),
                                           ),
                                 );
@@ -540,6 +561,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
         _teamAId = picked.id;
         _teamALocation = picked.location;
         _teamARoster = roster;
+        _teamASquad = picked.squad;
         _strikerCtrl.clear();
         _nonStrikerCtrl.clear();
       } else {
@@ -547,6 +569,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
         _teamBId = picked.id;
         _teamBLocation = picked.location;
         _teamBRoster = roster;
+        _teamBSquad = picked.squad;
         _bowlerCtrl.clear();
       }
     });
@@ -835,34 +858,63 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     final dir = LocalEventStore.instance.directory;
     final adHoc = <String, String>{};
 
-    String? resolveIdForSide(String name, String? teamId) {
+    String? resolveIdForSide(
+      String name,
+      String? teamId,
+      List<PlayerProfile> remoteSquad,
+    ) {
       final clean = name.trim();
       if (clean.isEmpty) return null;
+      final cleanLower = clean.toLowerCase();
       if (teamId != null && teamId.isNotEmpty) {
         final match = dir
             .activePlayersForTeam(teamId)
-            .where((p) => p.displayName.trim().toLowerCase() == clean.toLowerCase())
+            .where((p) => p.displayName.trim().toLowerCase() == cleanLower)
             .firstOrNull;
         if (match != null) return match.id;
       }
+      final remoteMatch = remoteSquad
+          .where((p) => p.displayName.trim().toLowerCase() == cleanLower)
+          .firstOrNull;
+      if (remoteMatch != null) {
+        adHoc[remoteMatch.id] = remoteMatch.displayName.trim();
+        return remoteMatch.id;
+      }
       for (final e in adHoc.entries) {
-        if (e.value.trim().toLowerCase() == clean.toLowerCase()) return e.key;
+        if (e.value.trim().toLowerCase() == cleanLower) return e.key;
       }
       final newId = _uuid.v4();
       adHoc[newId] = clean;
       return newId;
     }
 
-    final squadAIds = (_teamAId != null && _teamAId!.isNotEmpty)
-        ? dir.activePlayersForTeam(_teamAId!).map((p) => p.id).toList()
-        : <String>[];
-    final squadBIds = (_teamBId != null && _teamBId!.isNotEmpty)
-        ? dir.activePlayersForTeam(_teamBId!).map((p) => p.id).toList()
-        : <String>[];
+    List<String> resolveSquadIds(
+      String? teamId,
+      List<PlayerProfile> remoteSquad,
+    ) {
+      if (teamId != null && teamId.isNotEmpty) {
+        final localIds =
+            dir.activePlayersForTeam(teamId).map((p) => p.id).toList();
+        if (localIds.isNotEmpty) return localIds;
+      }
+      if (remoteSquad.isNotEmpty) {
+        for (final p in remoteSquad) {
+          final clean = p.displayName.trim();
+          if (clean.isNotEmpty) {
+            adHoc.putIfAbsent(p.id, () => clean);
+          }
+        }
+        return remoteSquad.map((p) => p.id).toList();
+      }
+      return <String>[];
+    }
 
-    final striker1Id = resolveIdForSide(striker, _teamAId);
-    final nonStriker1Id = resolveIdForSide(nonStriker, _teamAId);
-    final bowler1Id = resolveIdForSide(bowler, _teamBId);
+    final squadAIds = resolveSquadIds(_teamAId, _teamASquad);
+    final squadBIds = resolveSquadIds(_teamBId, _teamBSquad);
+
+    final striker1Id = resolveIdForSide(striker, _teamAId, _teamASquad);
+    final nonStriker1Id = resolveIdForSide(nonStriker, _teamAId, _teamASquad);
+    final bowler1Id = resolveIdForSide(bowler, _teamBId, _teamBSquad);
 
     final rosterAIds = <String>[
       ...squadAIds,

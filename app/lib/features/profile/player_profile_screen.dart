@@ -93,12 +93,18 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
     if (resolvedAvatar == null || resolvedAvatar.isEmpty) {
       final myProfile = await store.getUserProfile();
       final myLinked = myProfile.linkedPlayerName?.trim().toLowerCase();
-      final myName = myProfile.displayName.trim().toLowerCase();
-      if ((myLinked == lower || myName == lower) &&
+      final claimedUid =
+          (pid != null && pid.isNotEmpty) ? dir.playerUserIdsById[pid] : null;
+      final isClaimedByMe = store.signedInUserId != null &&
+          claimedUid == store.signedInUserId;
+      final isLinkedNameToMe =
+          myLinked != null && myLinked.isNotEmpty && myLinked == lower &&
+              (claimedUid == null || isClaimedByMe);
+      if ((isClaimedByMe || isLinkedNameToMe) &&
           myProfile.avatarUrl != null &&
           myProfile.avatarUrl!.isNotEmpty) {
         resolvedAvatar = myProfile.avatarUrl;
-      } else if (pid != null && pid.isNotEmpty) {
+      } else if (pid != null && pid.isNotEmpty && claimedUid != null) {
         resolvedAvatar = await store.fetchPublicPlayerAvatar(pid);
       }
     }

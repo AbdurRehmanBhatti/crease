@@ -608,33 +608,107 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     setState(_syncClaimedFromSquad);
   }
 
-  Future<void> _confirmUnlinkPlayer(String playerName) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Unlink $playerName?'),
-        content: const Text(
-          'This removes the linked account from this player spot so the right teammate can claim it.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Unlink'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
+  Future<void> _confirmUnlinkPlayer(
+    String playerName, {
+    bool isSelf = false,
+  }) async {
     final target = _profile.playerByName(playerName);
     if (target == null) return;
-    try {
-      await LocalEventStore.instance.unlinkTeamPlayer(target.id);
-      await _loadClaimed();
-    } catch (_) {}
+    var isUnlinking = false;
+    String? errorText;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final c = ctx.crease;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return PopScope(
+              canPop: !isUnlinking,
+              child: AlertDialog(
+                title: Text(
+                  isSelf
+                      ? 'Unlink your account from $playerName?'
+                      : 'Unlink $playerName?',
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isSelf
+                          ? 'This releases your account from $playerName so you can claim the right player spot.'
+                          : 'This removes the linked account from this player spot so the right teammate can claim it.',
+                    ),
+                    if (errorText != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        errorText!,
+                        style: TextStyle(fontSize: 12.5, color: c.wicketRed),
+                      ),
+                    ],
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: isUnlinking ? null : () => Navigator.pop(ctx),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      disabledBackgroundColor:
+                          isUnlinking ? c.pitchGreen : null,
+                      disabledForegroundColor:
+                          isUnlinking ? c.onPitchGreen : null,
+                    ),
+                    onPressed: isUnlinking
+                        ? null
+                        : () async {
+                            setDialogState(() {
+                              isUnlinking = true;
+                              errorText = null;
+                            });
+                            try {
+                              await LocalEventStore.instance
+                                  .unlinkTeamPlayer(target.id);
+                              await _loadClaimed();
+                              if (ctx.mounted) Navigator.pop(ctx);
+                            } catch (_) {
+                              if (ctx.mounted) {
+                                setDialogState(() {
+                                  isUnlinking = false;
+                                  errorText =
+                                      'Could not unlink right now. Check connection and retry.';
+                                });
+                              }
+                            }
+                          },
+                    child: isUnlinking
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: c.onPitchGreen,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text('Unlinking…'),
+                            ],
+                          )
+                        : const Text('Unlink'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _persist(TeamProfile updated) async {
@@ -775,30 +849,96 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
 
   Future<void> _confirmLeaveTeam() async {
     final c = context.crease;
-    final confirmed = await showDialog<bool>(
+    var isLeaving = false;
+    String? errorText;
+
+    final left = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Leave ${_profile.name}?'),
-        content: const Text(
-          'This removes the team from your device and unlinks your spot. You can rejoin later with an invite code.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: c.wicketRed),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Leave'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return PopScope(
+              canPop: !isLeaving,
+              child: AlertDialog(
+                title: Text('Leave ${_profile.name}?'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'This removes the team from your device and unlinks your spot. You can rejoin later with an invite code.',
+                    ),
+                    if (errorText != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        errorText!,
+                        style: TextStyle(fontSize: 12.5, color: c.wicketRed),
+                      ),
+                    ],
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed:
+                        isLeaving ? null : () => Navigator.pop(ctx, false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: c.wicketRed,
+                      disabledBackgroundColor: isLeaving ? c.wicketRed : null,
+                      disabledForegroundColor:
+                          isLeaving ? Colors.white : null,
+                    ),
+                    onPressed: isLeaving
+                        ? null
+                        : () async {
+                            setDialogState(() {
+                              isLeaving = true;
+                              errorText = null;
+                            });
+                            try {
+                              await LocalEventStore.instance
+                                  .leaveTeam(_profile.id);
+                              if (ctx.mounted) Navigator.pop(ctx, true);
+                            } catch (_) {
+                              if (ctx.mounted) {
+                                setDialogState(() {
+                                  isLeaving = false;
+                                  errorText =
+                                      'Could not leave right now. Check connection and retry.';
+                                });
+                              }
+                            }
+                          },
+                    child: isLeaving
+                        ? const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Text('Leaving…'),
+                            ],
+                          )
+                        : const Text('Leave'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
-    if (confirmed != true) return;
+    if (left != true || !mounted) return;
     final leftName = _profile.name;
-    await LocalEventStore.instance.leaveTeam(_profile.id);
-    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Left "$leftName".')),
     );
@@ -954,8 +1094,21 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     var currentName = playerName;
     final initialMeta = _profile.metaFor(currentName);
     final isClaimed = _claimedPlayers.contains(currentName.toLowerCase());
-    var role = initialMeta.role;
-    var designation = initialMeta.designation;
+    final initialTarget = _profile.playerByName(currentName);
+    final signedInUid = LocalEventStore.instance.signedInUserId;
+    final isSelfClaimed = initialTarget != null &&
+        signedInUid != null &&
+        initialTarget.userId == signedInUid;
+    final initialRole = initialMeta.role.trim();
+    final initialDesignation =
+        (initialMeta.designation != null &&
+                initialMeta.designation!.trim().isNotEmpty)
+            ? initialMeta.designation!.trim()
+            : null;
+    var role = initialRole;
+    var designation = initialDesignation;
+    var isSaving = false;
+    String? saveError;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -965,7 +1118,16 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
         final c = ctx.crease;
         return StatefulBuilder(
           builder: (ctx, setModalState) {
-            return GlassSurface(
+            final normalizedDes =
+                (designation != null && designation!.trim().isNotEmpty)
+                    ? designation!.trim()
+                    : null;
+            final hasChanges =
+                role != initialRole || normalizedDes != initialDesignation;
+
+            return PopScope(
+              canPop: !isSaving,
+              child: GlassSurface(
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(CreaseRadius.sheet),
               ),
@@ -1166,8 +1328,12 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                     ? c.pitchGreen
                                     : c.hairline,
                               ),
-                              onSelected: (_) =>
-                                  setModalState(() => designation = d),
+                              onSelected: isSaving
+                                  ? null
+                                  : (_) => setModalState(() {
+                                      designation = d;
+                                      saveError = null;
+                                    }),
                             ),
                         ],
                       ),
@@ -1203,27 +1369,81 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                               side: BorderSide(
                                 color: role == r ? c.pitchGreen : c.hairline,
                               ),
-                              onSelected: (_) => setModalState(
-                                () => role = role == r ? '' : r,
-                              ),
+                              onSelected: isSaving
+                                  ? null
+                                  : (_) => setModalState(() {
+                                      role = role == r ? '' : r;
+                                      saveError = null;
+                                    }),
                             ),
                         ],
                       ),
                       const SizedBox(height: 18),
+                      if (saveError != null) ...[
+                        Text(
+                          saveError!,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: c.wicketRed,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       FilledButton(
-                        onPressed: () async {
-                          final target = _profile.playerByName(currentName);
-                          if (target != null) {
-                            await LocalEventStore.instance.updatePlayerRole(
-                              target.id,
-                              role: role,
-                              designation: designation,
-                            );
-                            await _loadClaimed();
-                          }
-                          if (ctx.mounted) Navigator.pop(ctx);
-                        },
-                        child: const Text('Save player role'),
+                        style: FilledButton.styleFrom(
+                          disabledBackgroundColor:
+                              isSaving ? c.pitchGreen : null,
+                          disabledForegroundColor:
+                              isSaving ? c.onPitchGreen : null,
+                        ),
+                        onPressed: (!hasChanges || isSaving)
+                            ? null
+                            : () async {
+                                setModalState(() {
+                                  isSaving = true;
+                                  saveError = null;
+                                });
+                                try {
+                                  final target =
+                                      _profile.playerByName(currentName);
+                                  if (target != null) {
+                                    await LocalEventStore.instance
+                                        .updatePlayerRole(
+                                      target.id,
+                                      role: role,
+                                      designation: normalizedDes,
+                                    );
+                                    await _loadClaimed();
+                                  }
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                } catch (_) {
+                                  if (ctx.mounted) {
+                                    setModalState(() {
+                                      isSaving = false;
+                                      saveError =
+                                          'Could not save player role. Please try again.';
+                                    });
+                                  }
+                                }
+                              },
+                        child: isSaving
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: c.onPitchGreen,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Text('Saving…'),
+                                ],
+                              )
+                            : const Text('Save player role'),
                       ),
                       const SizedBox(height: 8),
                       Row(
@@ -1231,10 +1451,12 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                           if (isClaimed)
                             Expanded(
                               child: TextButton(
-                                onPressed: () async {
-                                  Navigator.pop(ctx);
-                                  await _confirmUnlinkPlayer(currentName);
-                                },
+                                onPressed: isSaving
+                                    ? null
+                                    : () async {
+                                        Navigator.pop(ctx);
+                                        await _confirmUnlinkPlayer(currentName);
+                                      },
                                 child: const Text('Unlink account'),
                               ),
                             ),
@@ -1243,51 +1465,83 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                               style: TextButton.styleFrom(
                                 foregroundColor: c.wicketRed,
                               ),
-                              onPressed: () async {
-                                final target = _profile.playerByName(currentName);
-                                if (target == null) return;
-                                if (isClaimed) {
-                                  try {
-                                    await LocalEventStore.instance
-                                        .unlinkTeamPlayer(target.id);
-                                  } catch (_) {}
-                                }
-                                await LocalEventStore.instance
-                                    .archivePlayer(target.id);
-                                await _loadClaimed();
-                                if (ctx.mounted) Navigator.pop(ctx);
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context)
-                                  ..hideCurrentSnackBar()
-                                  ..showSnackBar(
-                                    SnackBar(
-                                      duration: const Duration(seconds: 4),
-                                      content: Text(
-                                        'Removed $currentName from ${_profile.name}',
-                                      ),
-                                      action: SnackBarAction(
-                                        label: 'Undo',
-                                        onPressed: () async {
+                              onPressed: isSaving
+                                  ? null
+                                  : () async {
+                                      final target =
+                                          _profile.playerByName(currentName);
+                                      if (target == null) return;
+                                      setModalState(() {
+                                        isSaving = true;
+                                        saveError = null;
+                                      });
+                                      try {
+                                        if (isClaimed) {
                                           await LocalEventStore.instance
-                                              .savePlayer(
-                                            target.copyWith(archived: false),
+                                              .unlinkTeamPlayer(target.id);
+                                        }
+                                        await LocalEventStore.instance
+                                            .archivePlayer(target.id);
+                                        await _loadClaimed();
+                                        if (ctx.mounted) Navigator.pop(ctx);
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context)
+                                          ..hideCurrentSnackBar()
+                                          ..showSnackBar(
+                                            SnackBar(
+                                              duration:
+                                                  const Duration(seconds: 4),
+                                              content: Text(
+                                                'Removed $currentName from ${_profile.name}',
+                                              ),
+                                              action: SnackBarAction(
+                                                label: 'Undo',
+                                                onPressed: () async {
+                                                  await LocalEventStore.instance
+                                                      .savePlayer(
+                                                    target.copyWith(
+                                                      archived: false,
+                                                    ),
+                                                  );
+                                                  await _loadClaimed();
+                                                },
+                                              ),
+                                            ),
                                           );
-                                          await _loadClaimed();
-                                        },
-                                      ),
-                                    ),
-                                  );
-                              },
+                                      } catch (_) {
+                                        if (ctx.mounted) {
+                                          setModalState(() {
+                                            isSaving = false;
+                                            saveError =
+                                                'Could not remove player. Check connection and try again.';
+                                          });
+                                        }
+                                      }
+                                    },
                               child: const Text('Remove player'),
                             ),
                           ),
                         ],
                       ),
+                    ] else if (!widget.readOnlyPublic &&
+                        _isSaved &&
+                        isSelfClaimed) ...[
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: c.wicketRed,
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await _confirmUnlinkPlayer(currentName, isSelf: true);
+                        },
+                        child: const Text('Unlink my account'),
+                      ),
                     ],
                   ],
                 ),
               ),
-            );
+            ),
+          );
           },
         );
       },

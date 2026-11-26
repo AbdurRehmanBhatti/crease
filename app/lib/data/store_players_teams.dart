@@ -216,8 +216,11 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
     );
     await refreshDirectory();
     if (isSignedInAccount) {
-      // Sync cleared players on this team first so Postgres unique designation index never conflicts
-      await syncTeamToSupabase(current.teamId);
+      // Sync cleared players on this team in the background so local save
+      // stays instant even on slow or offline ground networks.
+      unawaited(
+        syncTeamToSupabase(current.teamId).then((_) {}, onError: (_) {}),
+      );
     }
     return updated;
   }
@@ -282,24 +285,52 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
   }
 
   Future<void> leaveTeam(String teamId) async {
-    final uid = signedInUserId;
-    if (uid != null) {
-      try {
-        await Supabase.instance.client
-            .from('players')
-            .update({
-              'user_id': null,
-              'claimed_at': null,
-              'updated_at': DateTime.now().millisecondsSinceEpoch,
-            })
-            .eq('team_id', teamId)
-            .eq('user_id', uid);
-      } catch (_) {}
-    }
     final db = await database;
+    final uid = signedInUserId;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    String? selfPlayerName;
+    if (uid != null) {
+      final claimedRows = await db.query(
+        'players',
+        columns: ['display_name'],
+        where: 'team_id = ? AND user_id = ?',
+        whereArgs: [teamId, uid],
+        limit: 1,
+      );
+      if (claimedRows.isNotEmpty) {
+        selfPlayerName = claimedRows.first['display_name'] as String?;
+      }
+    }
+
+    if (isSignedInAccount && uid != null) {
+      await Supabase.instance.client
+          .from('players')
+          .update({
+            'user_id': null,
+            'claimed_at': null,
+            'avatar_url': null,
+            'updated_at': nowMs,
+          })
+          .eq('team_id', teamId)
+          .eq('user_id', uid);
+    }
+
     await db.delete('players', where: 'team_id = ?', whereArgs: [teamId]);
     await db.delete('teams', where: 'id = ?', whereArgs: [teamId]);
     await refreshDirectory();
+
+    if (selfPlayerName != null && selfPlayerName.trim().isNotEmpty) {
+      final profile = await getUserProfile();
+      if (profile.linkedPlayerName != null &&
+          profile.linkedPlayerName!.trim().toLowerCase() ==
+              selfPlayerName.trim().toLowerCase()) {
+        await saveUserProfile(
+          profile.copyWith(clearLinkedPlayer: true),
+          syncToCloud: true,
+        );
+      }
+    }
   }
 
   Future<void> syncTeamToSupabase(String teamId) async {
@@ -541,36 +572,137 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
   Future<void> unlinkTeamPlayer(String playerId) async {
     final db = await database;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final rows = await db.query(
+      'players',
+      columns: ['user_id', 'display_name'],
+      where: 'id = ?',
+      whereArgs: [playerId],
+      limit: 1,
+    );
+    final prevUserId = rows.isNotEmpty ? rows.first['user_id'] as String? : null;
+    final prevName =
+        rows.isNotEmpty ? (rows.first['display_name'] as String?) ?? '' : '';
+    final uid = signedInUserId;
+
+    if (isSignedInAccount) {
+      await Supabase.instance.client
+          .from('players')
+          .update({
+            'user_id': null,
+            'claimed_at': null,
+            'avatar_url': null,
+            'updated_at': nowMs,
+          })
+          .eq('id', playerId);
+    }
+
     await db.update(
       'players',
       {
         'user_id': null,
         'claimed_at': null,
-        'synced': 0,
+        'avatar_url': null,
+        'synced': isSignedInAccount ? 1 : 0,
         'updated_at': nowMs,
       },
       where: 'id = ?',
       whereArgs: [playerId],
     );
     await refreshDirectory();
-    if (isSignedInAccount) {
-      try {
-        await Supabase.instance.client
+
+    // If the signed-in user just unlinked their own spot, clear matching linkedPlayerName
+    if (uid != null && prevUserId == uid) {
+      final profile = await getUserProfile();
+      if (profile.linkedPlayerName != null &&
+          profile.linkedPlayerName!.trim().toLowerCase() ==
+              prevName.trim().toLowerCase()) {
+        await saveUserProfile(
+          profile.copyWith(clearLinkedPlayer: true),
+          syncToCloud: true,
+        );
+      }
+    }
+  }
+
+  /// Claims [targetPlayerId] for the current signed-in user (or unlinks all
+  /// self-claimed spots when [targetPlayerId] is null), awaiting Supabase
+  /// confirmation so shared ownership stays consistent with the server.
+  Future<void> syncSelfPlayerLink(
+    String? targetPlayerId, {
+    String? avatarUrl,
+  }) async {
+    final uid = signedInUserId;
+    if (uid == null) return;
+    final db = await database;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    if (targetPlayerId != null && targetPlayerId.isNotEmpty) {
+      final rows = await db.query(
+        'players',
+        columns: ['user_id'],
+        where: 'id = ?',
+        whereArgs: [targetPlayerId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final currentClaimer = rows.first['user_id'] as String?;
+      if (currentClaimer != null &&
+          currentClaimer.isNotEmpty &&
+          currentClaimer != uid) {
+        throw StateError('That player spot is already claimed by another account.');
+      }
+
+      final cleanAvatar = (avatarUrl != null && avatarUrl.trim().isNotEmpty)
+          ? avatarUrl.trim()
+          : null;
+
+      if (isSignedInAccount) {
+        final updatedRows = await Supabase.instance.client
             .from('players')
             .update({
-              'user_id': null,
-              'claimed_at': null,
+              'user_id': uid,
+              'claimed_at': nowMs,
+              'avatar_url': cleanAvatar,
               'updated_at': nowMs,
             })
-            .eq('id', playerId);
-        await db.update(
-          'players',
-          {'synced': 1},
-          where: 'id = ?',
-          whereArgs: [playerId],
-        );
-      } catch (_) {}
+            .eq('id', targetPlayerId)
+            .or('user_id.is.null,user_id.eq.$uid')
+            .select('id');
+        if (updatedRows.isEmpty) {
+          throw StateError(
+            'That player spot is already claimed by another account.',
+          );
+        }
+      }
+
+      await db.update(
+        'players',
+        {
+          'user_id': uid,
+          'claimed_at': nowMs,
+          'avatar_url': cleanAvatar,
+          'synced': isSignedInAccount ? 1 : 0,
+          'updated_at': nowMs,
+        },
+        where: 'id = ?',
+        whereArgs: [targetPlayerId],
+      );
     }
+
+    final existing = await db.query(
+      'players',
+      columns: ['id'],
+      where: 'user_id = ? AND archived = 0',
+      whereArgs: [uid],
+    );
+    for (final row in existing) {
+      final oldId = row['id'] as String?;
+      if (oldId != null && oldId != targetPlayerId) {
+        await unlinkTeamPlayer(oldId);
+      }
+    }
+
+    await refreshDirectory();
   }
 
   // ── Public Discovery (Teams & Players) ────────────────────────────────────

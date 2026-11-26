@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -368,50 +370,78 @@ class LocalEventStore {
       {'key': 'user_profile', 'value': profile.toJson()},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
-    if (syncToCloud) {
-      try {
-        final client = Supabase.instance.client;
-        final uid = signedInUserId;
-        if (uid != null) {
-          final avatar = profile.avatarUrl?.trim();
-          final displayName = profile.displayName.trim();
-          await client.auth.updateUser(
-            UserAttributes(
-              data: {
-                'full_name': displayName,
-                'role': profile.role,
-                'linked_player_name': profile.linkedPlayerName,
-                'avatar_url': avatar,
-              },
-            ),
-          );
-          final nowMs = DateTime.now().millisecondsSinceEpoch;
-          // Sync updated display_name & avatar_url to all claimed player slots
-          final updatePayload = <String, dynamic>{
-            'avatar_url': (avatar != null && avatar.isNotEmpty) ? avatar : null,
-            'updated_at': nowMs,
-            if (displayName.isNotEmpty) 'display_name': displayName,
-          };
-          await client
-              .from('players')
-              .update(updatePayload)
-              .eq('user_id', uid);
-          await db.update(
-            'players',
-            {
-              'avatar_url':
-                  (avatar != null && avatar.isNotEmpty) ? avatar : null,
-              'updated_at': nowMs,
-              if (displayName.isNotEmpty) 'display_name': displayName,
-            },
-            where: 'user_id = ?',
-            whereArgs: [uid],
-          );
-          await refreshDirectory();
-        }
-      } catch (e) {
-        debugPrint('saveUserProfile cloud sync skipped: $e');
-      }
+    final uid = signedInUserId;
+    if (uid != null) {
+      final avatar = profile.avatarUrl?.trim();
+      final displayName = profile.displayName.trim();
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      await db.update(
+        'players',
+        {
+          'avatar_url': (avatar != null && avatar.isNotEmpty) ? avatar : null,
+          'updated_at': nowMs,
+          if (displayName.isNotEmpty) 'display_name': displayName,
+        },
+        where: 'user_id = ?',
+        whereArgs: [uid],
+      );
+      await refreshDirectory();
+    }
+    if (syncToCloud && uid != null) {
+      await db.insert(
+        'app_settings',
+        {'key': 'user_profile_dirty', 'value': '1'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      unawaited(syncPendingUserProfile());
+    }
+  }
+
+  /// Syncs any locally saved `UserProfile` changes to Supabase Auth & `players`
+  /// in the background, clearing `user_profile_dirty` on success.
+  Future<void> syncPendingUserProfile() async {
+    if (!isSignedInAccount) return;
+    final uid = signedInUserId;
+    if (uid == null) return;
+    final db = await database;
+    final dirty = await db.query(
+      'app_settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['user_profile_dirty'],
+      limit: 1,
+    );
+    if (dirty.isEmpty || dirty.first['value'] != '1') return;
+
+    try {
+      final profile = await getUserProfile();
+      final client = Supabase.instance.client;
+      final avatar = profile.avatarUrl?.trim();
+      final displayName = profile.displayName.trim();
+      await client.auth.updateUser(
+        UserAttributes(
+          data: {
+            'full_name': displayName,
+            'role': profile.role,
+            'linked_player_name': profile.linkedPlayerName,
+            'avatar_url': avatar,
+          },
+        ),
+      );
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final updatePayload = <String, dynamic>{
+        'avatar_url': (avatar != null && avatar.isNotEmpty) ? avatar : null,
+        'updated_at': nowMs,
+        if (displayName.isNotEmpty) 'display_name': displayName,
+      };
+      await client.from('players').update(updatePayload).eq('user_id', uid);
+      await db.delete(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['user_profile_dirty'],
+      );
+    } catch (e) {
+      debugPrint('syncPendingUserProfile deferred: $e');
     }
   }
 

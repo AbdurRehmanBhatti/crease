@@ -255,7 +255,9 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
     final init = widget.initialCode?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
     if (init.length == 6) {
       _codeCtrl.text = init;
-      _lookupCode(init);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _lookupCode(init);
+      });
     }
   }
 
@@ -273,6 +275,12 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
       setState(() => _error = 'Enter the 6-digit team code.');
       return;
     }
+    final signedIn = await requireSignedInAccount(
+      context,
+      title: 'Sign in to join a team',
+      subtitle: 'Sign in to look up the team code and claim your player spot.',
+    );
+    if (!signedIn || !mounted) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -287,10 +295,13 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
       });
     } catch (e) {
       if (!mounted) return;
+      final msg = e.toString();
       setState(() {
-        _error = e.toString().contains('Invalid team code')
+        _error = msg.contains('Invalid team code')
             ? 'Team code not found. Double-check with your captain.'
-            : 'Check your internet connection and try again.';
+            : (msg.contains('Authentication') || e is StateError)
+                ? 'Please sign in to look up this team code.'
+                : 'Check your internet connection and try again.';
         _busy = false;
       });
     }

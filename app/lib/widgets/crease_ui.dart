@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/local_event_store.dart';
 import '../theme/crease_theme.dart';
 
 /// Minimalist geometric Crease brand emblem: popping crease line + seam mark.
@@ -195,12 +196,14 @@ class CreaseTeamBadge extends StatelessWidget {
   const CreaseTeamBadge({
     super.key,
     required this.name,
+    this.teamId,
     this.size = 36,
     this.highlighted = false,
     this.avatarUrl,
   });
 
   final String name;
+  final String? teamId;
   final double size;
   final bool highlighted;
   final String? avatarUrl;
@@ -265,7 +268,12 @@ class CreaseTeamBadge extends StatelessWidget {
         letterSpacing: 0.2,
       ),
     );
-    final url = avatarUrl?.trim();
+    final explicitUrl = avatarUrl?.trim();
+    final url = (explicitUrl != null && explicitUrl.isNotEmpty)
+        ? explicitUrl
+        : (teamId != null && teamId!.isNotEmpty)
+            ? LocalEventStore.instance.directory.teamLogosById[teamId!]
+            : null;
     final hasPhoto = url != null && url.isNotEmpty;
 
     return Container(

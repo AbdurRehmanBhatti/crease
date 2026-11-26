@@ -186,6 +186,7 @@ class PlayerDirectorySnapshot {
     this.playerNamesById = const {},
     this.playerUserIdsById = const {},
     this.teamNamesById = const {},
+    this.teamLogosById = const {},
   });
 
   static const empty = PlayerDirectorySnapshot();
@@ -194,6 +195,7 @@ class PlayerDirectorySnapshot {
   final Map<String, String> playerNamesById;
   final Map<String, String> playerUserIdsById;
   final Map<String, String> teamNamesById;
+  final Map<String, String> teamLogosById;
 
   String resolvePlayerName(
     String? id, {
@@ -237,11 +239,17 @@ class PlayerDirectorySnapshot {
     final tNames = <String, String>{
       for (final t in teams) t.id: t.name,
     };
+    final tLogos = <String, String>{
+      for (final t in teams)
+        if (t.logoUrl != null && t.logoUrl!.trim().isNotEmpty)
+          t.id: t.logoUrl!.trim(),
+    };
     return PlayerDirectorySnapshot(
       playersById: Map.unmodifiable(pById),
       playerNamesById: Map.unmodifiable(pNames),
       playerUserIdsById: Map.unmodifiable(pUids),
       teamNamesById: Map.unmodifiable(tNames),
+      teamLogosById: Map.unmodifiable(tLogos),
     );
   }
 }
@@ -253,6 +261,7 @@ class TeamProfile {
     required this.name,
     this.location,
     this.profileCode,
+    this.logoUrl,
     this.isMyTeam = false,
     this.isOwner = true,
     this.squad = const [],
@@ -264,6 +273,7 @@ class TeamProfile {
   final String name;
   final String? location;
   final String? profileCode;
+  final String? logoUrl;
   final bool isMyTeam;
   final bool isOwner;
 
@@ -303,6 +313,8 @@ class TeamProfile {
     String? location,
     bool clearLocation = false,
     String? profileCode,
+    String? logoUrl,
+    bool clearLogo = false,
     bool? isMyTeam,
     bool? isOwner,
     List<PlayerProfile>? squad,
@@ -313,6 +325,7 @@ class TeamProfile {
         name: name ?? this.name,
         location: clearLocation ? null : (location ?? this.location),
         profileCode: profileCode ?? this.profileCode,
+        logoUrl: clearLogo ? null : (logoUrl ?? this.logoUrl),
         isMyTeam: isMyTeam ?? this.isMyTeam,
         isOwner: isOwner ?? this.isOwner,
         squad: squad ?? this.squad,
@@ -328,6 +341,9 @@ class TeamProfile {
             : null,
         'profile_code': (profileCode != null && profileCode!.trim().isNotEmpty)
             ? profileCode!.trim().toUpperCase()
+            : null,
+        'logo_url': (logoUrl != null && logoUrl!.trim().isNotEmpty)
+            ? logoUrl!.trim()
             : null,
         'is_my_team': isMyTeam ? 1 : 0,
         'is_owner': isOwner ? 1 : 0,
@@ -347,12 +363,14 @@ class TeamProfile {
   }) {
     final rawLoc = (map['location'] as String?)?.trim();
     final rawCode = (map['profile_code'] as String?)?.trim();
+    final rawLogo = (map['logo_url'] as String?)?.trim();
     return TeamProfile(
       id: map['id']! as String,
       name: map['name']! as String,
       location: (rawLoc != null && rawLoc.isNotEmpty) ? rawLoc : null,
       profileCode:
           (rawCode != null && rawCode.isNotEmpty) ? rawCode.toUpperCase() : null,
+      logoUrl: (rawLogo != null && rawLogo.isNotEmpty) ? rawLogo : null,
       isMyTeam: _decodeBool(map['is_my_team']),
       isOwner: map.containsKey('is_owner') ? _decodeBool(map['is_owner']) : true,
       squad: squad,

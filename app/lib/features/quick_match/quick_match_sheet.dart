@@ -504,6 +504,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                                   enabled: !disabled,
                                   leading: CreaseTeamBadge(
                                     name: name,
+                                    teamId: rowId,
                                     size: 30,
                                   ),
                                   title: Text(
@@ -982,6 +983,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                         child: _TeamSelectorTile(
                           label: 'Batting first',
                           teamName: _teamA,
+                          teamId: _teamAId,
                           subtitle: (_teamA != null &&
                                   _teamB != null &&
                                   _teamA!.trim().toLowerCase() ==
@@ -1014,6 +1016,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                         child: _TeamSelectorTile(
                           label: 'Bowling first',
                           teamName: _teamB,
+                          teamId: _teamBId,
                           subtitle: (_teamA != null &&
                                   _teamB != null &&
                                   _teamA!.trim().toLowerCase() ==
@@ -1307,12 +1310,14 @@ class _TeamSelectorTile extends StatelessWidget {
   const _TeamSelectorTile({
     required this.label,
     required this.teamName,
+    this.teamId,
     this.subtitle,
     required this.onTap,
   });
 
   final String label;
   final String? teamName;
+  final String? teamId;
   final String? subtitle;
   final VoidCallback onTap;
 
@@ -1347,7 +1352,11 @@ class _TeamSelectorTile extends StatelessWidget {
             Row(
               children: [
                 if (hasTeam)
-                  CreaseTeamBadge(name: teamName!, size: 24)
+                  CreaseTeamBadge(
+                    name: teamName!,
+                    teamId: teamId,
+                    size: 24,
+                  )
                 else
                   Container(
                     width: 24,

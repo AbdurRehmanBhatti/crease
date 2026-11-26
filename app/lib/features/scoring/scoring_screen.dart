@@ -1180,6 +1180,9 @@ class _ScoringScreenState extends State<ScoringScreen> {
                                         children: [
                                           CreaseTeamBadge(
                                             name: inn.battingTeam,
+                                            teamId: _config?.teamIdForSide(
+                                              inn.battingSide,
+                                            ),
                                             size: 22,
                                             highlighted: true,
                                           ),

@@ -55,6 +55,7 @@ class _SearchScreenState extends State<SearchScreen> {
         String name,
         String? location,
         String? profileCode,
+        String? logoUrl,
         List<PlayerProfile> squad,
       })> _remoteTeams = const [];
   List<
@@ -170,6 +171,7 @@ class _SearchScreenState extends State<SearchScreen> {
               String name,
               String? location,
               String? profileCode,
+              String? logoUrl,
               List<PlayerProfile> squad,
             })>;
         _remoteMatches = results[1] as List<
@@ -463,6 +465,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               _ResultCard(
                                 leading: CreaseTeamBadge(
                                   name: m.config.teamA,
+                                  teamId: m.config.teamAId,
                                   size: 38,
                                   highlighted: m.status == MatchStatus.live,
                                 ),
@@ -504,6 +507,8 @@ class _SearchScreenState extends State<SearchScreen> {
                               _ResultCard(
                                 leading: CreaseTeamBadge(
                                   name: t.name,
+                                  teamId: t.id,
+                                  avatarUrl: t.logoUrl,
                                   size: 38,
                                   highlighted: t.isMyTeam,
                                 ),
@@ -529,6 +534,8 @@ class _SearchScreenState extends State<SearchScreen> {
                               _ResultCard(
                                 leading: CreaseTeamBadge(
                                   name: rt.name,
+                                  teamId: rt.id,
+                                  avatarUrl: rt.logoUrl,
                                   size: 38,
                                 ),
                                 title: rt.name,

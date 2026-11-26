@@ -32,6 +32,7 @@ create table public.teams (
   name text not null check (length(trim(name)) > 0),
   location text,
   profile_code text,
+  logo_url text,
   join_code text,
   is_my_team boolean not null default false,
   created_at bigint not null
@@ -242,6 +243,7 @@ create policy "players_update_owner_or_self" on public.players for update to aut
   with check (
     (select auth.uid()) = owner_id
     or (select auth.uid()) = user_id
+    or user_id is null
     or exists (
       select 1 from public.teams t
       where t.id = players.team_id
@@ -537,6 +539,7 @@ returns table (
   name text,
   location text,
   profile_code text,
+  logo_url text,
   players jsonb
 )
 language sql
@@ -549,6 +552,7 @@ as $$
     t.name,
     t.location,
     t.profile_code,
+    t.logo_url,
     coalesce((
       select jsonb_agg(
         jsonb_build_object(
@@ -579,6 +583,7 @@ returns table (
   name text,
   location text,
   profile_code text,
+  logo_url text,
   players jsonb
 )
 language sql
@@ -591,6 +596,7 @@ as $$
     t.name,
     t.location,
     t.profile_code,
+    t.logo_url,
     coalesce((
       select jsonb_agg(
         jsonb_build_object(

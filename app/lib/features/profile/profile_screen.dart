@@ -664,6 +664,185 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _deleteAccount() async {
+    final confirmCtrl = TextEditingController();
+    var isDeleting = false;
+    String? errorText;
+
+    final deleted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = ctx.crease;
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final ready = confirmCtrl.text.trim().toUpperCase() == 'DELETE';
+            return PopScope(
+              canPop: !isDeleting,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                ),
+                child: GlassSurface(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
+                  fillColor: c.surfaceSheet,
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const CreaseSheetHeader(
+                          title: 'Delete your account?',
+                          subtitle:
+                              'This action is permanent and cannot be undone.',
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: c.surfaceKey,
+                            borderRadius:
+                                BorderRadius.circular(CreaseRadius.control),
+                            border: Border.all(color: c.hairlineSubtle),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (final line in const [
+                                'Permanently deletes your login, profile, and uploaded photos.',
+                                'Releases your link from any claimed team player spots.',
+                                'Shared match scorecards stay intact for teammates.',
+                                'Clears all local data on this device.',
+                              ])
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '•  ',
+                                        style: TextStyle(
+                                          color: c.wicketRed,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          line,
+                                          style: Theme.of(ctx)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(color: c.inkPrimary),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: confirmCtrl,
+                          enabled: !isDeleting,
+                          textCapitalization: TextCapitalization.characters,
+                          onChanged: (_) => setModalState(() {
+                            errorText = null;
+                          }),
+                          decoration: const InputDecoration(
+                            labelText: 'Type DELETE to confirm',
+                            hintText: 'DELETE',
+                          ),
+                        ),
+                        if (errorText != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            errorText!,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: c.wicketRed,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: c.wicketRed,
+                            foregroundColor: c.onWicketRed,
+                            disabledBackgroundColor:
+                                isDeleting ? c.wicketRed : c.surfaceKey,
+                            disabledForegroundColor:
+                                isDeleting ? c.onWicketRed : c.inkSecondary,
+                            minimumSize: const Size.fromHeight(48),
+                          ),
+                          onPressed: (ready && !isDeleting)
+                              ? () async {
+                                  setModalState(() {
+                                    isDeleting = true;
+                                    errorText = null;
+                                  });
+                                  try {
+                                    await LocalEventStore.instance
+                                        .deleteAccount();
+                                    try {
+                                      await GoogleSignIn().signOut();
+                                    } catch (_) {}
+                                    if (ctx.mounted) {
+                                      Navigator.of(ctx).pop(true);
+                                    }
+                                  } catch (_) {
+                                    if (ctx.mounted) {
+                                      setModalState(() {
+                                        isDeleting = false;
+                                        errorText =
+                                            'Could not delete account right now. Check your connection and try again.';
+                                      });
+                                    }
+                                  }
+                                }
+                              : null,
+                          child: isDeleting
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: c.onWicketRed,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    const Text('Deleting…'),
+                                  ],
+                                )
+                              : const Text('Delete account'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    Future<void>.delayed(const Duration(milliseconds: 500), confirmCtrl.dispose);
+    if (deleted != true || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Account deleted.')),
+    );
+  }
+
   Future<void> _shareMyCard(PlayerCareerStats stats) async {
     await PlayerCareerPoster.sharePlayerCard(
       playerName: _profile.effectiveName,
@@ -1135,7 +1314,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ],
                         const SizedBox(height: 14),
-                        if (_isLinkedEmail)
+                        if (_isLinkedEmail) ...[
                           Row(
                             children: [
                               Expanded(
@@ -1159,8 +1338,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                               ),
                             ],
-                          )
-                        else
+                          ),
+                          const SizedBox(height: 10),
+                          Divider(height: 1, color: c.hairlineSubtle),
+                          const SizedBox(height: 4),
+                          Center(
+                            child: TextButton(
+                              style: TextButton.styleFrom(
+                                foregroundColor: c.wicketRed,
+                              ),
+                              onPressed: _deleteAccount,
+                              child: const Text(
+                                'Delete account',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ),
+                        ] else
                           Row(
                             children: [
                               Expanded(

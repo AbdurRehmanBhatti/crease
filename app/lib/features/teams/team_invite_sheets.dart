@@ -361,9 +361,11 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
     final c = context.crease;
     final preview = _preview;
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: GlassSurface(
+    return PopScope(
+      canPop: !_busy,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: GlassSurface(
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(CreaseRadius.sheet),
         ),
@@ -519,6 +521,7 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

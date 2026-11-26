@@ -107,17 +107,17 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
 
   String _summaryText() {
     if (_structure == TournamentStructure.open) {
-      return 'Flexible schedule with live Points Table & NRR · Add teams next';
+      return 'Flexible schedule with live Points Table & NRR';
     }
     if (_structure == TournamentStructure.knockout) {
-      return 'Single-elimination bracket with auto-byes · Add teams next';
+      return 'Single-elimination bracket with auto-byes';
     }
     final koText = switch (_knockoutQualifiers) {
       4 => ' + Semis & Final',
       2 => ' + Final',
       _ => ' (league only)',
     };
-    return '$_roundsPerPair× round-robin$koText · Add teams next';
+    return '$_roundsPerPair× round-robin$koText';
   }
 
   void _create() {
@@ -157,18 +157,21 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
+    final canCreate = _nameCtrl.text.trim().isNotEmpty;
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.88;
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: GlassSurface(
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(CreaseRadius.sheet),
-        ),
-        fillColor: c.surfaceSheet,
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-        child: SafeArea(
-          top: false,
-          child: SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: GlassSurface(
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(CreaseRadius.sheet),
+          ),
+          fillColor: c.surfaceSheet,
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+          child: SafeArea(
+            top: false,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -177,21 +180,28 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
                   title: 'New tournament',
                   subtitle: 'Set name, format, and overs — you can add teams next.',
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _nameCtrl,
-                  autofocus: true,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(
-                    labelText: 'Tournament name',
-                    hintText: 'e.g. Ramadan Night Cup 2026',
-                    errorText: _nameError,
-                  ),
-                  onChanged: (_) {
-                    if (_nameError != null) setState(() => _nameError = null);
-                  },
-                  onSubmitted: (_) => _create(),
-                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(top: 8, bottom: 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          controller: _nameCtrl,
+                          autofocus: true,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: InputDecoration(
+                            labelText: 'Tournament name',
+                            hintText: 'e.g. Ramadan Night Cup 2026',
+                            errorText: _nameError,
+                          ),
+                          onChanged: (_) => setState(() => _nameError = null),
+                          onSubmitted: (_) {
+                            if (canCreate) _create();
+                          },
+                        ),
                 const SizedBox(height: 16),
                 Text(
                   'Tournament format',
@@ -322,71 +332,52 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
                 ],
                 if (_structure == TournamentStructure.leagueKnockout) ...[
                   const SizedBox(height: 16),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Text(
+                    'League rounds',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'League rounds',
-                              style: Theme.of(context).textTheme.labelMedium,
-                            ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 6,
-                              children: [
-                                for (final entry in const [(1, '1×'), (2, '2×')])
-                                  ChoiceChip(
-                                    label: Text(entry.$2),
-                                    selected: _roundsPerPair == entry.$1,
-                                    selectedColor: c.pitchGreen,
-                                    labelStyle: TextStyle(
-                                      color: _roundsPerPair == entry.$1
-                                          ? Colors.white
-                                          : c.inkPrimary,
-                                      fontWeight: _roundsPerPair == entry.$1
-                                          ? FontWeight.w600
-                                          : FontWeight.w500,
-                                    ),
-                                    side: BorderSide(
-                                      color: _roundsPerPair == entry.$1
-                                          ? c.pitchGreen
-                                          : c.hairline,
-                                    ),
-                                    onSelected: (_) => setState(
-                                      () => _roundsPerPair = entry.$1,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
+                      for (final entry in const [(1, '1×'), (2, '2×')])
+                        ChoiceChip(
+                          label: Text(entry.$2),
+                          selected: _roundsPerPair == entry.$1,
+                          selectedColor: c.pitchGreen,
+                          labelStyle: TextStyle(
+                            color: _roundsPerPair == entry.$1
+                                ? Colors.white
+                                : c.inkPrimary,
+                            fontWeight: _roundsPerPair == entry.$1
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                          ),
+                          side: BorderSide(
+                            color: _roundsPerPair == entry.$1
+                                ? c.pitchGreen
+                                : c.hairline,
+                          ),
+                          onSelected: (_) => setState(
+                            () => _roundsPerPair = entry.$1,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 2,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Knockout stage',
-                              style: Theme.of(context).textTheme.labelMedium,
-                            ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: [
-                                _koChip(context, value: 4, label: 'Top 4'),
-                                _koChip(context, value: 2, label: 'Final'),
-                                _koChip(context, value: 0, label: 'None'),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Knockout stage',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _koChip(context, value: 4, label: 'Top 4'),
+                      _koChip(context, value: 2, label: 'Final'),
+                      _koChip(context, value: 0, label: 'None'),
                     ],
                   ),
                 ],
@@ -430,40 +421,42 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: c.surfaceKey,
-                    borderRadius: BorderRadius.circular(CreaseRadius.control),
-                    border: Border.all(color: c.hairlineSubtle),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.calendar_today_outlined,
-                        size: 16,
-                        color: c.pitchGreen,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _summaryText(),
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: c.inkPrimary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 18),
+                Divider(height: 1, color: c.hairlineSubtle),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.calendar_today_outlined,
+                      size: 14,
+                      color: c.pitchGreen,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _summaryText(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: c.inkSecondary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
                 FilledButton(
-                  onPressed: _create,
+                  style: FilledButton.styleFrom(
+                    disabledBackgroundColor: c.surfaceKey,
+                    disabledForegroundColor: c.inkSecondary,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  onPressed: canCreate ? _create : null,
                   child: const Text('Create tournament'),
                 ),
               ],

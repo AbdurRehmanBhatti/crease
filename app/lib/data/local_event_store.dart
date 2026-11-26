@@ -41,7 +41,7 @@ class LocalEventStore {
       models.isPlaceholderPlayerName(name);
 
   static const String _teamSelectCols =
-      'id, owner_id, name, location, profile_code, is_my_team, created_at';
+      'id, owner_id, name, location, profile_code, logo_url, is_my_team, created_at';
   static const String _playerSelectCols =
       'id, team_id, owner_id, user_id, display_name, role, designation, '
       'member_role, avatar_url, claimed_at, archived, created_at, updated_at';
@@ -107,7 +107,7 @@ class LocalEventStore {
     final fullPath = p.join(dbPath, 'crease_events.db');
     _db = await openDatabase(
       fullPath,
-      version: 15,
+      version: 16,
       onCreate: (db, version) async => _createV15Schema(db),
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 15) {
@@ -119,6 +119,8 @@ class LocalEventStore {
           await db.execute('DROP TABLE IF EXISTS players');
           await db.execute('DROP TABLE IF EXISTS teams');
           await _createV15Schema(db, keepSettings: true);
+        } else if (oldVersion < 16) {
+          await db.execute('ALTER TABLE teams ADD COLUMN logo_url TEXT');
         }
       },
     );
@@ -144,6 +146,7 @@ class LocalEventStore {
         name TEXT NOT NULL,
         location TEXT,
         profile_code TEXT,
+        logo_url TEXT,
         is_my_team INTEGER NOT NULL DEFAULT 0,
         is_owner INTEGER NOT NULL DEFAULT 1,
         synced INTEGER NOT NULL DEFAULT 0,
@@ -449,6 +452,22 @@ class LocalEventStore {
     final client = Supabase.instance.client;
     final uid = requireSignedInUserId();
     final path = '$uid/avatar.jpg';
+    await client.storage.from('avatars').uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
+            upsert: true,
+          ),
+        );
+    final publicUrl = client.storage.from('avatars').getPublicUrl(path);
+    return '$publicUrl?v=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  Future<String> uploadTeamLogo(String teamId, Uint8List bytes) async {
+    final client = Supabase.instance.client;
+    final uid = requireSignedInUserId();
+    final path = '$uid/team_$teamId.jpg';
     await client.storage.from('avatars').uploadBinary(
           path,
           bytes,

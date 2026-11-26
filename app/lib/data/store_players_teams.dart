@@ -318,6 +318,74 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
 
     await db.delete('players', where: 'team_id = ?', whereArgs: [teamId]);
     await db.delete('teams', where: 'id = ?', whereArgs: [teamId]);
+
+    // Remove local matches that were only pulled via this team (not scored by
+    // the user, no unsynced balls, and not tied to another saved team/tournament).
+    final matchRows = await db.query(
+      'matches',
+      columns: ['id', 'team_a_id', 'team_b_id', 'tournament_id', 'synced'],
+      where: '(team_a_id = ? OR team_b_id = ?) AND is_demo = 0',
+      whereArgs: [teamId, teamId],
+    );
+    if (matchRows.isNotEmpty) {
+      final remainingTeams = (await db.query('teams', columns: ['id']))
+          .map((r) => r['id'] as String)
+          .toSet();
+      final localTournaments =
+          (await db.query('tournaments', columns: ['id']))
+              .map((r) => r['id'] as String)
+              .toSet();
+
+      final candidates = <String>[];
+      for (final row in matchRows) {
+        final mid = row['id'] as String;
+        if ((row['synced'] as int? ?? 0) != 1) continue;
+        final aId = row['team_a_id'] as String?;
+        final bId = row['team_b_id'] as String?;
+        if ((aId != null && remainingTeams.contains(aId)) ||
+            (bId != null && remainingTeams.contains(bId))) {
+          continue;
+        }
+        final tId = row['tournament_id'] as String?;
+        if (tId != null && localTournaments.contains(tId)) continue;
+        final unsyncedBalls = await db.query(
+          'ball_events',
+          columns: ['id'],
+          where: 'match_id = ? AND synced = 0',
+          whereArgs: [mid],
+          limit: 1,
+        );
+        if (unsyncedBalls.isNotEmpty) continue;
+        candidates.add(mid);
+      }
+
+      if (candidates.isNotEmpty) {
+        final ownedByMe = <String>{};
+        if (isSignedInAccount && uid != null) {
+          try {
+            final remote = await Supabase.instance.client
+                .from('matches')
+                .select('id, owner_id')
+                .inFilter('id', candidates);
+            for (final r in (remote as List)) {
+              final map = r as Map;
+              if (map['owner_id'] == uid && map['id'] is String) {
+                ownedByMe.add(map['id'] as String);
+              }
+            }
+          } catch (_) {
+            // If check fails, keep matches rather than risking data loss.
+            ownedByMe.addAll(candidates);
+          }
+        }
+        for (final mid in candidates) {
+          if (ownedByMe.contains(mid)) continue;
+          await db.delete('ball_events', where: 'match_id = ?', whereArgs: [mid]);
+          await db.delete('matches', where: 'id = ?', whereArgs: [mid]);
+        }
+      }
+    }
+
     await refreshDirectory();
 
     if (selfPlayerName != null && selfPlayerName.trim().isNotEmpty) {
@@ -357,6 +425,7 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
               'owner_id': uid,
               'name': team.name,
               'location': team.location,
+              'logo_url': team.logoUrl,
               if (team.profileCode != null && team.profileCode!.isNotEmpty)
                 'profile_code': team.profileCode,
               'is_my_team': team.isMyTeam,
@@ -713,6 +782,7 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
         String name,
         String? location,
         String profileCode,
+        String? logoUrl,
         List<PlayerProfile> squad,
       })?> lookupTeamByProfileCode(String code) async {
     final normalized = code.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
@@ -730,12 +800,15 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
       if (id.isEmpty || name.isEmpty || profileCode.isEmpty) return null;
       final rawLoc = (map['location'] as String?)?.trim();
       final location = (rawLoc != null && rawLoc.isNotEmpty) ? rawLoc : null;
+      final rawLogo = (map['logo_url'] as String?)?.trim();
+      final logoUrl = (rawLogo != null && rawLogo.isNotEmpty) ? rawLogo : null;
       final squad = _decodeRpcPlayers(map['players'], teamId: id);
       return (
         id: id,
         name: name,
         location: location,
         profileCode: profileCode.toUpperCase(),
+        logoUrl: logoUrl,
         squad: squad,
       );
     } catch (_) {
@@ -750,6 +823,7 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
             String name,
             String? location,
             String? profileCode,
+            String? logoUrl,
             List<PlayerProfile> squad,
           })>> searchPublicTeams(
     String query, {
@@ -769,6 +843,7 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
         String name,
         String? location,
         String? profileCode,
+        String? logoUrl,
         List<PlayerProfile> squad,
       })>[];
       final seenLower = <String>{};
@@ -780,12 +855,14 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
         if (dedupeByName && !seenLower.add(name.toLowerCase())) continue;
         final rawLoc = (map['location'] as String?)?.trim();
         final rawCode = (map['profile_code'] as String?)?.trim();
+        final rawLogo = (map['logo_url'] as String?)?.trim();
         results.add((
           id: id,
           name: name,
           location: (rawLoc != null && rawLoc.isNotEmpty) ? rawLoc : null,
           profileCode:
               (rawCode != null && rawCode.isNotEmpty) ? rawCode.toUpperCase() : null,
+          logoUrl: (rawLogo != null && rawLogo.isNotEmpty) ? rawLogo : null,
           squad: _decodeRpcPlayers(map['players'], teamId: id),
         ));
       }

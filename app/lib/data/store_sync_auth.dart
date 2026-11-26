@@ -415,4 +415,21 @@ extension LocalEventStoreSyncAuth on LocalEventStore {
 
     return total;
   }
+
+  /// Permanently deletes the signed-in user's Supabase Auth account (releasing
+  /// claimed player spots while keeping shared match scorecards intact) and
+  /// clears local SQLite data once confirmed by the server.
+  Future<void> deleteAccount() async {
+    requireSignedInUserId();
+    final res = await Supabase.instance.client.functions.invoke(
+      'delete-account',
+    );
+    if (res.status >= 400) {
+      throw StateError('Account deletion failed (${res.status}).');
+    }
+    await clearLocalUserDataOnSignOut();
+    try {
+      await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
+    } catch (_) {}
+  }
 }

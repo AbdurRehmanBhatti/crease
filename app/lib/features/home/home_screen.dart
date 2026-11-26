@@ -1065,6 +1065,7 @@ class _MatchScoreCard extends StatelessWidget {
               padding: const EdgeInsets.only(right: 12),
               child: _TeamScoreRow(
                 teamName: team1Name,
+                teamId: match.config.teamIdForSide(inn1.battingSide),
                 score: inn1.scoreText,
                 overs: '${inn1.oversText} ov',
                 isHighlighted: isLive && activeTeam == team1Name,
@@ -1082,6 +1083,12 @@ class _MatchScoreCard extends StatelessWidget {
               padding: const EdgeInsets.only(right: 12),
               child: _TeamScoreRow(
                 teamName: team2Name,
+                teamId: match.config.teamIdForSide(
+                  inn2?.battingSide ??
+                      (inn1.battingSide == MatchSide.a
+                          ? MatchSide.b
+                          : MatchSide.a),
+                ),
                 score: inn2Started ? inn2.scoreText : null,
                 overs: inn2Started ? '${inn2.oversText} ov' : 'Yet to bat',
                 isHighlighted: isLive && activeTeam == team2Name,
@@ -1127,6 +1134,7 @@ class _MatchScoreCard extends StatelessWidget {
 class _TeamScoreRow extends StatelessWidget {
   const _TeamScoreRow({
     required this.teamName,
+    this.teamId,
     required this.score,
     required this.overs,
     required this.isHighlighted,
@@ -1134,6 +1142,7 @@ class _TeamScoreRow extends StatelessWidget {
   });
 
   final String teamName;
+  final String? teamId;
   final String? score;
   final String overs;
   final bool isHighlighted;
@@ -1147,6 +1156,7 @@ class _TeamScoreRow extends StatelessWidget {
       children: [
         CreaseTeamBadge(
           name: teamName,
+          teamId: teamId,
           size: 28,
           highlighted: isHighlighted,
         ),

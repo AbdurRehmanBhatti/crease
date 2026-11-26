@@ -1,0 +1,7 @@
+en-US:
+• Fast offline-first ball-by-ball cricket scoring with 1-tap runs, extras, wickets, and instant undo
+• Quick Matches (custom overs, T10, T20, ODI, Test) and in-match Super Overs
+• Tournaments with automatic fixtures, live Points Table, and ICC Net Run Rate (NRR)
+• Teams, custom club logos, 6-digit invite codes, and player career stats & MVP points
+• Shareable live web scorecards, Worm & Manhattan charts, and Match Summary Posters
+• Free to use with no intrusive ads

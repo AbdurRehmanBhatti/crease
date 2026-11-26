@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — Crease</title>
+  <style>
+    :root {
+      --bg: #f7f8f6;
+      --surface: #ffffff;
+      --ink: #111814;
+      --muted: #5a6660;
+      --accent: #0e6b44;
+      --accent-soft: #e6f2ec;
+      --border: #e3e8e5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+    header {
+      margin-bottom: 28px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-soft);
+      padding: 5px 12px;
+      border-radius: 999px;
+      margin-bottom: 14px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 32px;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+    .meta {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 28px 26px;
+    }
+    h2 {
+      margin: 28px 0 10px;
+      font-size: 19px;
+      letter-spacing: -0.01em;
+    }
+    h2:first-child { margin-top: 0; }
+    p { margin: 0 0 12px; color: #24302a; }
+    ul, ol {
+      margin: 0 0 14px;
+      padding-left: 20px;
+      color: #24302a;
+    }
+    li { margin-bottom: 6px; }
+    .callout {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin: 14px 0;
+      font-size: 14px;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    footer {
+      margin-top: 28px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div class="brand">Crease · Cricket Scoring</div>
+      <h1>Privacy Policy</h1>
+      <p class="meta">Last updated: November 26, 2026 &middot; Developer: <strong>AbdurRehmanBinWaheed</strong> &middot; Package: <code>app.awventures.crease</code></p>
+    </header>
+
+    <article class="card">
+      <h2>1. Overview</h2>
+      <p>
+        <strong>Crease</strong> (developed by <strong>AbdurRehmanBinWaheed</strong>) is an offline-first
+        cricket scoring and tournament management app. We collect only the minimum data needed to
+        sync your matches, teams, and career stats across devices. We do not sell your personal data
+        and we do not show third-party advertising.
+      </p>
+
+      <h2>2. Information We Collect</h2>
+      <ul>
+        <li>
+          <strong>Guest Mode (Offline Only):</strong> You can score matches and manage local teams
+          without creating an account. In Guest Mode, all data stays locally on your device.
+        </li>
+        <li>
+          <strong>Account Information (Optional):</strong> If you sign in with Email or Google Sign-In,
+          we store your email address, display name, playing role, and a unique user ID.
+        </li>
+        <li>
+          <strong>Photos (Optional):</strong> If you choose to upload a profile photo or team logo
+          from your camera or gallery, that image is stored in Supabase Storage and linked to your
+          profile or team.
+        </li>
+        <li>
+          <strong>Cricket &amp; Match Data:</strong> Teams, squad lists, tournaments, and ball-by-ball
+          match events you create or join so that scorecards, points tables, NRR, and player stats
+          stay synced.
+        </li>
+      </ul>
+
+      <h2>3. How We Use Your Information</h2>
+      <ul>
+        <li>Authenticate your account and back up your teams, matches, and tournaments.</li>
+        <li>Link your account to your player spot on a team via captain invite codes.</li>
+        <li>Generate shareable live scorecards and career stat summaries when you choose to share them.</li>
+      </ul>
+
+      <h2>4. Third-Party Services &amp; Security</h2>
+      <p>
+        Crease uses <strong>Supabase</strong> (authentication, PostgreSQL database, and file storage)
+        and optionally <strong>Google Sign-In</strong> for authentication. All data transmitted
+        between the app and our servers is encrypted in transit using HTTPS/TLS.
+      </p>
+
+      <h2>5. Shared &amp; Public Data</h2>
+      <p>
+        When you share a live match link, tournament link, or team profile code, anyone with that
+        link or code can view the corresponding match scorecard, standings, or public team roster.
+        Your email address is never displayed publicly.
+      </p>
+
+      <h2 id="delete-account">6. Account &amp; Data Deletion</h2>
+      <p>
+        You can permanently delete your Crease account at any time directly inside the app:
+      </p>
+      <div class="callout">
+        <ol style="margin:0;">
+          <li>Open <strong>Crease</strong> and tap your avatar to open <strong>Profile</strong>.</li>
+          <li>Scroll to <strong>Account &amp; backup</strong> and tap <strong>Delete account</strong>.</li>
+          <li>Type <strong>DELETE</strong> and confirm.</li>
+        </ol>
+      </div>
+      <p>When you delete your account:</p>
+      <ul>
+        <li>Your authentication account, profile metadata, and uploaded photos (avatars and team logos) are permanently deleted immediately.</li>
+        <li>Your account is unlinked from any claimed team player spots (<code>user_id</code> and avatar cleared).</li>
+        <li>Local app data on your device is cleared.</li>
+        <li>Shared match scorecards and tournament records remain intact for teammates without any link to your account.</li>
+      </ul>
+      <p>
+        If you no longer have access to the app and want your account deleted, email
+        <strong>AbdurRehmanBinWaheed</strong> at
+        <a href="mailto:arehman.celoks@gmail.com">arehman.celoks@gmail.com</a> from your registered
+        email address and we will complete your request within 7 days. Unlinked shared match
+        scorecards are retained as part of teammates' match history with no personal account
+        identifiers attached.
+      </p>
+
+      <h2>7. Children’s Privacy</h2>
+      <p>
+        Crease is intended for general audiences and is not directed at children under 13. We do not
+        knowingly collect personal information from children under 13. If you believe a child has
+        provided personal data, contact us to have it removed.
+      </p>
+
+      <h2>8. Changes to This Policy</h2>
+      <p>
+        We may update this Privacy Policy from time to time. Any updates will be posted on this page
+        with a revised "Last updated" date.
+      </p>
+
+      <h2>9. Contact Us</h2>
+      <p>
+        For privacy questions or data requests, contact:
+        <a href="mailto:arehman.celoks@gmail.com">arehman.celoks@gmail.com</a>
+      </p>
+    </article>
+
+    <footer>
+      &copy; 2026 Crease by AbdurRehmanBinWaheed &middot; <a href="./">Live Scorecard Viewer</a>
+    </footer>
+  </main>
+</body>
+</html>

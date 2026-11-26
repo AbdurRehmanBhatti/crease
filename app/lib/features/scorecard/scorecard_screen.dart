@@ -52,9 +52,10 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
     final store = LocalEventStore.instance;
     final localConfig = await store.getMatch(widget.matchId);
     if (localConfig != null) {
+      await store.refreshDirectory();
       final events = await store.getBallEvents(widget.matchId);
       if (!mounted) return;
-      final derived = CricketEngine.derive(localConfig, events);
+      final derived = store.deriveMatch(localConfig, events);
       setState(() {
         _state = derived;
         _isRemoteLive = false;
@@ -76,7 +77,12 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
       });
       return;
     }
-    final derived = CricketEngine.derive(remote.config, remote.events);
+    final derived = CricketEngine.derive(
+      remote.config,
+      remote.events,
+      playerNamesById: remote.playerNamesById,
+      teamNamesById: remote.teamNamesById,
+    );
     setState(() {
       _state = derived;
       _isRemoteLive = true;
@@ -124,7 +130,12 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
     final remote =
         await LocalEventStore.instance.fetchRemoteMatch(widget.matchId);
     if (!mounted || remote == null) return;
-    final derived = CricketEngine.derive(remote.config, remote.events);
+    final derived = CricketEngine.derive(
+      remote.config,
+      remote.events,
+      playerNamesById: remote.playerNamesById,
+      teamNamesById: remote.teamNamesById,
+    );
     setState(() {
       _state = derived;
       if (!_userPickedInnings) {
@@ -291,7 +302,12 @@ class _OverviewTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.crease;
-    final mvpList = StatsEngine.byMvp(StatsEngine.derive([state]));
+    final mvpList = StatsEngine.byMvp(
+      StatsEngine.derive(
+        [state],
+        playerNamesById: state.resolvedPlayerNames,
+      ),
+    );
     final mvp = mvpList.isNotEmpty ? mvpList.first : null;
 
     final allBatters = [
@@ -478,23 +494,29 @@ class _OverviewTab extends StatelessWidget {
                     ? 'Backed up'
                     : 'Offline · ${state.unsyncedCount} pending',
               ),
-              if (state.config.teamAPlayers.isNotEmpty) ...[
+              if (state.config.teamAPlayerIds.isNotEmpty) ...[
                 const Divider(height: 16),
                 Text(state.config.teamA,
                     style: Theme.of(context).textTheme.labelMedium),
                 const SizedBox(height: 6),
                 Text(
-                  state.config.teamAPlayers.join(' · '),
+                  state.config.teamAPlayerIds
+                      .map((id) => state.resolvedPlayerNames[id] ?? '')
+                      .where((n) => n.isNotEmpty)
+                      .join(' · '),
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
-              if (state.config.teamBPlayers.isNotEmpty) ...[
+              if (state.config.teamBPlayerIds.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(state.config.teamB,
                     style: Theme.of(context).textTheme.labelMedium),
                 const SizedBox(height: 6),
                 Text(
-                  state.config.teamBPlayers.join(' · '),
+                  state.config.teamBPlayerIds
+                      .map((id) => state.resolvedPlayerNames[id] ?? '')
+                      .where((n) => n.isNotEmpty)
+                      .join(' · '),
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
@@ -585,6 +607,7 @@ class _ScorecardTab extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => PlayerProfileScreen(
                         playerName: b.name,
+                        playerId: b.playerId.isNotEmpty ? b.playerId : null,
                         teams: [innings.battingTeam],
                       ),
                     ),
@@ -641,6 +664,7 @@ class _ScorecardTab extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => PlayerProfileScreen(
                         playerName: bw.name,
+                        playerId: bw.playerId.isNotEmpty ? bw.playerId : null,
                         teams: [innings.bowlingTeam],
                       ),
                     ),
@@ -947,11 +971,11 @@ class _OversTab extends StatelessWidget {
                         ],
                       ),
                       for (final w in wickets)
-                        if (w.dismissalSummary != null)
+                        if (w.dismissalSummary(state.resolvedPlayerNames) != null)
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              w.dismissalSummary!,
+                              w.dismissalSummary(state.resolvedPlayerNames)!,
                               style: Theme.of(context)
                                   .textTheme
                                   .labelMedium

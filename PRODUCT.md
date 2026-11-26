@@ -45,6 +45,10 @@ Phase 3 (undecided detail): live-stream overlays, club pages, notifications, opt
   - **Viewer / Player (Read-Only):** Can follow live standings, NRR, fixtures, knockouts, and squads with all mutating controls (FAB, Add/Rename/Remove, Discard, Unlock early) hidden and enforced by Supabase RLS.
 
 ### Future Architecture / Known Edge Cases (Post-MVP Roadmap)
+- **Local-Only Guest + Just-in-Time Account & Team Profile IDs (Implemented):**
+  - Guests open the app and start scoring Quick Matches immediately with **zero anonymous Supabase sessions** (`signInAnonymously` removed). Local matches, teams, and static Match Summary Poster PNG sharing stay 100% on-device.
+  - Cloud/social actions (live web share links, Pass the Baton / Join scorer, Create Tournament, Team Invite Codes / Claim Player, and cloud avatar upload) prompt a reusable 1-tap contextual Sign-In sheet (`requireSignedInAccount`), uploading local guest data (with smart duplicate team merge & shared-phone opt-out) upon login.
+  - Signed-in clubs automatically receive a unique, human-readable **Team Profile ID** (`profile_code`, e.g. `BX-4K9M`). Quick Match resolves remote Crease opponents by exact Team Profile ID (`lookup_team_by_profile_code`) so random users cannot fabricate matches against unrelated public clubs, and match-only opposition players never mutate that club's official public squad.
 - **Same-Name Derbies (`MatchSide` tracking in `CricketEngine`):**
   - **Implemented:** `matches` stores immutable team IDs (`team_a_id`, `team_b_id`) and untouched display-name snapshots (`team_a`, `team_b`) with no `(2)` suffix mutation in Quick Match. `CricketEngine` tracks `battingSide` (`MatchSide.a` | `MatchSide.b`) and `winnerSide`, while `StatsEngine`, team win/loss records, and roster lookups match by `MatchSide` / `teamId` so same-named clubs never collide. In Quick Match, identical names show their location as a subtle subtitle when available, and plain-text result banners append `(A)` / `(B)` only when both team names match case-insensitively.
 - **In-Match Super Over (Implemented):**

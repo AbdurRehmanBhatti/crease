@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 
 import 'models.dart';
@@ -52,6 +50,89 @@ enum MatchStage {
   }
 }
 
+/// Normalized join row (`public.tournament_teams` / SQLite `tournament_teams`).
+@immutable
+class TournamentTeamEntry {
+  const TournamentTeamEntry({
+    required this.id,
+    required this.tournamentId,
+    this.teamId,
+    this.adHocName,
+    this.resolvedTeamName,
+    this.seedOrder = 0,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String tournamentId;
+  final String? teamId;
+  final String? adHocName;
+
+  /// Live club name resolved from `teams` when [teamId] is non-null.
+  final String? resolvedTeamName;
+  final int seedOrder;
+  final DateTime createdAt;
+
+  String get displayName {
+    final resolved = resolvedTeamName?.trim();
+    if (resolved != null && resolved.isNotEmpty) return resolved;
+    final adHoc = adHocName?.trim();
+    if (adHoc != null && adHoc.isNotEmpty) return adHoc;
+    return 'Team';
+  }
+
+  TournamentTeamEntry copyWith({
+    String? teamId,
+    String? adHocName,
+    String? resolvedTeamName,
+    int? seedOrder,
+  }) =>
+      TournamentTeamEntry(
+        id: id,
+        tournamentId: tournamentId,
+        teamId: teamId ?? this.teamId,
+        adHocName: adHocName ?? this.adHocName,
+        resolvedTeamName: resolvedTeamName ?? this.resolvedTeamName,
+        seedOrder: seedOrder ?? this.seedOrder,
+        createdAt: createdAt,
+      );
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'tournament_id': tournamentId,
+        'team_id': teamId,
+        'ad_hoc_name': adHocName,
+        'seed_order': seedOrder,
+        'created_at': createdAt.millisecondsSinceEpoch,
+      };
+
+  static TournamentTeamEntry fromMap(
+    Map<String, Object?> map, {
+    Map<String, String> teamNamesById = const {},
+  }) {
+    final tid = (map['team_id'] as String?)?.trim();
+    final cleanTid = (tid != null && tid.isNotEmpty) ? tid : null;
+    final rawAdHoc = (map['ad_hoc_name'] as String?)?.trim();
+    final rawName = (map['name'] as String?)?.trim();
+    return TournamentTeamEntry(
+      id: map['id']! as String,
+      tournamentId: (map['tournament_id'] as String?) ?? '',
+      teamId: cleanTid,
+      adHocName: (rawAdHoc != null && rawAdHoc.isNotEmpty)
+          ? rawAdHoc
+          : (cleanTid == null ? rawName : null),
+      resolvedTeamName: cleanTid != null
+          ? (teamNamesById[cleanTid] ?? rawName)
+          : rawName,
+      seedOrder: ((map['seed_order'] as num?) ?? 0).toInt(),
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        ((map['created_at'] as num?) ?? DateTime.now().millisecondsSinceEpoch)
+            .toInt(),
+      ),
+    );
+  }
+}
+
 @immutable
 class Tournament {
   const Tournament({
@@ -63,7 +144,7 @@ class Tournament {
     required this.oversLimit,
     this.playersPerSide = 11,
     required this.formatLabel,
-    required this.teamRosters,
+    this.entries = const [],
     this.pointsForWin = 2,
     this.pointsForTie = 1,
     this.structure = TournamentStructure.open,
@@ -81,7 +162,7 @@ class Tournament {
   final int oversLimit;
   final int playersPerSide;
   final String formatLabel;
-  final Map<String, List<String>> teamRosters;
+  final List<TournamentTeamEntry> entries;
   final int pointsForWin;
   final int pointsForTie;
   final TournamentStructure structure;
@@ -90,7 +171,15 @@ class Tournament {
   final bool synced;
   final DateTime createdAt;
 
-  List<String> get teams => teamRosters.keys.toList();
+  List<String> get teams => entries.map((e) => e.displayName).toList();
+
+  TournamentTeamEntry? entryForName(String teamName) {
+    final lower = teamName.trim().toLowerCase();
+    for (final e in entries) {
+      if (e.displayName.trim().toLowerCase() == lower) return e;
+    }
+    return null;
+  }
 
   static const _months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -126,7 +215,7 @@ class Tournament {
     int? oversLimit,
     int? playersPerSide,
     String? formatLabel,
-    Map<String, List<String>>? teamRosters,
+    List<TournamentTeamEntry>? entries,
     int? pointsForWin,
     int? pointsForTie,
     TournamentStructure? structure,
@@ -143,7 +232,7 @@ class Tournament {
         oversLimit: oversLimit ?? this.oversLimit,
         playersPerSide: playersPerSide ?? this.playersPerSide,
         formatLabel: formatLabel ?? this.formatLabel,
-        teamRosters: teamRosters ?? this.teamRosters,
+        entries: entries ?? this.entries,
         pointsForWin: pointsForWin ?? this.pointsForWin,
         pointsForTie: pointsForTie ?? this.pointsForTie,
         structure: structure ?? this.structure,
@@ -164,7 +253,6 @@ class Tournament {
         'overs_limit': oversLimit,
         'players_per_side': playersPerSide,
         'format_label': formatLabel,
-        'team_rosters': jsonEncode(teamRosters),
         'points_for_win': pointsForWin,
         'points_for_tie': pointsForTie,
         'structure': structure.name,
@@ -174,31 +262,10 @@ class Tournament {
         'created_at': createdAt.millisecondsSinceEpoch,
       };
 
-  static Map<String, List<String>> _decodeRosters(Object? raw) {
-    if (raw is Map) {
-      return {
-        for (final entry in raw.entries)
-          entry.key.toString(): (entry.value is List)
-              ? (entry.value as List).map((e) => e.toString()).toList()
-              : <String>[],
-      };
-    }
-    if (raw is! String || raw.isEmpty) return const {};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map) {
-        return {
-          for (final entry in decoded.entries)
-            entry.key.toString(): (entry.value is List)
-                ? (entry.value as List).map((e) => e.toString()).toList()
-                : <String>[],
-        };
-      }
-    } catch (_) {}
-    return const {};
-  }
-
-  static Tournament fromMap(Map<String, Object?> map) {
+  static Tournament fromMap(
+    Map<String, Object?> map, {
+    List<TournamentTeamEntry> entries = const [],
+  }) {
     final rawLoc = (map['location'] as String?)?.trim();
     final rawStart = map['start_date'] as num?;
     final rawEnd = map['end_date'] as num?;
@@ -215,7 +282,7 @@ class Tournament {
       oversLimit: (map['overs_limit']! as num).toInt(),
       playersPerSide: ((map['players_per_side'] as num?) ?? 11).toInt(),
       formatLabel: map['format_label']! as String,
-      teamRosters: _decodeRosters(map['team_rosters']),
+      entries: entries,
       pointsForWin: ((map['points_for_win'] as num?) ?? 2).toInt(),
       pointsForTie: ((map['points_for_tie'] as num?) ?? 1).toInt(),
       structure: TournamentStructure.fromName(map['structure'] as String?),

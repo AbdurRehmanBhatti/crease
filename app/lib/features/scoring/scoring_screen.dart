@@ -4,10 +4,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../data/local_event_store.dart';
-import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
+import '../auth/auth_sheet.dart';
 import '../profile/player_profile_screen.dart';
 import '../scorecard/match_summary_poster.dart';
 import '../scorecard/scorecard_screen.dart';
@@ -205,13 +205,13 @@ class _ScoringScreenState extends State<ScoringScreen> {
   DerivedMatchState? get _matchState {
     final config = _config;
     if (config == null) return null;
-    return CricketEngine.derive(
+    return LocalEventStore.instance.deriveMatch(
       config,
       _events,
       forcedInnings: _forcedInnings,
-      manualStrikerOverride: _manualStriker,
-      manualNonStrikerOverride: _manualNonStriker,
-      manualBowlerOverride: _manualBowler,
+      manualStrikerIdOverride: _manualStriker,
+      manualNonStrikerIdOverride: _manualNonStriker,
+      manualBowlerIdOverride: _manualBowler,
     );
   }
 
@@ -225,6 +225,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
   }
 
   bool _needsNewBowler(DerivedInningsState inn) {
+    if (inn.isComplete) return false;
+    if (inn.currentBowler.isEmpty) return true;
     final curBalls =
         inn.overs.isNotEmpty ? inn.overs.last.balls : const <BallEvent>[];
     final overHasDelivery = curBalls.any(
@@ -232,8 +234,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
           b.extraType != ExtraType.penalty &&
           b.wicketType != WicketType.retiredHurt,
     );
-    return !inn.isComplete &&
-        inn.legalBalls > 0 &&
+    return inn.legalBalls > 0 &&
         inn.legalBalls % 6 == 0 &&
         !overHasDelivery &&
         _manualBowler == null;
@@ -245,9 +246,9 @@ class _ScoringScreenState extends State<ScoringScreen> {
     int extraRuns = 0,
     bool isWicket = false,
     WicketType? wicketType,
-    String? dismissedBatter,
-    String? fielder,
-    String? nextBatter,
+    String? dismissedBatterId,
+    String? fielderId,
+    String? nextBatterId,
   }) async {
     final state = _matchState;
     if (state == null) return;
@@ -256,8 +257,12 @@ class _ScoringScreenState extends State<ScoringScreen> {
       _showSnack('Innings is complete. Start next innings or open Match Center.');
       return;
     }
-    if (inn.needsNextBatter) {
-      await _openSelectNextBatterSheet(state);
+    if (inn.strikerId.isEmpty) {
+      await _openSelectNextBatterSheet(state, forNonStriker: false);
+      return;
+    }
+    if (inn.nonStrikerId.isEmpty) {
+      await _openSelectNextBatterSheet(state, forNonStriker: true);
       return;
     }
     if (_needsNewBowler(inn)) {
@@ -278,17 +283,17 @@ class _ScoringScreenState extends State<ScoringScreen> {
       matchId: state.config.id,
       inningsNumber: inn.inningsNumber,
       sequenceNumber: _nextSequenceNumber,
-      striker: inn.striker,
-      nonStriker: inn.nonStriker,
-      bowler: inn.currentBowler,
+      strikerId: inn.strikerId,
+      nonStrikerId: inn.nonStrikerId,
+      bowlerId: inn.currentBowlerId,
       runsOffBat: runsOffBat,
       extraType: extraType,
       extraRuns: extraRuns,
       isWicket: isWicket,
       wicketType: wicketType,
-      dismissedBatter: dismissedBatter,
-      fielder: fielder,
-      nextBatter: nextBatter,
+      dismissedBatterId: dismissedBatterId,
+      fielderId: fielderId,
+      nextBatterId: nextBatterId,
       synced: false,
       createdAt: DateTime.now(),
     );
@@ -373,77 +378,68 @@ class _ScoringScreenState extends State<ScoringScreen> {
     }
     HapticFeedback.selectionClick();
     setState(() {
-      _manualStriker = inn.nonStriker;
-      _manualNonStriker = inn.striker;
+      _manualStriker = inn.nonStrikerId;
+      _manualNonStriker = inn.strikerId;
     });
   }
 
   Future<void> _promptNewBowler(DerivedInningsState inn) async {
+    final isOpeningBowler = inn.currentBowlerId.isEmpty;
     final picked = await showNextBowlerSheet(
       context,
       innings: inn,
       config: _config,
+      playerNamesById: LocalEventStore.instance.directory.playerNamesById,
+      title: isOpeningBowler
+          ? 'Select opening bowler · ${inn.bowlingTeam}'
+          : null,
+      placeholderFallback: isOpeningBowler ? 'Bowler 1' : null,
     );
     if (picked != null && picked.isNotEmpty && mounted) {
-      final updatedCfg = await LocalEventStore.instance.addPlayerToTeam(
+      final res = await LocalEventStore.instance.addPlayerToMatchSide(
         widget.matchId,
-        inn.bowlingTeam,
-        picked,
         side: inn.bowlingSide,
+        playerName: picked,
+        addToOwnedSquad: !LocalEventStore.isPlaceholderPlayerName(picked),
       );
+      var updatedCfg = res?.config;
+      final pickedId = res?.playerId;
+      if (pickedId != null &&
+          isOpeningBowler &&
+          (inn.inningsNumber == 1 || inn.inningsNumber == 2)) {
+        final base = updatedCfg ?? _config;
+        if (base != null) {
+          updatedCfg = inn.inningsNumber == 1
+              ? base.copyWith(openingBowler1Id: pickedId)
+              : base.copyWith(openingBowler2Id: pickedId);
+          await LocalEventStore.instance.saveMatch(updatedCfg);
+        }
+      }
       if (!mounted) return;
       setState(() {
         if (updatedCfg != null) _config = updatedCfg;
-        _manualBowler = picked;
+        _manualBowler = pickedId;
       });
     }
   }
 
   Future<void> _handleExtraTap(ExtraType type) async {
-    if (type != ExtraType.wide) {
-      await _openExtrasSheet(type);
-      return;
-    }
-    // 1-tap plain Wide (+1). Hold Wide or tap "+Runs" on the snackbar for
-    // additional runs (e.g. wide + 4).
-    final beforeIds = _events.map((e) => e.id).toSet();
-    await _recordBall(extraType: ExtraType.wide, extraRuns: 1);
-    if (!mounted) return;
-    final recorded = _events
-        .where((e) => !beforeIds.contains(e.id) && e.extraType == ExtraType.wide)
-        .lastOrNull;
-    if (recorded == null) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 3),
-          content: const Text('Wide (+1) recorded · hold Wide for +runs'),
-          action: SnackBarAction(
-            label: '+Runs',
-            onPressed: () async {
-              final chosen = await showExtrasRunsSheet(context, ExtraType.wide);
-              if (chosen == null || chosen == 0 || !mounted) return;
-              await LocalEventStore.instance.updateBallEvent(
-                recorded.copyWith(extraRuns: 1 + chosen),
-              );
-              await _load();
-              _syncInBackground();
-            },
-          ),
-        ),
-      );
+    await _openExtrasSheet(type);
   }
 
   Future<void> _openExtrasSheet(ExtraType type) async {
     final state = _matchState;
     if (state != null) {
-      if (state.activeInnings.needsNextBatter) {
-        await _openSelectNextBatterSheet(state);
+      final inn = state.activeInnings;
+      if (inn.needsNextBatter) {
+        await _openSelectNextBatterSheet(
+          state,
+          forNonStriker: inn.striker.isNotEmpty && inn.nonStriker.isEmpty,
+        );
         return;
       }
-      if (_needsNewBowler(state.activeInnings)) {
-        await _promptNewBowler(state.activeInnings);
+      if (_needsNewBowler(inn)) {
+        await _promptNewBowler(inn);
         return;
       }
     }
@@ -470,7 +466,10 @@ class _ScoringScreenState extends State<ScoringScreen> {
     if (state == null) return;
     final inn = state.activeInnings;
     if (inn.needsNextBatter) {
-      await _openSelectNextBatterSheet(state);
+      await _openSelectNextBatterSheet(
+        state,
+        forNonStriker: inn.striker.isNotEmpty && inn.nonStriker.isEmpty,
+      );
       return;
     }
     if (_needsNewBowler(inn)) {
@@ -485,17 +484,27 @@ class _ScoringScreenState extends State<ScoringScreen> {
     );
     if (result == null) return;
 
-    if (result.customFielder.isNotEmpty) {
-      final updatedCfg = await LocalEventStore.instance.addPlayerToTeam(
+    String? fielderId;
+    final fielderName = result.finalFielder?.trim() ?? '';
+    if (fielderName.isNotEmpty) {
+      final res = await LocalEventStore.instance.addPlayerToMatchSide(
         widget.matchId,
-        inn.bowlingTeam,
-        result.customFielder,
         side: inn.bowlingSide,
+        playerName: fielderName,
+        addToOwnedSquad:
+            result.customFielder.isNotEmpty &&
+            !LocalEventStore.isPlaceholderPlayerName(fielderName),
       );
-      if (updatedCfg != null && mounted) {
-        setState(() => _config = updatedCfg);
+      fielderId = res?.playerId;
+      if (res != null && mounted) {
+        setState(() => _config = res.config);
       }
     }
+
+    final dismissedBatterId =
+        result.dismissedBatter == inn.nonStriker
+            ? inn.nonStrikerId
+            : inn.strikerId;
 
     final int extraRuns = switch (result.deliveryExtra) {
       ExtraType.wide => 1 + result.completedRuns,
@@ -511,9 +520,9 @@ class _ScoringScreenState extends State<ScoringScreen> {
       extraRuns: extraRuns,
       isWicket: true,
       wicketType: result.wicketType,
-      dismissedBatter: result.dismissedBatter,
-      fielder: result.finalFielder,
-      nextBatter: null,
+      dismissedBatterId: dismissedBatterId,
+      fielderId: fielderId,
+      nextBatterId: null,
     );
   }
 
@@ -578,34 +587,64 @@ class _ScoringScreenState extends State<ScoringScreen> {
     );
   }
 
-  Future<void> _openSelectNextBatterSheet(DerivedMatchState state) async {
+  Future<void> _openSelectNextBatterSheet(
+    DerivedMatchState state, {
+    bool forNonStriker = false,
+  }) async {
     final inn = state.activeInnings;
-    final picked = await showNextBatterSheet(context, state);
-    if (picked == null || picked.isEmpty) return;
-
-    // Persist new batter to team roster and onto the latest wicket event so
-    // it survives restarts and integrates cleanly with Undo.
-    final updatedCfg = await LocalEventStore.instance.addPlayerToTeam(
-      widget.matchId,
-      inn.battingTeam,
-      picked,
-      side: inn.battingSide,
-    );
-
     final activeInningsEvents = _events
         .where((e) => !e.voided && e.inningsNumber == inn.inningsNumber)
         .toList();
     BallEvent? lastWicket;
     for (final e in activeInningsEvents.reversed) {
-      if (e.isWicket && (e.nextBatter == null || e.nextBatter!.isEmpty)) {
+      if (e.isWicket && (e.nextBatterId == null || e.nextBatterId!.isEmpty)) {
         lastWicket = e;
         break;
       }
     }
+    final isOpeningSlot = lastWicket == null && activeInningsEvents.isEmpty;
+    final picked = await showNextBatterSheet(
+      context,
+      state,
+      title: isOpeningSlot
+          ? (forNonStriker
+              ? 'Select non-striker · ${inn.battingTeam}'
+              : 'Select striker · ${inn.battingTeam}')
+          : null,
+      placeholderFallback:
+          isOpeningSlot ? (forNonStriker ? 'Batter 2' : 'Batter 1') : null,
+    );
+    if (picked == null || picked.isEmpty) return;
+
+    final res = await LocalEventStore.instance.addPlayerToMatchSide(
+      widget.matchId,
+      side: inn.battingSide,
+      playerName: picked,
+      addToOwnedSquad: !LocalEventStore.isPlaceholderPlayerName(picked),
+    );
+    var updatedCfg = res?.config;
+    final pickedId = res?.playerId;
+    if (pickedId == null || pickedId.isEmpty) return;
+
     if (lastWicket != null) {
       await LocalEventStore.instance.updateBallEvent(
-        lastWicket.copyWith(nextBatter: picked),
+        lastWicket.copyWith(nextBatterId: pickedId),
       );
+    } else if (isOpeningSlot &&
+        (inn.inningsNumber == 1 || inn.inningsNumber == 2)) {
+      final base = updatedCfg ?? _config;
+      if (base != null) {
+        if (inn.inningsNumber == 1) {
+          updatedCfg = forNonStriker
+              ? base.copyWith(openingNonStriker1Id: pickedId)
+              : base.copyWith(openingStriker1Id: pickedId);
+        } else {
+          updatedCfg = forNonStriker
+              ? base.copyWith(openingNonStriker2Id: pickedId)
+              : base.copyWith(openingStriker2Id: pickedId);
+        }
+        await LocalEventStore.instance.saveMatch(updatedCfg);
+      }
     }
 
     final updatedEvents =
@@ -614,13 +653,26 @@ class _ScoringScreenState extends State<ScoringScreen> {
     setState(() {
       if (updatedCfg != null) _config = updatedCfg;
       _events = updatedEvents;
+      if (isOpeningSlot && inn.inningsNumber >= 3) {
+        if (forNonStriker) {
+          _manualNonStriker = pickedId;
+        } else {
+          _manualStriker = pickedId;
+        }
+      }
     });
     _syncInBackground();
   }
 
   Future<void> _openEditBallSheet(BallEvent ball) async {
     HapticFeedback.selectionClick();
-    final action = await showEditBallSheet(context, ball);
+    final names = _matchState?.resolvedPlayerNames ??
+        LocalEventStore.instance.directory.playerNamesById;
+    final action = await showEditBallSheet(
+      context,
+      ball,
+      playerNamesById: names,
+    );
     if (action == null) return;
     if (action == 'delete') {
       await LocalEventStore.instance.voidBallById(ball.id);
@@ -664,8 +716,8 @@ class _ScoringScreenState extends State<ScoringScreen> {
         if (t.isEmpty || LocalEventStore.isPlaceholderPlayerName(t)) return;
         if (seen.add(t.toLowerCase())) out.add(t);
       }
-      for (final p in cfg.rosterForSide(side)) {
-        add(p);
+      for (final id in cfg.rosterIdsForSide(side)) {
+        add(state.resolvedPlayerNames[id] ?? '');
       }
       for (final inn in state.allInnings) {
         if (inn.battingSide == side) {
@@ -897,11 +949,31 @@ class _ScoringScreenState extends State<ScoringScreen> {
 
     if (confirmed != true || !mounted) return;
 
+    final sRes = await LocalEventStore.instance.addPlayerToMatchSide(
+      widget.matchId,
+      side: batFirstSide,
+      playerName: striker,
+      addToOwnedSquad: !LocalEventStore.isPlaceholderPlayerName(striker),
+    );
+    final nsRes = await LocalEventStore.instance.addPlayerToMatchSide(
+      widget.matchId,
+      side: batFirstSide,
+      playerName: nonStriker,
+      addToOwnedSquad: !LocalEventStore.isPlaceholderPlayerName(nonStriker),
+    );
+    final bwRes = await LocalEventStore.instance.addPlayerToMatchSide(
+      widget.matchId,
+      side: batSecondSide,
+      playerName: bowler,
+      addToOwnedSquad: !LocalEventStore.isPlaceholderPlayerName(bowler),
+    );
+    if (!mounted) return;
     setState(() {
+      if (bwRes != null) _config = bwRes.config;
       _forcedInnings = targetInnings;
-      _manualStriker = striker;
-      _manualNonStriker = nonStriker;
-      _manualBowler = bowler;
+      _manualStriker = sRes?.playerId;
+      _manualNonStriker = nsRes?.playerId;
+      _manualBowler = bwRes?.playerId;
     });
   }
 
@@ -975,6 +1047,21 @@ class _ScoringScreenState extends State<ScoringScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  bool get _isGuestAccount => !isSignedInAccount();
+
+  Future<void> _openProfileToBackup() async {
+    final done = await showCreaseAuthSheet(
+      context,
+      title: 'Back up your match',
+      subtitle:
+          'Sign in to save this scorecard, get a live share link, and keep your career stats.',
+    );
+    if (done != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(done)));
+      _load();
+    }
   }
 
   @override
@@ -1056,11 +1143,11 @@ class _ScoringScreenState extends State<ScoringScreen> {
               },
             ),
 
-            // 1b. Offline / pending-sync status pill (0 height when online & synced)
+            // 1b. Offline / pending-sync status pill (signed-in accounts only)
             ScoringSyncPill(
               unsyncedCount: state.unsyncedCount,
               isSyncing: _syncing,
-              showOffline: _syncOffline,
+              showOffline: !_isGuestAccount && _syncOffline,
               onRetry: () => _syncInBackground(showFeedback: true),
             ),
 
@@ -1216,9 +1303,19 @@ class _ScoringScreenState extends State<ScoringScreen> {
                             nonStriker: nonStrikerStats,
                             bowler: bowlerStats,
                             needsNewBowler: _needsNewBowler(inn),
+                            isOpeningSelection:
+                                inn.legalBalls == 0 && inn.wickets == 0,
                             onSwapStrike: _swapStrike,
                             onSelectNextBatter: () =>
-                                _openSelectNextBatterSheet(state),
+                                _openSelectNextBatterSheet(
+                              state,
+                              forNonStriker: false,
+                            ),
+                            onSelectNonStriker: () =>
+                                _openSelectNextBatterSheet(
+                              state,
+                              forNonStriker: true,
+                            ),
                             onSelectNextBowler: () => _promptNewBowler(inn),
                           ),
 
@@ -1229,6 +1326,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
                             recentWicket: recentWicket,
                             hideEmptySlots:
                                 state.status == MatchStatus.completed,
+                            playerNamesById: state.resolvedPlayerNames,
                             onBallTap: _openEditBallSheet,
                           ),
 
@@ -1316,13 +1414,24 @@ class _ScoringScreenState extends State<ScoringScreen> {
                           onUndoLastBall: _undoLastBall,
                           onDone: () => Navigator.of(context).maybePop(),
                           onPlayerTap: (name) {
+                            String? tappedPid;
+                            for (final e in state.resolvedPlayerNames.entries) {
+                              if (e.value == name) {
+                                tappedPid = e.key;
+                                break;
+                              }
+                            }
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    PlayerProfileScreen(playerName: name),
+                                builder: (_) => PlayerProfileScreen(
+                                  playerName: name,
+                                  playerId: tappedPid,
+                                ),
                               ),
                             );
                           },
+                          onSignInToBackup:
+                              _isGuestAccount ? _openProfileToBackup : null,
                         )
                       : GlassScoringSheet(
                           key: const ValueKey('keypad'),

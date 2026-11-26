@@ -142,7 +142,7 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
       oversLimit: oversLimit,
       playersPerSide: 11,
       formatLabel: _formatForOvers(oversLimit),
-      teamRosters: const {},
+      entries: const [],
       structure: _structure,
       roundsPerPair: _roundsPerPair,
       knockoutQualifiers:

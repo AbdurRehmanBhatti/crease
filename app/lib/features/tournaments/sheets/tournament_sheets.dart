@@ -374,7 +374,15 @@ Future<Map<String, List<String>>?> showAddTournamentTeamsSheet(
               );
               if (!ctx.mounted || seq != searchSeq) return;
               setModalState(() {
-                remoteMatches = results;
+                remoteMatches = [
+                  for (final r in results)
+                    (
+                      id: r.id,
+                      name: r.name,
+                      location: r.location,
+                      players: r.squad.map((p) => p.displayName).toList(),
+                    ),
+                ];
                 searchingRemote = false;
               });
             });

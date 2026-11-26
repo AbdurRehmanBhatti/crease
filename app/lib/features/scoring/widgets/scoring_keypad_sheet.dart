@@ -18,6 +18,7 @@ class MatchCompleteSheet extends StatelessWidget {
     required this.onDone,
     this.onPlaySuperOver,
     this.onPlayerTap,
+    this.onSignInToBackup,
   });
 
   final DerivedMatchState state;
@@ -27,9 +28,14 @@ class MatchCompleteSheet extends StatelessWidget {
   final VoidCallback onDone;
   final VoidCallback? onPlaySuperOver;
   final ValueChanged<String>? onPlayerTap;
+  final VoidCallback? onSignInToBackup;
 
   PlayerCareerStats? _deriveMvp() {
-    final all = StatsEngine.derive([state], excludeDemo: false);
+    final all = StatsEngine.derive(
+      [state],
+      excludeDemo: false,
+      playerNamesById: state.resolvedPlayerNames,
+    );
     if (all.isEmpty) return null;
     all.sort((a, b) => b.mvpPoints.compareTo(a.mvpPoints));
     final top = all.first;
@@ -253,6 +259,46 @@ class MatchCompleteSheet extends StatelessWidget {
               ),
             ],
           ),
+          if (onSignInToBackup != null) ...[
+            const SizedBox(height: 10),
+            CreasePressable(
+              onTap: onSignInToBackup,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                  color: c.surfaceKey,
+                  borderRadius: BorderRadius.circular(CreaseRadius.control),
+                  border: Border.all(color: c.hairline),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.cloud_upload_outlined,
+                      size: 16,
+                      color: c.inkSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Saved on this device only',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: c.inkSecondary,
+                            ),
+                      ),
+                    ),
+                    Text(
+                      'Sign in to back up',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: c.pitchGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 6),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

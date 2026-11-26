@@ -22,10 +22,11 @@ void main() {
       final topBowl = StatsEngine.byWickets(all);
       expect(topBowl.any((p) => p.name == 'H. Rauf' && p.wickets == 1), isTrue);
 
-      // Rizwan took the catch on ball 17.4 -> 1 fielding dismissal = 8 MVP pts
-      final rizwan = all.firstWhere((p) => p.name == 'Rizwan');
+      // M. Rizwan batted in innings 1 AND took the catch on ball 17.4 — unified under one playerId!
+      final rizwan = all.firstWhere((p) => p.name == 'M. Rizwan');
       expect(rizwan.fieldingDismissals, 1);
-      expect(rizwan.mvpPoints, 8);
+      expect(rizwan.catches, 1);
+      expect(rizwan.mvpPoints, greaterThan(8));
 
       final mvp = StatsEngine.byMvp(all);
       expect(mvp.first.mvpPoints, greaterThanOrEqualTo(mvp.last.mvpPoints));

@@ -85,7 +85,21 @@ enum MatchStatus {
 
 /// Identifies a match side independent of its display name so same-name
 /// derbies (e.g. two clubs both named "Bhatti XI") never collide.
-enum MatchSide { a, b }
+enum MatchSide {
+  a,
+  b;
+
+  static MatchSide fromName(String? value) =>
+      value == 'b' ? MatchSide.b : MatchSide.a;
+}
+
+/// Returns true if [name] is a generic placeholder label like "Batter 1" or "Bowler 2".
+bool isPlaceholderPlayerName(String name) {
+  final t = name.trim();
+  if (t.isEmpty) return true;
+  return RegExp(r'^(batter|bowler|opener)\s*\d+$', caseSensitive: false)
+      .hasMatch(t);
+}
 
 @immutable
 class MatchConfig {
@@ -98,15 +112,16 @@ class MatchConfig {
     required this.oversLimit,
     this.playersPerSide = 11,
     required this.formatLabel,
-    required this.battingFirstTeam,
-    required this.openingStrikerInnings1,
-    required this.openingNonStrikerInnings1,
-    required this.openingBowlerInnings1,
-    this.openingStrikerInnings2 = 'Opener 1',
-    this.openingNonStrikerInnings2 = 'Opener 2',
-    this.openingBowlerInnings2 = 'Bowler 1',
-    this.teamAPlayers = const [],
-    this.teamBPlayers = const [],
+    this.battingFirstSide = MatchSide.a,
+    this.openingStriker1Id,
+    this.openingNonStriker1Id,
+    this.openingBowler1Id,
+    this.openingStriker2Id,
+    this.openingNonStriker2Id,
+    this.openingBowler2Id,
+    this.teamAPlayerIds = const [],
+    this.teamBPlayerIds = const [],
+    this.adHocPlayers = const {},
     this.tournamentId,
     this.tournamentStage,
     this.fixtureIndex,
@@ -126,33 +141,34 @@ class MatchConfig {
   final int oversLimit; // 0 = unlimited overs (Test match)
   final int playersPerSide;
   final String formatLabel;
-  final String battingFirstTeam;
-  final String openingStrikerInnings1;
-  final String openingNonStrikerInnings1;
-  final String openingBowlerInnings1;
-  final String openingStrikerInnings2;
-  final String openingNonStrikerInnings2;
-  final String openingBowlerInnings2;
-  final List<String> teamAPlayers;
-  final List<String> teamBPlayers;
+  final MatchSide battingFirstSide;
+  final String? openingStriker1Id;
+  final String? openingNonStriker1Id;
+  final String? openingBowler1Id;
+  final String? openingStriker2Id;
+  final String? openingNonStriker2Id;
+  final String? openingBowler2Id;
+  final List<String> teamAPlayerIds;
+  final List<String> teamBPlayerIds;
+
+  /// Map of `<uuid> -> displayName` ONLY for temporary/match-only players
+  /// (e.g. "Batter 1", "Bowler 1", or a one-off opposition sub).
+  final Map<String, String> adHocPlayers;
+
   final String? tournamentId;
   final String? tournamentStage; // league | quarterFinal | semiFinal | finalMatch
   final int? fixtureIndex; // 1-based scheduled slot within tournament
   final bool isTestMatch;
   final List<int> declaredInnings;
   final bool followOnEnforced;
-
-  /// Optional target override for starting directly in a 2nd-innings chase demo.
   final int? firstInningsTargetOverride;
   final bool isDemo;
   final DateTime createdAt;
 
-  MatchSide get battingFirstSide =>
-      battingFirstTeam == teamA ? MatchSide.a : MatchSide.b;
-
   MatchSide get battingSecondSide =>
       battingFirstSide == MatchSide.a ? MatchSide.b : MatchSide.a;
 
+  String get battingFirstTeam => teamNameForSide(battingFirstSide);
   String get battingSecondTeam => teamNameForSide(battingSecondSide);
 
   bool get hasSameTeamNames =>
@@ -166,15 +182,63 @@ class MatchConfig {
   String teamNameForSide(MatchSide side) =>
       side == MatchSide.a ? teamA : teamB;
 
-  List<String> rosterForSide(MatchSide side) =>
-      side == MatchSide.a ? teamAPlayers : teamBPlayers;
+  String? teamIdForSide(MatchSide side) =>
+      side == MatchSide.a ? teamAId : teamBId;
 
-  List<String> rosterForTeam(String teamName) =>
-      teamName == teamA ? teamAPlayers : teamBPlayers;
+  List<String> rosterIdsForSide(MatchSide side) =>
+      side == MatchSide.a ? teamAPlayerIds : teamBPlayerIds;
+
+  String resolvePlayerName(
+    String? playerId, [
+    Map<String, String> playerNamesById = const {},
+  ]) {
+    if (playerId == null || playerId.isEmpty) return '';
+    return playerNamesById[playerId] ?? adHocPlayers[playerId] ?? '';
+  }
+
+  /// Finds an existing ad-hoc player UUID in [adHocPlayers] matching [name]
+  /// (case-insensitive), or returns null.
+  String? findAdHocPlayerId(String name) {
+    final lower = name.trim().toLowerCase();
+    if (lower.isEmpty) return null;
+    for (final entry in adHocPlayers.entries) {
+      if (entry.value.trim().toLowerCase() == lower) return entry.key;
+    }
+    return null;
+  }
+
+  /// Ensures [name] has a UUID in [adHocPlayers] (reusing an existing one if
+  /// present) and returns the updated [MatchConfig] and resolved `playerId`.
+  ({MatchConfig config, String playerId}) ensureAdHocPlayer(
+    String name,
+    String Function() generateUuid, {
+    MatchSide? addToSide,
+  }) {
+    final clean = name.trim();
+    final existingId = findAdHocPlayerId(clean);
+    final pid = existingId ?? generateUuid();
+    final nextAdHoc = existingId != null
+        ? adHocPlayers
+        : {...adHocPlayers, pid: clean};
+    var nextA = teamAPlayerIds;
+    var nextB = teamBPlayerIds;
+    if (addToSide == MatchSide.a && !nextA.contains(pid)) {
+      nextA = [...nextA, pid];
+    } else if (addToSide == MatchSide.b && !nextB.contains(pid)) {
+      nextB = [...nextB, pid];
+    }
+    return (
+      config: copyWith(
+        adHocPlayers: nextAdHoc,
+        teamAPlayerIds: nextA,
+        teamBPlayerIds: nextB,
+      ),
+      playerId: pid,
+    );
+  }
 
   /// Returns which side (`MatchSide.a` or `MatchSide.b`) corresponds to
-  /// [teamId] (preferred) or [teamName] (fallback for legacy/ad-hoc matches
-  /// without IDs), or `null` if this match does not involve that team.
+  /// [teamId] (preferred) or [teamName] (fallback for ad-hoc matches without IDs).
   MatchSide? sideForTeam({String? teamId, String? teamName}) {
     final cleanId = teamId?.trim();
     if (cleanId != null && cleanId.isNotEmpty) {
@@ -192,9 +256,6 @@ class MatchConfig {
     return null;
   }
 
-  /// Returns the match's display name for the side corresponding to [teamId]
-  /// (preferred) or [teamName] (fallback for legacy/ad-hoc matches without IDs),
-  /// or `null` if this match does not involve that team.
   String? sideNameForTeam({String? teamId, String? teamName}) {
     final side = sideForTeam(teamId: teamId, teamName: teamName);
     return side == null ? null : teamNameForSide(side);
@@ -204,10 +265,22 @@ class MatchConfig {
       sideForTeam(teamId: teamId, teamName: teamName) != null;
 
   MatchConfig copyWith({
+    String? teamA,
+    String? teamB,
+    String? teamAId,
+    String? teamBId,
     int? oversLimit,
     String? formatLabel,
-    List<String>? teamAPlayers,
-    List<String>? teamBPlayers,
+    MatchSide? battingFirstSide,
+    String? openingStriker1Id,
+    String? openingNonStriker1Id,
+    String? openingBowler1Id,
+    String? openingStriker2Id,
+    String? openingNonStriker2Id,
+    String? openingBowler2Id,
+    List<String>? teamAPlayerIds,
+    List<String>? teamBPlayerIds,
+    Map<String, String>? adHocPlayers,
     List<int>? declaredInnings,
     bool? followOnEnforced,
     int? firstInningsTargetOverride,
@@ -215,22 +288,23 @@ class MatchConfig {
   }) =>
       MatchConfig(
         id: id,
-        teamA: teamA,
-        teamB: teamB,
-        teamAId: teamAId,
-        teamBId: teamBId,
+        teamA: teamA ?? this.teamA,
+        teamB: teamB ?? this.teamB,
+        teamAId: teamAId ?? this.teamAId,
+        teamBId: teamBId ?? this.teamBId,
         oversLimit: oversLimit ?? this.oversLimit,
         playersPerSide: playersPerSide,
         formatLabel: formatLabel ?? this.formatLabel,
-        battingFirstTeam: battingFirstTeam,
-        openingStrikerInnings1: openingStrikerInnings1,
-        openingNonStrikerInnings1: openingNonStrikerInnings1,
-        openingBowlerInnings1: openingBowlerInnings1,
-        openingStrikerInnings2: openingStrikerInnings2,
-        openingNonStrikerInnings2: openingNonStrikerInnings2,
-        openingBowlerInnings2: openingBowlerInnings2,
-        teamAPlayers: teamAPlayers ?? this.teamAPlayers,
-        teamBPlayers: teamBPlayers ?? this.teamBPlayers,
+        battingFirstSide: battingFirstSide ?? this.battingFirstSide,
+        openingStriker1Id: openingStriker1Id ?? this.openingStriker1Id,
+        openingNonStriker1Id: openingNonStriker1Id ?? this.openingNonStriker1Id,
+        openingBowler1Id: openingBowler1Id ?? this.openingBowler1Id,
+        openingStriker2Id: openingStriker2Id ?? this.openingStriker2Id,
+        openingNonStriker2Id: openingNonStriker2Id ?? this.openingNonStriker2Id,
+        openingBowler2Id: openingBowler2Id ?? this.openingBowler2Id,
+        teamAPlayerIds: teamAPlayerIds ?? this.teamAPlayerIds,
+        teamBPlayerIds: teamBPlayerIds ?? this.teamBPlayerIds,
+        adHocPlayers: adHocPlayers ?? this.adHocPlayers,
         tournamentId: tournamentId,
         tournamentStage: tournamentStage,
         fixtureIndex: fixtureIndex,
@@ -250,18 +324,19 @@ class MatchConfig {
         'team_b': teamB,
         'team_a_id': teamAId,
         'team_b_id': teamBId,
+        'batting_first_side': battingFirstSide.name,
         'overs_limit': oversLimit,
         'players_per_side': playersPerSide,
         'format_label': formatLabel,
-        'batting_first_team': battingFirstTeam,
-        'opening_striker_1': openingStrikerInnings1,
-        'opening_non_striker_1': openingNonStrikerInnings1,
-        'opening_bowler_1': openingBowlerInnings1,
-        'opening_striker_2': openingStrikerInnings2,
-        'opening_non_striker_2': openingNonStrikerInnings2,
-        'opening_bowler_2': openingBowlerInnings2,
-        'team_a_players': jsonEncode(teamAPlayers),
-        'team_b_players': jsonEncode(teamBPlayers),
+        'opening_striker_1_id': openingStriker1Id,
+        'opening_non_striker_1_id': openingNonStriker1Id,
+        'opening_bowler_1_id': openingBowler1Id,
+        'opening_striker_2_id': openingStriker2Id,
+        'opening_non_striker_2_id': openingNonStriker2Id,
+        'opening_bowler_2_id': openingBowler2Id,
+        'team_a_player_ids': jsonEncode(teamAPlayerIds),
+        'team_b_player_ids': jsonEncode(teamBPlayerIds),
+        'ad_hoc_players': jsonEncode(adHocPlayers),
         'tournament_id': tournamentId,
         'tournament_stage': tournamentStage,
         'fixture_index': fixtureIndex,
@@ -293,42 +368,67 @@ class MatchConfig {
     return const [];
   }
 
-  static List<String> _decodePlayers(Object? raw) {
+  static List<String> _decodeIds(Object? raw) {
     if (raw is List) {
-      return raw.map((e) => e.toString()).toList();
+      return raw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
     }
     if (raw is! String || raw.isEmpty) return const [];
     try {
       final list = jsonDecode(raw);
       if (list is List) {
-        return list.map((e) => e.toString()).toList();
+        return list.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
       }
     } catch (_) {}
     return const [];
+  }
+
+  static Map<String, String> _decodeStringMap(Object? raw) {
+    if (raw is Map) {
+      return {
+        for (final e in raw.entries)
+          if (e.key.toString().isNotEmpty && e.value != null)
+            e.key.toString(): e.value.toString(),
+      };
+    }
+    if (raw is! String || raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return {
+          for (final e in decoded.entries)
+            if (e.key.toString().isNotEmpty && e.value != null)
+              e.key.toString(): e.value.toString(),
+        };
+      }
+    } catch (_) {}
+    return const {};
+  }
+
+  static String? _cleanNullableId(Object? raw) {
+    final s = (raw as String?)?.trim();
+    return (s != null && s.isNotEmpty) ? s : null;
   }
 
   static MatchConfig fromMap(Map<String, Object?> map) => MatchConfig(
         id: map['id']! as String,
         teamA: map['team_a']! as String,
         teamB: map['team_b']! as String,
-        teamAId: map['team_a_id'] as String?,
-        teamBId: map['team_b_id'] as String?,
+        teamAId: _cleanNullableId(map['team_a_id']),
+        teamBId: _cleanNullableId(map['team_b_id']),
+        battingFirstSide: MatchSide.fromName(map['batting_first_side'] as String?),
         oversLimit: (map['overs_limit']! as num).toInt(),
         playersPerSide: ((map['players_per_side'] as num?) ?? 11).toInt(),
         formatLabel: map['format_label']! as String,
-        battingFirstTeam: map['batting_first_team']! as String,
-        openingStrikerInnings1: map['opening_striker_1']! as String,
-        openingNonStrikerInnings1: map['opening_non_striker_1']! as String,
-        openingBowlerInnings1: map['opening_bowler_1']! as String,
-        openingStrikerInnings2:
-            (map['opening_striker_2'] as String?) ?? 'Opener 1',
-        openingNonStrikerInnings2:
-            (map['opening_non_striker_2'] as String?) ?? 'Opener 2',
-        openingBowlerInnings2:
-            (map['opening_bowler_2'] as String?) ?? 'Bowler 1',
-        teamAPlayers: _decodePlayers(map['team_a_players']),
-        teamBPlayers: _decodePlayers(map['team_b_players']),
-        tournamentId: map['tournament_id'] as String?,
+        openingStriker1Id: _cleanNullableId(map['opening_striker_1_id']),
+        openingNonStriker1Id: _cleanNullableId(map['opening_non_striker_1_id']),
+        openingBowler1Id: _cleanNullableId(map['opening_bowler_1_id']),
+        openingStriker2Id: _cleanNullableId(map['opening_striker_2_id']),
+        openingNonStriker2Id: _cleanNullableId(map['opening_non_striker_2_id']),
+        openingBowler2Id: _cleanNullableId(map['opening_bowler_2_id']),
+        teamAPlayerIds: _decodeIds(map['team_a_player_ids']),
+        teamBPlayerIds: _decodeIds(map['team_b_player_ids']),
+        adHocPlayers: _decodeStringMap(map['ad_hoc_players']),
+        tournamentId: _cleanNullableId(map['tournament_id']),
         tournamentStage: map['tournament_stage'] as String?,
         fixtureIndex: (map['fixture_index'] as num?)?.toInt(),
         isTestMatch: _decodeBool(map['is_test_match']),
@@ -343,8 +443,8 @@ class MatchConfig {
       );
 }
 
-/// Append-only ball event. Every scorecard, stat, over timeline, and NRR
-/// is derived from the ordered list of non-voided [BallEvent]s.
+/// Strict 3NF append-only ball event storing native player UUIDs only.
+/// Display names are resolved dynamically via `PlayerDirectory` + `MatchConfig.adHocPlayers`.
 @immutable
 class BallEvent {
   const BallEvent({
@@ -352,17 +452,17 @@ class BallEvent {
     required this.matchId,
     required this.inningsNumber,
     required this.sequenceNumber,
-    required this.striker,
-    required this.nonStriker,
-    required this.bowler,
+    required this.strikerId,
+    required this.nonStrikerId,
+    required this.bowlerId,
     this.runsOffBat = 0,
     this.extraType = ExtraType.none,
     this.extraRuns = 0,
     this.isWicket = false,
     this.wicketType,
-    this.dismissedBatter,
-    this.fielder,
-    this.nextBatter,
+    this.dismissedBatterId,
+    this.fielderId,
+    this.nextBatterId,
     this.synced = false,
     this.voided = false,
     required this.createdAt,
@@ -370,19 +470,19 @@ class BallEvent {
 
   final String id;
   final String matchId;
-  final int inningsNumber; // 1 or 2
+  final int inningsNumber; // 1..4
   final int sequenceNumber;
-  final String striker;
-  final String nonStriker;
-  final String bowler;
+  final String strikerId;
+  final String nonStrikerId;
+  final String bowlerId;
   final int runsOffBat;
   final ExtraType extraType;
   final int extraRuns;
   final bool isWicket;
   final WicketType? wicketType;
-  final String? dismissedBatter;
-  final String? fielder;
-  final String? nextBatter;
+  final String? dismissedBatterId;
+  final String? fielderId;
+  final String? nextBatterId;
   final bool synced;
   final bool voided;
   final DateTime createdAt;
@@ -391,7 +491,7 @@ class BallEvent {
   bool get isLegalDelivery =>
       extraType.isLegalDelivery && wicketType != WicketType.retiredHurt;
 
-  /// Runs that rotate strike between batters (excludes the 1-run penalty for wide/no-ball and penalty runs).
+  /// Runs that rotate strike between batters (excludes 1-run penalty for wide/no-ball and penalty runs).
   int get runningRuns {
     if (extraType == ExtraType.penalty) return 0;
     if (extraType == ExtraType.wide) {
@@ -425,49 +525,53 @@ class BallEvent {
     return '$runsOffBat';
   }
 
-  String? get dismissalSummary {
+  /// Cricket-standard scorecard dismissal line resolved against current player names.
+  String? scorecardDismissalText(Map<String, String> namesById) {
     if (!isWicket) return null;
-    final who = dismissedBatter ?? striker;
-    return '$who ${scorecardDismissalText ?? 'out'}';
-  }
-
-  /// Cricket-standard scorecard dismissal line (omits the batter's own name).
-  String? get scorecardDismissalText {
-    if (!isWicket) return null;
+    final bowlerName = namesById[bowlerId] ?? 'Bowler';
+    final fielderName =
+        (fielderId != null && fielderId!.isNotEmpty) ? namesById[fielderId!] : null;
     return switch (wicketType) {
       WicketType.caught =>
-        fielder != null && fielder!.isNotEmpty
-            ? 'c $fielder b $bowler'
-            : 'c & b $bowler',
-      WicketType.bowled => 'b $bowler',
-      WicketType.lbw => 'lbw b $bowler',
+        fielderName != null && fielderName.isNotEmpty
+            ? 'c $fielderName b $bowlerName'
+            : 'c & b $bowlerName',
+      WicketType.bowled => 'b $bowlerName',
+      WicketType.lbw => 'lbw b $bowlerName',
       WicketType.runOut =>
-        fielder != null && fielder!.isNotEmpty
-            ? 'run out ($fielder)'
+        fielderName != null && fielderName.isNotEmpty
+            ? 'run out ($fielderName)'
             : 'run out',
       WicketType.stumped =>
-        fielder != null && fielder!.isNotEmpty
-            ? 'st $fielder b $bowler'
-            : 'stumped b $bowler',
-      WicketType.hitWicket => 'hit wkt b $bowler',
+        fielderName != null && fielderName.isNotEmpty
+            ? 'st $fielderName b $bowlerName'
+            : 'stumped b $bowlerName',
+      WicketType.hitWicket => 'hit wkt b $bowlerName',
       WicketType.retiredHurt => 'retired hurt',
       WicketType.retired => 'retired out',
       null => 'out',
     };
   }
 
+  String? dismissalSummary(Map<String, String> namesById) {
+    if (!isWicket) return null;
+    final whoId = dismissedBatterId ?? strikerId;
+    final who = namesById[whoId] ?? 'Batter';
+    return '$who ${scorecardDismissalText(namesById) ?? 'out'}';
+  }
+
   BallEvent copyWith({
-    String? striker,
-    String? nonStriker,
-    String? bowler,
+    String? strikerId,
+    String? nonStrikerId,
+    String? bowlerId,
     int? runsOffBat,
     ExtraType? extraType,
     int? extraRuns,
     bool? isWicket,
     WicketType? wicketType,
-    String? dismissedBatter,
-    String? fielder,
-    String? nextBatter,
+    String? dismissedBatterId,
+    String? fielderId,
+    String? nextBatterId,
     bool? synced,
     bool? voided,
   }) {
@@ -476,17 +580,17 @@ class BallEvent {
       matchId: matchId,
       inningsNumber: inningsNumber,
       sequenceNumber: sequenceNumber,
-      striker: striker ?? this.striker,
-      nonStriker: nonStriker ?? this.nonStriker,
-      bowler: bowler ?? this.bowler,
+      strikerId: strikerId ?? this.strikerId,
+      nonStrikerId: nonStrikerId ?? this.nonStrikerId,
+      bowlerId: bowlerId ?? this.bowlerId,
       runsOffBat: runsOffBat ?? this.runsOffBat,
       extraType: extraType ?? this.extraType,
       extraRuns: extraRuns ?? this.extraRuns,
       isWicket: isWicket ?? this.isWicket,
       wicketType: wicketType ?? this.wicketType,
-      dismissedBatter: dismissedBatter ?? this.dismissedBatter,
-      fielder: fielder ?? this.fielder,
-      nextBatter: nextBatter ?? this.nextBatter,
+      dismissedBatterId: dismissedBatterId ?? this.dismissedBatterId,
+      fielderId: fielderId ?? this.fielderId,
+      nextBatterId: nextBatterId ?? this.nextBatterId,
       synced: synced ?? this.synced,
       voided: voided ?? this.voided,
       createdAt: createdAt,
@@ -498,17 +602,17 @@ class BallEvent {
         'match_id': matchId,
         'innings_number': inningsNumber,
         'sequence_number': sequenceNumber,
-        'striker': striker,
-        'non_striker': nonStriker,
-        'bowler': bowler,
+        'striker_id': strikerId,
+        'non_striker_id': nonStrikerId,
+        'bowler_id': bowlerId,
         'runs_off_bat': runsOffBat,
         'extra_type': extraType.name,
         'extra_runs': extraRuns,
         'is_wicket': isWicket ? 1 : 0,
         'wicket_type': wicketType?.name,
-        'dismissed_batter': dismissedBatter,
-        'fielder': fielder,
-        'next_batter': nextBatter,
+        'dismissed_batter_id': dismissedBatterId,
+        'fielder_id': fielderId,
+        'next_batter_id': nextBatterId,
         'synced': synced ? 1 : 0,
         'voided': voided ? 1 : 0,
         'created_at': createdAt.millisecondsSinceEpoch,
@@ -520,22 +624,27 @@ class BallEvent {
     return false;
   }
 
+  static String? _cleanNullableId(Object? raw) {
+    final s = (raw as String?)?.trim();
+    return (s != null && s.isNotEmpty) ? s : null;
+  }
+
   static BallEvent fromMap(Map<String, Object?> map) => BallEvent(
         id: map['id']! as String,
         matchId: map['match_id']! as String,
         inningsNumber: (map['innings_number']! as num).toInt(),
         sequenceNumber: (map['sequence_number']! as num).toInt(),
-        striker: map['striker']! as String,
-        nonStriker: map['non_striker']! as String,
-        bowler: map['bowler']! as String,
+        strikerId: map['striker_id']! as String,
+        nonStrikerId: map['non_striker_id']! as String,
+        bowlerId: map['bowler_id']! as String,
         runsOffBat: ((map['runs_off_bat'] as num?) ?? 0).toInt(),
         extraType: ExtraType.fromName((map['extra_type'] as String?) ?? 'none'),
         extraRuns: ((map['extra_runs'] as num?) ?? 0).toInt(),
         isWicket: _decodeBool(map['is_wicket']),
         wicketType: WicketType.fromNullableName(map['wicket_type'] as String?),
-        dismissedBatter: map['dismissed_batter'] as String?,
-        fielder: map['fielder'] as String?,
-        nextBatter: map['next_batter'] as String?,
+        dismissedBatterId: _cleanNullableId(map['dismissed_batter_id']),
+        fielderId: _cleanNullableId(map['fielder_id']),
+        nextBatterId: _cleanNullableId(map['next_batter_id']),
         synced: _decodeBool(map['synced']),
         voided: _decodeBool(map['voided']),
         createdAt: DateTime.fromMillisecondsSinceEpoch(
@@ -547,6 +656,7 @@ class BallEvent {
 @immutable
 class BatterLine {
   const BatterLine({
+    required this.playerId,
     required this.name,
     required this.runs,
     required this.balls,
@@ -556,6 +666,7 @@ class BatterLine {
     this.dismissalText,
   });
 
+  final String playerId;
   final String name;
   final int runs;
   final int balls;
@@ -570,6 +681,7 @@ class BatterLine {
 @immutable
 class BowlerLine {
   const BowlerLine({
+    required this.playerId,
     required this.name,
     required this.legalBalls,
     required this.maidens,
@@ -577,6 +689,7 @@ class BowlerLine {
     required this.wickets,
   });
 
+  final String playerId;
   final String name;
   final int legalBalls;
   final int maidens;
@@ -593,6 +706,7 @@ class BowlerLine {
 class OverSummary {
   const OverSummary({
     required this.overNumber, // 1-based
+    required this.bowlerId,
     required this.bowler,
     required this.balls,
     required this.runsInOver,
@@ -601,6 +715,7 @@ class OverSummary {
   });
 
   final int overNumber;
+  final String bowlerId;
   final String bowler;
   final List<BallEvent> balls;
   final int runsInOver;
@@ -616,12 +731,14 @@ class FallOfWicket {
     required this.wicketNumber,
     required this.runsAtFall,
     required this.oversAtFall,
+    required this.batterId,
     required this.batterName,
   });
 
   final int wicketNumber;
   final int runsAtFall;
   final String oversAtFall;
+  final String batterId;
   final String batterName;
 }
 
@@ -637,6 +754,9 @@ class DerivedInningsState {
     required this.legalBalls,
     required this.oversLimit,
     required this.playersPerSide,
+    required this.strikerId,
+    required this.nonStrikerId,
+    required this.currentBowlerId,
     required this.striker,
     required this.nonStriker,
     required this.currentBowler,
@@ -665,6 +785,9 @@ class DerivedInningsState {
   final int legalBalls;
   final int oversLimit; // 0 = unlimited (Test)
   final int playersPerSide;
+  final String strikerId;
+  final String nonStrikerId;
+  final String currentBowlerId;
   final String striker;
   final String nonStriker;
   final String currentBowler;
@@ -682,7 +805,7 @@ class DerivedInningsState {
 
   int get extrasTotal => wides + noBalls + byes + legByes;
   bool get needsNextBatter =>
-      !isComplete && (striker.isEmpty || nonStriker.isEmpty);
+      !isComplete && (strikerId.isEmpty || nonStrikerId.isEmpty);
   String get scoreText =>
       '$totalRuns/$wickets${isDeclared ? 'd' : ''}';
   String get oversText => '${legalBalls ~/ 6}.${legalBalls % 6}';
@@ -702,9 +825,24 @@ class DerivedInningsState {
     return needed / (ballsRemaining / 6.0);
   }
 
+  BatterLine batterById(String id, {String fallbackName = ''}) =>
+      batters.firstWhere(
+        (b) => b.playerId == id,
+        orElse: () => BatterLine(
+          playerId: id,
+          name: fallbackName,
+          runs: 0,
+          balls: 0,
+          fours: 0,
+          sixes: 0,
+          isOut: false,
+        ),
+      );
+
   BatterLine batterByName(String name) => batters.firstWhere(
         (b) => b.name == name,
         orElse: () => BatterLine(
+          playerId: '',
           name: name,
           runs: 0,
           balls: 0,
@@ -714,9 +852,23 @@ class DerivedInningsState {
         ),
       );
 
+  BowlerLine bowlerById(String id, {String fallbackName = ''}) =>
+      bowlers.firstWhere(
+        (b) => b.playerId == id,
+        orElse: () => BowlerLine(
+          playerId: id,
+          name: fallbackName,
+          legalBalls: 0,
+          maidens: 0,
+          runsConceded: 0,
+          wickets: 0,
+        ),
+      );
+
   BowlerLine bowlerByName(String name) => bowlers.firstWhere(
         (b) => b.name == name,
         orElse: () => BowlerLine(
+          playerId: '',
           name: name,
           legalBalls: 0,
           maidens: 0,
@@ -741,6 +893,7 @@ class DerivedMatchState {
     this.leadTrailText,
     this.canEnforceFollowOn = false,
     required this.unsyncedCount,
+    this.resolvedPlayerNames = const {},
   });
 
   final MatchConfig config;
@@ -755,6 +908,10 @@ class DerivedMatchState {
   final String? leadTrailText;
   final bool canEnforceFollowOn;
   final int unsyncedCount;
+
+  /// Combined map (`config.adHocPlayers` overridden by `players.display_name`)
+  /// used when deriving this match state.
+  final Map<String, String> resolvedPlayerNames;
 
   List<DerivedInningsState> get allInnings => [
         innings1,
@@ -772,4 +929,3 @@ class DerivedMatchState {
 
   DerivedInningsState get activeInnings => inningsByNumber(activeInningsNumber);
 }
-

@@ -146,8 +146,13 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     final otherSide = otherSideName.toLowerCase();
     final otherSideId = isBatting ? _teamBId : _teamAId;
     final searchCtrl = TextEditingController();
-    var remoteMatches =
-        <({String id, String name, String? location, List<String> players})>[];
+    var remoteMatches = <({
+      String id,
+      String name,
+      String? location,
+      String profileCode,
+      List<String> players,
+    })>[];
     var searchingRemote = false;
     Timer? debounce;
     var searchSeq = 0;
@@ -164,6 +169,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
           builder: (ctx, setModalState) {
             final q = searchCtrl.text.trim();
             final qLower = q.toLowerCase();
+            final qNormalized = q.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toLowerCase();
             final localEntries = _knownTeams.entries
                 .where(
                   (e) => q.isEmpty || e.key.toLowerCase().contains(qLower),
@@ -174,38 +180,41 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
               );
             final localLower =
                 _knownTeams.keys.map((k) => k.toLowerCase()).toSet();
-            final remoteEntries = q.length < 2
-                ? const <
-                    ({
-                      String id,
-                      String name,
-                      String? location,
-                      List<String> players
-                    })>[]
+            final remoteEntries = qNormalized.length < 4
+                ? const <({
+                    String id,
+                    String name,
+                    String? location,
+                    String profileCode,
+                    List<String> players,
+                  })>[]
                 : remoteMatches;
 
             final matchesOpposition =
                 q.isNotEmpty && otherSide.isNotEmpty && qLower == otherSide;
             final exactLocalMatch = q.isNotEmpty && localLower.contains(qLower);
             final exactRemoteMatch = q.isNotEmpty &&
-                remoteEntries.any((r) => r.name.toLowerCase() == qLower);
+                remoteEntries.any(
+                  (r) =>
+                      r.name.toLowerCase() == qLower ||
+                      r.profileCode
+                              .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
+                              .toLowerCase() ==
+                          qNormalized,
+                );
             final showCreateTop = q.isNotEmpty &&
                 !matchesOpposition &&
                 !exactLocalMatch &&
                 !exactRemoteMatch;
-            final showCreateBottom = q.isNotEmpty &&
-                !matchesOpposition &&
-                !exactLocalMatch &&
-                exactRemoteMatch;
             final totalRows = (showCreateTop ? 1 : 0) +
                 localEntries.length +
-                remoteEntries.length +
-                (showCreateBottom ? 1 : 0);
+                remoteEntries.length;
 
             void scheduleSearch(String text) {
               debounce?.cancel();
               final trimmed = text.trim();
-              if (trimmed.length < 2) {
+              final norm = trimmed.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+              if (norm.length < 4) {
                 if (remoteMatches.isNotEmpty || searchingRemote) {
                   setModalState(() {
                     remoteMatches = const [];
@@ -216,15 +225,22 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
               }
               final seq = ++searchSeq;
               setModalState(() => searchingRemote = true);
-              debounce = Timer(const Duration(milliseconds: 300), () async {
-                final results = await LocalEventStore.instance.searchPublicTeams(
-                  trimmed,
-                  excludeIds: _savedTeamIds,
-                  dedupeByName: false,
-                );
+              debounce = Timer(const Duration(milliseconds: 280), () async {
+                final hit = await LocalEventStore.instance
+                    .lookupTeamByProfileCode(trimmed);
                 if (!ctx.mounted || seq != searchSeq) return;
                 setModalState(() {
-                  remoteMatches = results;
+                  remoteMatches = (hit != null && !_savedTeamIds.contains(hit.id))
+                      ? [
+                          (
+                            id: hit.id,
+                            name: hit.name,
+                            location: hit.location,
+                            profileCode: hit.profileCode,
+                            players: hit.squad.map((p) => p.displayName).toList(),
+                          ),
+                        ]
+                      : const [];
                   searchingRemote = false;
                 });
               });
@@ -255,10 +271,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                 }
               }
               final remoteHit = remoteEntries
-                  .where(
-                    (r) =>
-                        r.name.toLowerCase() == qLower && r.id != otherSideId,
-                  )
+                  .where((r) => r.id != otherSideId)
                   .firstOrNull;
               if (remoteHit != null) {
                 Navigator.pop(
@@ -308,7 +321,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                             ? 'Select batting team'
                             : 'Select bowling team',
                         subtitle:
-                            'Search teams on Crease or enter a new team name.',
+                            'Pick a saved team, enter an opponent\'s Team ID (e.g. BX-4K9M), or type a new name.',
                       ),
                       const SizedBox(height: 12),
                       TextField(
@@ -323,7 +336,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                         decoration: InputDecoration(
                           prefixIcon:
                               const Icon(Icons.search_rounded, size: 20),
-                          hintText: 'Search or enter team name',
+                          hintText: 'Team name or Team ID (e.g. BX-4K9M)',
                           suffixIcon: searchingRemote
                               ? const Padding(
                                   padding: EdgeInsets.all(12),
@@ -423,45 +436,6 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                                   }
                                   cursor--;
                                 }
-                                if (showCreateBottom &&
-                                    cursor ==
-                                        localEntries.length +
-                                            remoteEntries.length) {
-                                  return ListTile(
-                                    dense: true,
-                                    leading: Container(
-                                      width: 30,
-                                      height: 30,
-                                      decoration: BoxDecoration(
-                                        color: c.pillMutedBg,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Icon(
-                                        Icons.add_rounded,
-                                        size: 18,
-                                        color: c.inkSecondary,
-                                      ),
-                                    ),
-                                    title: Text(
-                                      'Use "$q" as new team',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(ctx).textTheme.titleSmall,
-                                    ),
-                                    subtitle: const Text(
-                                      'Start with a blank roster',
-                                    ),
-                                    onTap: () => Navigator.pop(
-                                      ctx,
-                                      (
-                                        id: null,
-                                        name: q,
-                                        location: null,
-                                        players: const <String>[],
-                                      ),
-                                    ),
-                                  );
-                                }
                                 final isLocal = cursor < localEntries.length;
                                 final remoteItem = isLocal
                                     ? null
@@ -500,7 +474,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                                               'Your saved team',
                                           ].join(' · ')
                                         : [
-                                            'On Crease',
+                                            remoteItem!.profileCode,
                                             if (rowLocation != null &&
                                                 rowLocation.isNotEmpty)
                                               rowLocation,
@@ -854,28 +828,52 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
     if (teamA.isEmpty || teamB.isEmpty) return;
     final oversLimit = _isTestMatch ? 0 : _resolvedOvers;
 
-    final striker = _strikerCtrl.text.trim().isEmpty
-        ? 'Batter 1'
-        : _strikerCtrl.text.trim();
-    final nonStriker = _nonStrikerCtrl.text.trim().isEmpty
-        ? 'Batter 2'
-        : _nonStrikerCtrl.text.trim();
-    final bowler = _bowlerCtrl.text.trim().isEmpty
-        ? 'Bowler 1'
-        : _bowlerCtrl.text.trim();
+    final striker = _strikerCtrl.text.trim();
+    final nonStriker = _nonStrikerCtrl.text.trim();
+    final bowler = _bowlerCtrl.text.trim();
 
-    final savedRosterA = List<String>.from(
-      _teamARoster.isNotEmpty ? _teamARoster : (_knownTeams[teamA] ?? const []),
-    );
-    final savedRosterB = List<String>.from(
-      _teamBRoster.isNotEmpty ? _teamBRoster : (_knownTeams[teamB] ?? const []),
-    );
-    final rosterA =
-        savedRosterA.isNotEmpty ? savedRosterA : [striker, nonStriker];
-    final rosterB = savedRosterB.isNotEmpty ? savedRosterB : [bowler];
-    final opener2A = rosterB.isNotEmpty ? rosterB[0] : 'Opener 1';
-    final opener2B = rosterB.length > 1 ? rosterB[1] : 'Opener 2';
-    final bowler2 = rosterA.isNotEmpty ? rosterA[0] : 'Bowler 1';
+    final dir = LocalEventStore.instance.directory;
+    final adHoc = <String, String>{};
+
+    String? resolveIdForSide(String name, String? teamId) {
+      final clean = name.trim();
+      if (clean.isEmpty) return null;
+      if (teamId != null && teamId.isNotEmpty) {
+        final match = dir
+            .activePlayersForTeam(teamId)
+            .where((p) => p.displayName.trim().toLowerCase() == clean.toLowerCase())
+            .firstOrNull;
+        if (match != null) return match.id;
+      }
+      for (final e in adHoc.entries) {
+        if (e.value.trim().toLowerCase() == clean.toLowerCase()) return e.key;
+      }
+      final newId = _uuid.v4();
+      adHoc[newId] = clean;
+      return newId;
+    }
+
+    final squadAIds = (_teamAId != null && _teamAId!.isNotEmpty)
+        ? dir.activePlayersForTeam(_teamAId!).map((p) => p.id).toList()
+        : <String>[];
+    final squadBIds = (_teamBId != null && _teamBId!.isNotEmpty)
+        ? dir.activePlayersForTeam(_teamBId!).map((p) => p.id).toList()
+        : <String>[];
+
+    final striker1Id = resolveIdForSide(striker, _teamAId);
+    final nonStriker1Id = resolveIdForSide(nonStriker, _teamAId);
+    final bowler1Id = resolveIdForSide(bowler, _teamBId);
+
+    final rosterAIds = <String>[
+      ...squadAIds,
+      if (striker1Id != null && !squadAIds.contains(striker1Id)) striker1Id,
+      if (nonStriker1Id != null && !squadAIds.contains(nonStriker1Id))
+        nonStriker1Id,
+    ];
+    final rosterBIds = <String>[
+      ...squadBIds,
+      if (bowler1Id != null && !squadBIds.contains(bowler1Id)) bowler1Id,
+    ];
 
     final config = MatchConfig(
       id: _uuid.v4(),
@@ -883,18 +881,16 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
       teamB: teamB,
       teamAId: _teamAId,
       teamBId: _teamBId,
+      battingFirstSide: MatchSide.a,
       oversLimit: oversLimit,
       playersPerSide: 11,
       formatLabel: _isTestMatch ? 'TEST' : _formatForOvers(oversLimit),
-      battingFirstTeam: teamA,
-      openingStrikerInnings1: striker,
-      openingNonStrikerInnings1: nonStriker,
-      openingBowlerInnings1: bowler,
-      openingStrikerInnings2: opener2A,
-      openingNonStrikerInnings2: opener2B,
-      openingBowlerInnings2: bowler2,
-      teamAPlayers: rosterA,
-      teamBPlayers: rosterB,
+      openingStriker1Id: striker1Id,
+      openingNonStriker1Id: nonStriker1Id,
+      openingBowler1Id: bowler1Id,
+      teamAPlayerIds: rosterAIds,
+      teamBPlayerIds: rosterBIds,
+      adHocPlayers: adHoc,
       isTestMatch: _isTestMatch,
       createdAt: DateTime.now(),
     );

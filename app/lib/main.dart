@@ -42,7 +42,7 @@ Future<void> main() async {
       url: _supabaseUrl,
       publishableKey: _supabasePublishableKey,
     );
-    unawaited(_ensureAnonymousSessionAndSync());
+    unawaited(_syncIfSignedIn());
   }
 
   final store = LocalEventStore.instance;
@@ -55,17 +55,15 @@ Future<void> main() async {
   runApp(const CreaseApp());
 }
 
-Future<void> _ensureAnonymousSessionAndSync() async {
+Future<void> _syncIfSignedIn() async {
   try {
-    final auth = Supabase.instance.client.auth;
-    if (auth.currentSession == null) {
-      await auth.signInAnonymously();
-    }
+    final uid = LocalEventStore.instance.signedInUserId;
+    if (uid == null) return;
     final synced = await LocalEventStore.instance.syncAllPendingToSupabase();
     final pulled = await LocalEventStore.instance.pullLatestForMyTeams();
-    debugPrint('[Crease Sync] Auth ready (${auth.currentUser?.id}), synced $synced events, pulled $pulled team matches.');
+    debugPrint('[Crease Sync] Auth ready ($uid), synced $synced events, pulled $pulled team matches.');
   } catch (e) {
-    debugPrint('[Crease Sync] Startup auth/sync skipped: $e');
+    debugPrint('[Crease Sync] Startup sync skipped: $e');
   }
 }
 

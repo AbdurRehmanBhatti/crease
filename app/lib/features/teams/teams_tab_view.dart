@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../data/local_event_store.dart';
@@ -8,6 +9,7 @@ import '../../domain/team_profile.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../auth/auth_sheet.dart';
 import '../profile/player_career_poster.dart';
 import '../profile/player_profile_screen.dart';
 import '../scorecard/scorecard_screen.dart';
@@ -93,7 +95,7 @@ class _CreateTeamSheetState extends State<_CreateTeamSheet> {
         name: name,
         location: loc.isEmpty ? null : loc,
         isMyTeam: _isMyTeam,
-        players: const [],
+        squad: const [],
         createdAt: DateTime.now(),
       ),
     );
@@ -248,7 +250,7 @@ class _TeamsTabViewState extends State<TeamsTabView> {
                         location: hasLoc ? loc : null,
                         isMyTeam: false,
                         isOwner: false,
-                        players: roster,
+                        squad: const [],
                         createdAt: DateTime.now(),
                       )
                     : saved,
@@ -379,6 +381,13 @@ class _TeamsTabViewState extends State<TeamsTabView> {
                     children: [
                       Expanded(
                         child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(0, 46),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
                           onPressed: () async {
                             final team = await showCreateTeamSheet(
                               context,
@@ -403,18 +412,35 @@ class _TeamsTabViewState extends State<TeamsTabView> {
                             widget.onChanged();
                           },
                           icon: const Icon(Icons.add_rounded, size: 18),
-                          label: const Text('Create team'),
+                          label: const Text(
+                            'Create team',
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 46),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
                           onPressed: () async {
                             final joined = await showJoinTeamSheet(context);
                             if (joined) widget.onChanged();
                           },
                           icon: const Icon(Icons.group_add_outlined, size: 18),
-                          label: const Text('Join code'),
+                          label: const Text(
+                            'Join code',
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ),
                     ],
@@ -424,31 +450,31 @@ class _TeamsTabViewState extends State<TeamsTabView> {
             ),
             const SizedBox(height: 12),
           ],
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    hintText: 'Search your teams…',
-                    fillColor: c.surfaceGlass,
-                    isDense: true,
-                    suffixIcon: rawQuery.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Clear filter',
-                            icon: const Icon(Icons.close_rounded, size: 18),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() {});
-                            },
-                          ),
+          if (hasSavedTeams) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                      hintText: 'Search your teams…',
+                      fillColor: c.surfaceGlass,
+                      isDense: true,
+                      suffixIcon: rawQuery.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear filter',
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(() {});
+                              },
+                            ),
+                    ),
                   ),
                 ),
-              ),
-              if (hasSavedTeams) ...[
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
@@ -464,9 +490,9 @@ class _TeamsTabViewState extends State<TeamsTabView> {
                   label: const Text('Join'),
                 ),
               ],
-            ],
-          ),
-          const SizedBox(height: 12),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (myTeams.isEmpty && rawQuery.isNotEmpty)
             GlassSurface(
               padding: const EdgeInsets.all(24),
@@ -536,7 +562,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
         TeamProfile(
           id: _uuid.v4(),
           name: widget.teamName,
-          players: List<String>.from(widget.initialRoster),
+          squad: const [],
           createdAt: DateTime.now(),
         );
     _loadClaimed();
@@ -551,19 +577,35 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     if (!mounted || full == null) return;
     setState(() {
       _profile = full.copyWith(isMyTeam: false, isOwner: false);
+      _syncClaimedFromSquad();
     });
   }
 
+  void _syncClaimedFromSquad() {
+    _claimedPlayers = {
+      for (final p in _profile.squad)
+        if (p.isLinked) p.displayName.toLowerCase(),
+    };
+    _memberAvatars = {
+      for (final p in _profile.squad)
+        if (p.avatarUrl != null && p.avatarUrl!.isNotEmpty)
+          p.displayName.toLowerCase(): p.avatarUrl!,
+    };
+  }
+
   Future<void> _loadClaimed() async {
-    final results = await Future.wait([
-      LocalEventStore.instance.fetchClaimedPlayersForTeam(_profile.id),
-      LocalEventStore.instance.fetchTeamMemberAvatars(_profile.id),
-    ]);
+    if (_isSaved && !widget.readOnlyPublic && _profile.id.isNotEmpty) {
+      final latest = await LocalEventStore.instance.getTeam(_profile.id);
+      if (mounted && latest != null) {
+        setState(() {
+          _profile = latest;
+          _syncClaimedFromSquad();
+        });
+        return;
+      }
+    }
     if (!mounted) return;
-    setState(() {
-      _claimedPlayers = results[0] as Set<String>;
-      _memberAvatars = results[1] as Map<String, String>;
-    });
+    setState(_syncClaimedFromSquad);
   }
 
   Future<void> _confirmUnlinkPlayer(String playerName) async {
@@ -587,8 +629,10 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
       ),
     );
     if (ok != true) return;
+    final target = _profile.playerByName(playerName);
+    if (target == null) return;
     try {
-      await LocalEventStore.instance.unlinkTeamPlayer(_profile.id, playerName);
+      await LocalEventStore.instance.unlinkTeamPlayer(target.id);
       await _loadClaimed();
     } catch (_) {}
   }
@@ -797,7 +841,14 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     if (_profile.players.any((p) => p.toLowerCase() == name.toLowerCase())) {
       return;
     }
-    await _persist(_profile.copyWith(players: [..._profile.players, name]));
+    if (!_isSaved) {
+      await _persist(_profile);
+    }
+    await LocalEventStore.instance.addPlayerToClub(
+      teamId: _profile.id,
+      displayName: name,
+    );
+    await _loadClaimed();
   }
 
   int _designationOrder(String? d) => switch (d) {
@@ -807,12 +858,102 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
         _ => 3,
       };
 
+  Future<String?> _renamePlayer(
+    String oldName, {
+    bool hasStats = false,
+  }) async {
+    final ctrl = TextEditingController(text: oldName);
+    String? errorText;
+    final renamed = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          void submit() {
+            final clean = ctrl.text.trim();
+            if (clean.isEmpty) {
+              setDialogState(() => errorText = 'Enter a player name.');
+              return;
+            }
+            if (clean.toLowerCase() == oldName.toLowerCase() &&
+                clean == oldName) {
+              Navigator.pop(ctx);
+              return;
+            }
+            final duplicate = _profile.players.any(
+              (p) =>
+                  p.toLowerCase() == clean.toLowerCase() &&
+                  p.toLowerCase() != oldName.toLowerCase(),
+            );
+            if (duplicate) {
+              setDialogState(
+                () => errorText = '"$clean" is already in this squad.',
+              );
+              return;
+            }
+            Navigator.pop(ctx, clean);
+          }
+
+          return AlertDialog(
+            title: const Text('Rename player'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    hintText: 'Player name',
+                    errorText: errorText,
+                  ),
+                  onChanged: (_) {
+                    if (errorText != null) {
+                      setDialogState(() => errorText = null);
+                    }
+                  },
+                  onSubmitted: (_) => submit(),
+                ),
+                if (hasStats) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Updates across your squad, past scorecards, and career stats automatically.',
+                    style: Theme.of(ctx).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: submit,
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    Future<void>.delayed(const Duration(milliseconds: 500), ctrl.dispose);
+    if (renamed == null || renamed.isEmpty || renamed == oldName) return null;
+
+    final target = _profile.playerByName(oldName);
+    if (target == null) return null;
+    await LocalEventStore.instance.renamePlayer(target.id, renamed);
+    await _loadClaimed();
+    return renamed;
+  }
+
   Future<void> _openPlayerProfileSheet(
     String playerName,
     PlayerCareerStats? stats,
   ) async {
-    final initialMeta = _profile.metaFor(playerName);
-    final isClaimed = _claimedPlayers.contains(playerName.toLowerCase());
+    var currentName = playerName;
+    final initialMeta = _profile.metaFor(currentName);
+    final isClaimed = _claimedPlayers.contains(currentName.toLowerCase());
     var role = initialMeta.role;
     var designation = initialMeta.designation;
 
@@ -849,10 +990,10 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                     Row(
                       children: [
                         CreasePlayerAvatar(
-                          name: playerName,
+                          name: currentName,
                           size: 48,
                           highlighted: true,
-                          avatarUrl: _memberAvatars[playerName.toLowerCase()],
+                          avatarUrl: _memberAvatars[currentName.toLowerCase()],
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -863,7 +1004,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                 children: [
                                   Flexible(
                                     child: Text(
-                                      playerName,
+                                      currentName,
                                       style: Theme.of(ctx).textTheme.titleLarge,
                                     ),
                                   ),
@@ -873,6 +1014,33 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                       Icons.verified_rounded,
                                       size: 18,
                                       color: c.pitchGreen,
+                                    ),
+                                  ] else if (_canEdit) ...[
+                                    const SizedBox(width: 2),
+                                    IconButton(
+                                      tooltip: 'Rename player',
+                                      visualDensity: VisualDensity.compact,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 32,
+                                        minHeight: 32,
+                                      ),
+                                      icon: Icon(
+                                        Icons.edit_outlined,
+                                        size: 17,
+                                        color: c.inkSecondary,
+                                      ),
+                                      onPressed: () async {
+                                        final updated = await _renamePlayer(
+                                          currentName,
+                                          hasStats: stats != null,
+                                        );
+                                        if (updated != null && ctx.mounted) {
+                                          setModalState(
+                                            () => currentName = updated,
+                                          );
+                                        }
+                                      },
                                     ),
                                   ],
                                 ],
@@ -890,7 +1058,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                             icon: const Icon(Icons.share_rounded, size: 20),
                             onPressed: () {
                               PlayerCareerPoster.sharePlayerCard(
-                                playerName: playerName,
+                                playerName: currentName,
                                 stats: stats,
                                 role: role,
                                 teamName: _profile.name,
@@ -902,10 +1070,13 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                           icon: const Icon(Icons.open_in_new_rounded, size: 19),
                           onPressed: () {
                             Navigator.pop(ctx);
+                            final player = _profile.playerByName(currentName);
                             Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) => PlayerProfileScreen(
-                                  playerName: playerName,
+                                  playerName: currentName,
+                                  playerId: player?.id,
+                                  userId: player?.userId,
                                   role: role,
                                   teams: [_profile.name],
                                   isVerified: isClaimed,
@@ -943,7 +1114,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                       const SizedBox(height: 16),
                     ] else ...[
                       Text(
-                        'No match stats recorded yet for $playerName.',
+                        'No match stats recorded yet for $currentName.',
                         style: Theme.of(ctx).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 14),
@@ -1041,14 +1212,15 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                       const SizedBox(height: 18),
                       FilledButton(
                         onPressed: () async {
-                          final updated = _profile.withUpdatedPlayerMeta(
-                            playerName,
-                            SquadPlayerMeta(
+                          final target = _profile.playerByName(currentName);
+                          if (target != null) {
+                            await LocalEventStore.instance.updatePlayerRole(
+                              target.id,
                               role: role,
                               designation: designation,
-                            ),
-                          );
-                          await _persist(updated);
+                            );
+                            await _loadClaimed();
+                          }
                           if (ctx.mounted) Navigator.pop(ctx);
                         },
                         child: const Text('Save player role'),
@@ -1061,7 +1233,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                               child: TextButton(
                                 onPressed: () async {
                                   Navigator.pop(ctx);
-                                  await _confirmUnlinkPlayer(playerName);
+                                  await _confirmUnlinkPlayer(currentName);
                                 },
                                 child: const Text('Unlink account'),
                               ),
@@ -1072,23 +1244,16 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                 foregroundColor: c.wicketRed,
                               ),
                               onPressed: () async {
+                                final target = _profile.playerByName(currentName);
+                                if (target == null) return;
                                 if (isClaimed) {
                                   try {
                                     await LocalEventStore.instance
-                                        .unlinkTeamPlayer(
-                                      _profile.id,
-                                      playerName,
-                                    );
+                                        .unlinkTeamPlayer(target.id);
                                   } catch (_) {}
                                 }
-                                final prevPlayers =
-                                    List<String>.from(_profile.players);
-                                final nextPlayers =
-                                    List<String>.from(_profile.players)
-                                      ..remove(playerName);
-                                await _persist(
-                                  _profile.copyWith(players: nextPlayers),
-                                );
+                                await LocalEventStore.instance
+                                    .archivePlayer(target.id);
                                 await _loadClaimed();
                                 if (ctx.mounted) Navigator.pop(ctx);
                                 if (!mounted) return;
@@ -1098,15 +1263,17 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                     SnackBar(
                                       duration: const Duration(seconds: 4),
                                       content: Text(
-                                        'Removed $playerName from ${_profile.name}',
+                                        'Removed $currentName from ${_profile.name}',
                                       ),
                                       action: SnackBarAction(
                                         label: 'Undo',
-                                        onPressed: () => _persist(
-                                          _profile.copyWith(
-                                            players: prevPlayers,
-                                          ),
-                                        ),
+                                        onPressed: () async {
+                                          await LocalEventStore.instance
+                                              .savePlayer(
+                                            target.copyWith(archived: false),
+                                          );
+                                          await _loadClaimed();
+                                        },
                                       ),
                                     ),
                                   );
@@ -1173,17 +1340,23 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     return (played: played, won: won, lost: lost, tied: tied);
   }
 
-  void _openPlayerProfile(String playerName) {
-    final meta = _profile.metaFor(playerName);
-    final isClaimed = _claimedPlayers.contains(playerName.toLowerCase());
+  void _openPlayerProfile(String playerName, {String? playerId}) {
+    final player = (playerId != null && playerId.isNotEmpty)
+        ? (_profile.playerById(playerId) ?? _profile.playerByName(playerName))
+        : _profile.playerByName(playerName);
+    final meta = player?.meta ?? _profile.metaFor(playerName);
+    final isClaimed =
+        player?.isLinked ?? _claimedPlayers.contains(playerName.toLowerCase());
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlayerProfileScreen(
-          playerName: playerName,
+          playerName: player?.displayName ?? playerName,
+          playerId: player?.id ?? playerId,
+          userId: player?.userId,
           role: meta.role,
           teams: [_profile.name],
           isVerified: isClaimed,
-          avatarUrl: _memberAvatars[playerName.toLowerCase()],
+          avatarUrl: player?.avatarUrl ?? _memberAvatars[playerName.toLowerCase()],
           matches: widget.matches,
         ),
       ),
@@ -1257,7 +1430,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
         .toList()
       ..sort((a, b) => b.config.createdAt.compareTo(a.config.createdAt));
 
-    final statsList = StatsEngine.derive(
+    final statsList = LocalEventStore.instance.deriveStats(
       teamMatches,
       teamId: _profile.id.isNotEmpty ? _profile.id : null,
       teamName: _profile.name,
@@ -1265,6 +1438,10 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     final cleanStatsList = statsList
         .where((s) => !LocalEventStore.isPlaceholderPlayerName(s.name))
         .toList();
+    final statsByPlayerId = {
+      for (final s in statsList)
+        if (s.playerId.isNotEmpty) s.playerId: s,
+    };
     final statsByLower = {
       for (final s in statsList) s.name.toLowerCase(): s,
     };
@@ -1540,6 +1717,109 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                                             ),
                                       ),
                                     ),
+                                    if (_profile.profileCode != null &&
+                                        _profile.profileCode!.isNotEmpty)
+                                      CreasePressable(
+                                        onTap: () {
+                                          final code = _profile.profileCode!;
+                                          Clipboard.setData(
+                                            ClipboardData(text: code),
+                                          );
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Team ID $code copied · share with opponents at the toss',
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: c.surfaceKey,
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                            border:
+                                                Border.all(color: c.hairline),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                'ID: ${_profile.profileCode!}',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .labelMedium
+                                                    ?.copyWith(
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: c.inkPrimary,
+                                                    ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Icon(
+                                                Icons.copy_rounded,
+                                                size: 11,
+                                                color: c.inkSecondary,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      )
+                                    else if (!widget.readOnlyPublic &&
+                                        _profile.isOwner &&
+                                        !isSignedInAccount())
+                                      CreasePressable(
+                                        onTap: () async {
+                                          final ok =
+                                              await requireSignedInAccount(
+                                            context,
+                                            title: 'Sign in for a Team ID',
+                                            subtitle:
+                                                'Get a shareable Team ID so opponents can link matches to ${_profile.name}.',
+                                          );
+                                          if (!ok || !mounted) return;
+                                          await LocalEventStore.instance
+                                              .syncTeamToSupabase(_profile.id);
+                                          final refreshed = (await LocalEventStore
+                                                  .instance
+                                                  .listTeams())
+                                              .where((t) => t.id == _profile.id)
+                                              .firstOrNull;
+                                          if (refreshed != null && mounted) {
+                                            setState(() => _profile = refreshed);
+                                          }
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: c.surfaceKey,
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                            border:
+                                                Border.all(color: c.hairline),
+                                          ),
+                                          child: Text(
+                                            'Sign in for Team ID',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .labelMedium
+                                                ?.copyWith(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: c.pitchGreen,
+                                                ),
+                                          ),
+                                        ),
+                                      ),
                                     Text(
                                       '${_profile.players.length} player${_profile.players.length == 1 ? '' : 's'} · ${teamMatches.length} match${teamMatches.length == 1 ? '' : 'es'}',
                                       style: Theme.of(context)
@@ -2005,8 +2285,13 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                               Builder(
                                 builder: (context) {
                                   final p = sortedPlayers[i];
-                                  final meta = _profile.metaFor(p);
-                                  final pStats = statsByLower[p.toLowerCase()];
+                                  final player = _profile.playerByName(p);
+                                  final meta =
+                                      player?.meta ?? _profile.metaFor(p);
+                                  final pStats = (player != null
+                                          ? statsByPlayerId[player.id]
+                                          : null) ??
+                                      statsByLower[p.toLowerCase()];
                                   final isClaimed =
                                       _claimedPlayers.contains(p.toLowerCase());
                                   final subParts = <String>[

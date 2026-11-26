@@ -14,22 +14,43 @@ import '../../domain/models.dart';
 class MatchSummaryPoster {
   MatchSummaryPoster._();
 
-  static Future<void> shareMatch(DerivedMatchState state) async {
-    await LocalEventStore.instance.syncPendingToSupabase(state.config.id);
+  static String buildShareCaption(
+    DerivedMatchState state, {
+    required bool includeLiveLink,
+  }) {
+    if (includeLiveLink) {
+      return '${state.config.teamA} vs ${state.config.teamB} · Live Score & Stats on Crease\n'
+          '${CreaseLinks.liveMatchUrl(state.config.id)}';
+    }
+    final summary = state.resultSummary?.trim() ?? '';
+    return summary.isNotEmpty
+        ? '${state.config.teamA} vs ${state.config.teamB} · $summary · Scored with Crease'
+        : '${state.config.teamA} vs ${state.config.teamB} · Scored with Crease';
+  }
 
-    final caption =
-        '${state.config.teamA} vs ${state.config.teamB} · Live Score & Stats on Crease\n'
-        '${CreaseLinks.liveMatchUrl(state.config.id)}';
+  static Future<void> shareMatch(DerivedMatchState state) async {
+    final signedIn = LocalEventStore.instance.isSignedInAccount;
+    if (signedIn) {
+      try {
+        await LocalEventStore.instance
+            .ensureMatchSyncedToSupabase(state.config.id);
+      } catch (_) {}
+    }
+
+    final caption = buildShareCaption(state, includeLiveLink: signedIn);
 
     try {
-      final file = await _renderPosterPng(state);
+      final file = await _renderPosterPng(state, includeLiveLink: signedIn);
       await Share.shareXFiles([XFile(file.path)], text: caption);
     } catch (_) {
       await Share.share(caption);
     }
   }
 
-  static Future<File> _renderPosterPng(DerivedMatchState state) async {
+  static Future<File> _renderPosterPng(
+    DerivedMatchState state, {
+    required bool includeLiveLink,
+  }) async {
     const double width = 1080;
     final inningsToShow = state.allInnings
         .where(
@@ -154,7 +175,9 @@ class MatchSummaryPoster {
     // Clean footer
     _drawText(
       canvas,
-      'Live scorecard · abdurrehmanbhatti.github.io/crease',
+      includeLiveLink
+          ? 'Live scorecard · abdurrehmanbhatti.github.io/crease'
+          : 'Scored with Crease',
       Offset(width / 2, height - 46),
       fontSize: 18,
       weight: FontWeight.w500,

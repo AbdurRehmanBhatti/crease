@@ -15,8 +15,10 @@ class LiveCreaseCard extends StatelessWidget {
     required this.nonStriker,
     required this.bowler,
     required this.needsNewBowler,
+    this.isOpeningSelection = false,
     required this.onSwapStrike,
     required this.onSelectNextBatter,
+    this.onSelectNonStriker,
     required this.onSelectNextBowler,
   });
 
@@ -26,8 +28,10 @@ class LiveCreaseCard extends StatelessWidget {
   final BatterLine nonStriker;
   final BowlerLine bowler;
   final bool needsNewBowler;
+  final bool isOpeningSelection;
   final VoidCallback onSwapStrike;
   final VoidCallback onSelectNextBatter;
+  final VoidCallback? onSelectNonStriker;
   final VoidCallback onSelectNextBowler;
 
   @override
@@ -75,7 +79,7 @@ class LiveCreaseCard extends StatelessWidget {
           if (strikerEmpty)
             _ActionCreaseRow(
               icon: Icons.person_add_alt_1_rounded,
-              label: 'Select next batter',
+              label: isOpeningSelection ? 'Select striker' : 'Select next batter',
               onTap: onSelectNextBatter,
             )
           else
@@ -88,8 +92,10 @@ class LiveCreaseCard extends StatelessWidget {
           if (nonStrikerEmpty)
             _ActionCreaseRow(
               icon: Icons.person_add_alt_1_rounded,
-              label: 'Select next batter',
-              onTap: onSelectNextBatter,
+              label: isOpeningSelection
+                  ? 'Select non-striker'
+                  : 'Select next batter',
+              onTap: onSelectNonStriker ?? onSelectNextBatter,
             )
           else
             _BatterTableRow(
@@ -113,10 +119,12 @@ class LiveCreaseCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 5),
-          if (needsNewBowler)
+          if (needsNewBowler || bowler.name.isEmpty)
             _ActionCreaseRow(
               icon: Icons.sports_baseball_outlined,
-              label: 'Select next bowler',
+              label: bowler.name.isEmpty
+                  ? 'Select opening bowler'
+                  : 'Select next bowler',
               onTap: onSelectNextBowler,
             )
           else

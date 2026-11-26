@@ -8,6 +8,7 @@ import '../../domain/models.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../auth/auth_sheet.dart';
 
 /// Displays a sheet with a 6-digit handover code so the other team's scorer
 /// can take over scoring on their own phone.
@@ -15,6 +16,12 @@ Future<void> showHandOverScoringSheet(
   BuildContext context,
   DerivedMatchState state,
 ) async {
+  final ok = await requireSignedInAccount(
+    context,
+    title: 'Sign in to hand over scoring',
+    subtitle: 'Pass the Baton syncs live balls across devices under your account.',
+  );
+  if (!ok || !context.mounted) return;
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,

@@ -8,6 +8,7 @@ import '../../domain/team_profile.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../auth/auth_sheet.dart';
 
 /// Displays a sheet with a 6-digit Team Code and invite link so teammates
 /// can join the team and claim their player spot.
@@ -15,6 +16,12 @@ Future<void> showInviteTeammatesSheet(
   BuildContext context,
   TeamProfile team,
 ) async {
+  final ok = await requireSignedInAccount(
+    context,
+    title: 'Sign in to invite teammates',
+    subtitle: 'Team invite codes link teammates to ${team.name} across devices.',
+  );
+  if (!ok || !context.mounted) return;
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -275,7 +282,7 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
       if (!mounted) return;
       setState(() {
         _preview = preview;
-        _selectedPlayer = preview.myClaimedPlayer;
+        _selectedPlayer = preview.myClaimedPlayerId;
         _busy = false;
       });
     } catch (e) {
@@ -292,22 +299,39 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
   Future<void> _claim() async {
     final preview = _preview;
     if (preview == null) return;
-    final playerName = _addingNew
-        ? _newNameCtrl.text.trim()
-        : (_selectedPlayer ?? '').trim();
-    if (playerName.isEmpty) {
+    final selectedId = _addingNew ? null : _selectedPlayer;
+    final newName = _addingNew ? _newNameCtrl.text.trim() : '';
+    final chosenLabel = _addingNew
+        ? newName
+        : (preview.players
+                .where((p) => p.id == selectedId)
+                .map((p) => p.displayName)
+                .firstOrNull ??
+            '');
+    if (chosenLabel.isEmpty) {
       setState(
         () => _error = 'Pick your name from the squad or enter a new name.',
       );
       return;
     }
+    final ok = await requireSignedInAccount(
+      context,
+      title: 'Sign in to claim your player spot',
+      subtitle:
+          'Linking $chosenLabel to your account syncs your career stats across devices.',
+    );
+    if (!ok || !mounted) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       final code = _codeCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-      await LocalEventStore.instance.claimTeamPlayer(code, playerName);
+      await LocalEventStore.instance.claimTeamPlayer(
+        code,
+        playerId: selectedId,
+        displayName: _addingNew ? newName : null,
+      );
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -393,17 +417,14 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                     for (final p in preview.players)
                       Builder(
                         builder: (context) {
-                          final isMine = preview.myClaimedPlayer
-                                  ?.toLowerCase() ==
-                              p.toLowerCase();
-                          final claimedByOther = !isMine &&
-                              preview.claimedPlayers.any(
-                                (cp) => cp.toLowerCase() == p.toLowerCase(),
-                              );
-                          final selected = !_addingNew && _selectedPlayer == p;
+                          final isMine = preview.myClaimedPlayerId == p.id;
+                          final claimedByOther = !isMine && p.isLinked;
+                          final selected = !_addingNew && _selectedPlayer == p.id;
                           return ChoiceChip(
                             label: Text(
-                              claimedByOther ? '$p (claimed)' : p,
+                              claimedByOther
+                                  ? '${p.displayName} (claimed)'
+                                  : p.displayName,
                             ),
                             selected: selected,
                             selectedColor: c.pitchGreen,
@@ -424,7 +445,7 @@ class _JoinTeamSheetState extends State<_JoinTeamSheet> {
                                 ? null
                                 : (_) => setState(() {
                                       _addingNew = false;
-                                      _selectedPlayer = p;
+                                      _selectedPlayer = p.id;
                                       _error = null;
                                     }),
                           );

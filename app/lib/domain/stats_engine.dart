@@ -5,6 +5,8 @@ import 'models.dart';
 @immutable
 class PlayerCareerStats {
   const PlayerCareerStats({
+    required this.playerId,
+    this.userId,
     required this.name,
     this.teamName,
     required this.matchesPlayed,
@@ -33,6 +35,8 @@ class PlayerCareerStats {
     this.runOuts = 0,
   });
 
+  final String playerId;
+  final String? userId;
   final String name;
   final String? teamName;
   final int matchesPlayed;
@@ -100,6 +104,9 @@ class StatsEngine {
     String? teamId,
     String? teamName,
     bool excludeDemo = false,
+    bool excludePlaceholders = true,
+    Map<String, String> playerNamesById = const {},
+    Map<String, String> playerUserIdsById = const {},
   }) {
     final filtered = matches.where((m) {
       if (excludeDemo && m.config.isDemo) return false;
@@ -113,8 +120,39 @@ class StatsEngine {
         (teamName != null && teamName.trim().isNotEmpty);
 
     final map = <String, _MutableCareer>{};
-    _MutableCareer ensure(String name, {String? team}) {
-      final p = map.putIfAbsent(name, () => _MutableCareer(name));
+
+    String identityKey(String playerId) {
+      final uid = playerUserIdsById[playerId];
+      if (uid != null && uid.isNotEmpty) return 'u:$uid';
+      return 'p:$playerId';
+    }
+
+    String resolvedName(
+      String playerId,
+      String fallbackName,
+      DerivedMatchState match,
+    ) {
+      return playerNamesById[playerId] ??
+          match.resolvedPlayerNames[playerId] ??
+          fallbackName;
+    }
+
+    _MutableCareer ensure(
+      String playerId,
+      String displayName, {
+      String? team,
+    }) {
+      final key = identityKey(playerId);
+      final uid = playerUserIdsById[playerId];
+      final p = map.putIfAbsent(
+        key,
+        () => _MutableCareer(
+          playerId: playerId,
+          userId: uid,
+          name: displayName,
+        ),
+      );
+      if (displayName.isNotEmpty) p.name = displayName;
       if (team != null && team.isNotEmpty) p.teamName = team;
       return p;
     }
@@ -128,12 +166,10 @@ class StatsEngine {
         );
         if (matchedSide == null) continue;
       }
-      final participants = <String>{};
+      final participants = <String, (String, String)>{};
       final inningsList = match.allInnings;
 
       for (final inn in inningsList) {
-        // ICC rule: Super Over innings (3 & 4 in limited-overs) do not count
-        // toward official career batting/bowling averages.
         if (!match.config.isTestMatch && inn.inningsNumber >= 3) continue;
         final includeBatting =
             matchedSide == null || inn.battingSide == matchedSide;
@@ -143,8 +179,12 @@ class StatsEngine {
         if (includeBatting) {
           for (final b in inn.batters) {
             if (b.balls == 0 && !b.isOut && b.runs == 0) continue;
-            participants.add(b.name);
-            final p = ensure(b.name, team: inn.battingTeam);
+            if (b.playerId.isEmpty) continue;
+            final name = resolvedName(b.playerId, b.name, match);
+            if (excludePlaceholders && isPlaceholderPlayerName(name)) continue;
+            final key = identityKey(b.playerId);
+            participants[key] = (b.playerId, name);
+            final p = ensure(b.playerId, name, team: inn.battingTeam);
             p.inningsBatted += 1;
             p.runs += b.runs;
             p.ballsFaced += b.balls;
@@ -172,8 +212,12 @@ class StatsEngine {
             if (bw.legalBalls == 0 && bw.runsConceded == 0 && bw.wickets == 0) {
               continue;
             }
-            participants.add(bw.name);
-            final p = ensure(bw.name, team: inn.bowlingTeam);
+            if (bw.playerId.isEmpty) continue;
+            final name = resolvedName(bw.playerId, bw.name, match);
+            if (excludePlaceholders && isPlaceholderPlayerName(name)) continue;
+            final key = identityKey(bw.playerId);
+            participants[key] = (bw.playerId, name);
+            final p = ensure(bw.playerId, name, team: inn.bowlingTeam);
             p.inningsBowled += 1;
             p.legalBallsBowled += bw.legalBalls;
             p.maidens += bw.maidens;
@@ -188,15 +232,17 @@ class StatsEngine {
             }
           }
 
-          // Credit fielding dismissals from the ball log
           for (final ov in inn.overs) {
             for (final ball in ov.balls) {
-              if (ball.isWicket &&
-                  ball.fielder != null &&
-                  ball.fielder!.trim().isNotEmpty) {
-                final fName = ball.fielder!.trim();
-                participants.add(fName);
-                final fp = ensure(fName, team: inn.bowlingTeam);
+              final fId = ball.fielderId;
+              if (ball.isWicket && fId != null && fId.isNotEmpty) {
+                final fName = resolvedName(fId, 'Player', match);
+                if (excludePlaceholders && isPlaceholderPlayerName(fName)) {
+                  continue;
+                }
+                final key = identityKey(fId);
+                participants[key] = (fId, fName);
+                final fp = ensure(fId, fName, team: inn.bowlingTeam);
                 fp.fieldingDismissals += 1;
                 if (ball.wicketType == WicketType.caught) {
                   fp.catches += 1;
@@ -211,8 +257,8 @@ class StatsEngine {
         }
       }
 
-      for (final name in participants) {
-        ensure(name).matchesPlayed += 1;
+      for (final entry in participants.values) {
+        ensure(entry.$1, entry.$2).matchesPlayed += 1;
       }
     }
 
@@ -253,8 +299,15 @@ class StatsEngine {
 }
 
 class _MutableCareer {
-  _MutableCareer(this.name);
-  final String name;
+  _MutableCareer({
+    required this.playerId,
+    this.userId,
+    required this.name,
+  });
+
+  final String playerId;
+  final String? userId;
+  String name;
   String? teamName;
   int matchesPlayed = 0;
   int inningsBatted = 0;
@@ -282,6 +335,8 @@ class _MutableCareer {
   int runOuts = 0;
 
   PlayerCareerStats toStats() => PlayerCareerStats(
+        playerId: playerId,
+        userId: userId,
         name: name,
         teamName: teamName,
         matchesPlayed: matchesPlayed,
@@ -370,20 +425,52 @@ extension StatsEnginePlayerProfile on StatsEngine {
   static PlayerFullProfile derivePlayerProfile(
     List<DerivedMatchState> matches,
     String playerName, {
+    String? playerId,
+    String? userId,
     bool excludeDemo = true,
+    Map<String, String> playerNamesById = const {},
+    Map<String, String> playerUserIdsById = const {},
   }) {
     final lower = playerName.trim().toLowerCase();
+    final targetPid = playerId?.trim();
+    final targetUid = (userId?.trim().isNotEmpty ?? false)
+        ? userId!.trim()
+        : (targetPid != null ? playerUserIdsById[targetPid] : null);
+
+    bool matchesPlayer(String candidateId, String candidateName) {
+      if (targetUid != null && targetUid.isNotEmpty) {
+        final candUid = playerUserIdsById[candidateId];
+        if (candUid == targetUid) return true;
+      }
+      if (targetPid != null && targetPid.isNotEmpty) {
+        return candidateId == targetPid;
+      }
+      return candidateName.trim().toLowerCase() == lower;
+    }
+
+    bool matchesCareer(PlayerCareerStats s) {
+      if (targetUid != null && targetUid.isNotEmpty) {
+        return s.userId == targetUid || s.playerId == targetPid;
+      }
+      if (targetPid != null && targetPid.isNotEmpty) {
+        return s.playerId == targetPid;
+      }
+      return s.name.trim().toLowerCase() == lower;
+    }
+
     final filtered = matches
         .where((m) => !excludeDemo || !m.config.isDemo)
         .toList()
       ..sort((a, b) => b.config.createdAt.compareTo(a.config.createdAt));
 
-    final allOverall = StatsEngine.derive(filtered, excludeDemo: false);
-    final overall = allOverall
-        .where((p) => p.name.toLowerCase() == lower)
-        .firstOrNull;
+    final allOverall = StatsEngine.derive(
+      filtered,
+      excludeDemo: false,
+      playerNamesById: playerNamesById,
+      playerUserIdsById: playerUserIdsById,
+    );
+    final overall = allOverall.where(matchesCareer).firstOrNull;
 
-    // Group matches by format where this player participated
     final matchesByFormat = <String, List<DerivedMatchState>>{};
     final contributions = <PlayerMatchContribution>[];
     final oppMap = <String, ({
@@ -397,7 +484,7 @@ extension StatsEnginePlayerProfile on StatsEngine {
     })>{};
 
     for (final m in filtered) {
-      String? playerTeam;
+      MatchSide? playerSide;
       int batRuns = 0;
       int batBalls = 0;
       bool batted = false;
@@ -411,20 +498,20 @@ extension StatsEnginePlayerProfile on StatsEngine {
       for (final inn in m.allInnings) {
         if (!m.config.isTestMatch && inn.inningsNumber >= 3) continue;
         for (final b in inn.batters) {
-          if (b.name.toLowerCase() == lower &&
+          if (matchesPlayer(b.playerId, b.name) &&
               (b.balls > 0 || b.isOut || b.runs > 0)) {
             batted = true;
-            playerTeam ??= inn.battingTeam;
+            playerSide ??= inn.battingSide;
             batRuns += b.runs;
             batBalls += b.balls;
             if (b.isOut) notOut = false;
           }
         }
         for (final bw in inn.bowlers) {
-          if (bw.name.toLowerCase() == lower &&
+          if (matchesPlayer(bw.playerId, bw.name) &&
               (bw.legalBalls > 0 || bw.runsConceded > 0 || bw.wickets > 0)) {
             bowled = true;
-            playerTeam ??= inn.bowlingTeam;
+            playerSide ??= inn.bowlingSide;
             bowlWkts += bw.wickets;
             bowlRuns += bw.runsConceded;
             bowlBalls += bw.legalBalls;
@@ -432,10 +519,15 @@ extension StatsEnginePlayerProfile on StatsEngine {
         }
         for (final ov in inn.overs) {
           for (final ball in ov.balls) {
-            if (ball.isWicket &&
-                ball.fielder?.trim().toLowerCase() == lower) {
-              fielded = true;
-              playerTeam ??= inn.bowlingTeam;
+            final fId = ball.fielderId;
+            if (ball.isWicket && fId != null && fId.isNotEmpty) {
+              final fName = playerNamesById[fId] ??
+                  m.resolvedPlayerNames[fId] ??
+                  '';
+              if (matchesPlayer(fId, fName)) {
+                fielded = true;
+                playerSide ??= inn.bowlingSide;
+              }
             }
           }
         }
@@ -443,8 +535,7 @@ extension StatsEnginePlayerProfile on StatsEngine {
 
       if (!batted && !bowled && !fielded) continue;
 
-      final opponent = (playerTeam != null &&
-              playerTeam.toLowerCase() == m.config.teamA.toLowerCase())
+      final opponent = playerSide == MatchSide.a
           ? m.config.teamB
           : m.config.teamA;
 
@@ -478,9 +569,12 @@ extension StatsEnginePlayerProfile on StatsEngine {
 
     final byFormat = <String, PlayerCareerStats>{};
     for (final entry in matchesByFormat.entries) {
-      final fmtStats = StatsEngine.derive(entry.value, excludeDemo: false)
-          .where((p) => p.name.toLowerCase() == lower)
-          .firstOrNull;
+      final fmtStats = StatsEngine.derive(
+        entry.value,
+        excludeDemo: false,
+        playerNamesById: playerNamesById,
+        playerUserIdsById: playerUserIdsById,
+      ).where(matchesCareer).firstOrNull;
       if (fmtStats != null) byFormat[entry.key] = fmtStats;
     }
 

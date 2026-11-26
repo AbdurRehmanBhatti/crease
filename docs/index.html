@@ -334,6 +334,8 @@
     let selectedInnings = null;
     let currentMatch = null;
     let currentEvents = [];
+    let currentPlayersById = {};
+    let currentTeamsById = {};
 
     function esc(str) {
       return String(str ?? '').replace(/[&<>"']/g, s => ({
@@ -341,19 +343,32 @@
       }[s]));
     }
 
+    function resolvePlayerName(match, id) {
+      if (!id) return '';
+      return currentPlayersById[id] || (match && match.ad_hoc_players && match.ad_hoc_players[id]) || 'Player';
+    }
+
+    function resolveTeamName(match, side) {
+      const tid = side === 'a' ? match.team_a_id : match.team_b_id;
+      const fallback = side === 'a' ? match.team_a : match.team_b;
+      return (tid && currentTeamsById[tid]) || fallback || 'Team';
+    }
+
     function deriveInnings(match, events, innNum) {
       const balls = events
         .filter(e => !e.voided && e.innings_number === innNum)
         .sort((a, b) => a.sequence_number - b.sequence_number);
 
-      const battingFirst = match.batting_first_team;
-      const battingSecond = battingFirst === match.team_a ? match.team_b : match.team_a;
+      const firstSide = match.batting_first_side === 'b' ? 'b' : 'a';
+      const secondSide = firstSide === 'a' ? 'b' : 'a';
       const followOn = !!match.follow_on_enforced;
-      const battingTeam = innNum === 1 ? battingFirst
-        : innNum === 2 ? battingSecond
-        : innNum === 3 ? (followOn ? battingSecond : battingFirst)
-        : (followOn ? battingFirst : battingSecond);
-      const bowlingTeam = battingTeam === battingFirst ? battingSecond : battingFirst;
+      const battingSide = innNum === 1 ? firstSide
+        : innNum === 2 ? secondSide
+        : innNum === 3 ? (followOn ? secondSide : firstSide)
+        : (followOn ? firstSide : secondSide);
+      const bowlingSide = battingSide === 'a' ? 'b' : 'a';
+      const battingTeam = resolveTeamName(match, battingSide);
+      const bowlingTeam = resolveTeamName(match, bowlingSide);
 
       let runs = 0, wickets = 0, legalBalls = 0;
       let wides = 0, noBalls = 0, byes = 0, legByes = 0;
@@ -362,80 +377,100 @@
       const overs = [];
       let curOver = [];
       let curLegal = 0;
-      let striker = innNum === 1 ? match.opening_striker_1 : match.opening_striker_2;
-      let nonStriker = innNum === 1 ? match.opening_non_striker_1 : match.opening_non_striker_2;
-      let bowler = innNum === 1 ? match.opening_bowler_1 : match.opening_bowler_2;
+      let strikerId = innNum === 1 ? (match.opening_striker_1_id || '') : (match.opening_striker_2_id || '');
+      let nonStrikerId = innNum === 1 ? (match.opening_non_striker_1_id || '') : (match.opening_non_striker_2_id || '');
+      let bowlerId = innNum === 1 ? (match.opening_bowler_1_id || '') : (match.opening_bowler_2_id || '');
 
-      const ensureBat = (n) => {
-        if (!batters.has(n)) batters.set(n, { name: n, runs: 0, balls: 0, fours: 0, sixes: 0, isOut: false, dismissal: '' });
-        return batters.get(n);
+      const nameOf = (id) => resolvePlayerName(match, id);
+      const ensureBat = (id) => {
+        if (!id) return null;
+        if (!batters.has(id)) batters.set(id, { id, name: nameOf(id), runs: 0, balls: 0, fours: 0, sixes: 0, isOut: false, dismissal: '' });
+        return batters.get(id);
       };
-      const ensureBowl = (n) => {
-        if (!bowlers.has(n)) bowlers.set(n, { name: n, legal: 0, runs: 0, wickets: 0 });
-        return bowlers.get(n);
+      const ensureBowl = (id) => {
+        if (!id) return null;
+        if (!bowlers.has(id)) bowlers.set(id, { id, name: nameOf(id), legal: 0, runs: 0, wickets: 0 });
+        return bowlers.get(id);
       };
 
       for (const b of balls) {
-        const bt = ensureBat(b.striker);
-        ensureBat(b.non_striker);
-        const bw = ensureBowl(b.bowler);
-        striker = b.striker;
-        nonStriker = b.non_striker;
-        bowler = b.bowler;
+        const bt = ensureBat(b.striker_id);
+        ensureBat(b.non_striker_id);
+        const bw = ensureBowl(b.bowler_id);
+        strikerId = b.striker_id;
+        nonStrikerId = b.non_striker_id;
+        bowlerId = b.bowler_id;
 
         const rBat = b.runs_off_bat || 0;
         const rExt = b.extra_runs || 0;
         const ext = b.extra_type || 'none';
-        const isLegal = ext !== 'wide' && ext !== 'noBall';
+        const isLegal = ext !== 'wide' && ext !== 'noBall' && ext !== 'penalty' && b.wicket_type !== 'retiredHurt';
 
         runs += rBat + rExt;
-        bt.runs += rBat;
-        if (ext !== 'wide') bt.balls += 1;
-        if (rBat === 4) bt.fours += 1;
-        if (rBat === 6) bt.sixes += 1;
+        if (bt) {
+          bt.runs += rBat;
+          if (ext !== 'wide' && ext !== 'penalty' && b.wicket_type !== 'retiredHurt') bt.balls += 1;
+          if (rBat === 4) bt.fours += 1;
+          if (rBat === 6) bt.sixes += 1;
+        }
 
         if (ext === 'wide') wides += rExt;
         else if (ext === 'noBall') noBalls += rExt;
-        else if (ext === 'bye') byes += rExt;
+        else if (ext === 'bye' || ext === 'penalty') byes += rExt;
         else if (ext === 'legBye') legByes += rExt;
 
-        bw.runs += (ext === 'bye' || ext === 'legBye') ? rBat : (rBat + rExt);
+        if (bw) {
+          if (ext !== 'penalty') {
+            bw.runs += (ext === 'bye' || ext === 'legBye') ? rBat : (rBat + rExt);
+          }
+          if (isLegal) bw.legal += 1;
+        }
         if (isLegal) {
           legalBalls += 1;
           curLegal += 1;
-          bw.legal += 1;
         }
 
         if (b.is_wicket) {
-          wickets += 1;
-          const outName = b.dismissed_batter || b.striker;
-          const outBt = ensureBat(outName);
-          outBt.isOut = true;
-          outBt.dismissal = b.wicket_type === 'caught'
-            ? (b.fielder ? `c ${b.fielder} b ${b.bowler}` : `c & b ${b.bowler}`)
-            : b.wicket_type === 'bowled' ? `b ${b.bowler}`
-            : b.wicket_type === 'lbw' ? `lbw b ${b.bowler}`
-            : b.wicket_type === 'runOut' ? (b.fielder ? `run out (${b.fielder})` : 'run out')
-            : (b.wicket_type || 'out');
-          if (b.wicket_type !== 'runOut' && b.wicket_type !== 'retired') bw.wickets += 1;
-          if (b.next_batter) {
-            ensureBat(b.next_batter);
-            if (outName === nonStriker) nonStriker = b.next_batter;
-            else striker = b.next_batter;
+          const countsWicket = b.wicket_type !== 'retiredHurt';
+          const outId = b.dismissed_batter_id || b.striker_id;
+          const outBt = ensureBat(outId);
+          const bwName = nameOf(b.bowler_id);
+          const fName = b.fielder_id ? nameOf(b.fielder_id) : '';
+          if (countsWicket) {
+            wickets += 1;
+            if (outBt) {
+              outBt.isOut = true;
+              outBt.dismissal = b.wicket_type === 'caught'
+                ? (fName ? `c ${fName} b ${bwName}` : `c & b ${bwName}`)
+                : b.wicket_type === 'bowled' ? `b ${bwName}`
+                : b.wicket_type === 'lbw' ? `lbw b ${bwName}`
+                : b.wicket_type === 'stumped' ? (fName ? `st ${fName} b ${bwName}` : `stumped b ${bwName}`)
+                : b.wicket_type === 'runOut' ? (fName ? `run out (${fName})` : 'run out')
+                : (b.wicket_type || 'out');
+            }
+            if (bw && b.wicket_type !== 'runOut' && b.wicket_type !== 'retired') bw.wickets += 1;
+          } else if (outBt) {
+            outBt.dismissal = 'retired hurt';
+          }
+          if (b.next_batter_id) {
+            ensureBat(b.next_batter_id);
+            if (outId === nonStrikerId) nonStrikerId = b.next_batter_id;
+            else strikerId = b.next_batter_id;
           }
         }
 
-        const running = ext === 'wide' ? Math.max(0, rExt - 1)
+        const running = ext === 'penalty' ? 0
+          : ext === 'wide' ? Math.max(0, rExt - 1)
           : ext === 'noBall' ? rBat + Math.max(0, rExt - 1)
           : rBat + rExt;
-        if (running % 2 === 1) [striker, nonStriker] = [nonStriker, striker];
+        if (running % 2 === 1) [strikerId, nonStrikerId] = [nonStrikerId, strikerId];
 
         curOver.push(b);
         if (curLegal === 6) {
           overs.push(curOver);
           curOver = [];
           curLegal = 0;
-          [striker, nonStriker] = [nonStriker, striker];
+          [strikerId, nonStrikerId] = [nonStrikerId, strikerId];
         }
       }
       if (curOver.length > 0) overs.push(curOver);
@@ -446,7 +481,7 @@
         oversText: `${Math.floor(legalBalls / 6)}.${legalBalls % 6}`,
         scoreText: `${runs}/${wickets}${declared ? 'd' : ''}`,
         crr: legalBalls > 0 ? (runs / (legalBalls / 6)).toFixed(2) : '0.00',
-        striker, nonStriker, bowler,
+        striker: nameOf(strikerId), nonStriker: nameOf(nonStrikerId), bowler: nameOf(bowlerId),
         batters: Array.from(batters.values()),
         bowlers: Array.from(bowlers.values()),
         currentOver: overs.length ? overs[overs.length - 1] : [],
@@ -589,10 +624,24 @@
       renderMatch();
     };
 
-    const MATCH_COLS = 'id,team_a,team_b,overs_limit,players_per_side,format_label,batting_first_team,opening_striker_1,opening_non_striker_1,opening_bowler_1,opening_striker_2,opening_non_striker_2,opening_bowler_2,is_test_match,declared_innings,follow_on_enforced,first_innings_target_override';
-    const BALL_COLS = 'id,match_id,innings_number,sequence_number,striker,non_striker,bowler,runs_off_bat,extra_type,extra_runs,is_wicket,wicket_type,dismissed_batter,fielder,next_batter,voided';
+    const MATCH_COLS = 'id,team_a_id,team_b_id,team_a,team_b,batting_first_side,overs_limit,players_per_side,format_label,opening_striker_1_id,opening_non_striker_1_id,opening_bowler_1_id,opening_striker_2_id,opening_non_striker_2_id,opening_bowler_2_id,ad_hoc_players,tournament_stage,is_test_match,declared_innings,follow_on_enforced,first_innings_target_override';
+    const BALL_COLS = 'id,match_id,innings_number,sequence_number,striker_id,non_striker_id,bowler_id,runs_off_bat,extra_type,extra_runs,is_wicket,wicket_type,dismissed_batter_id,fielder_id,next_batter_id,voided';
     const RECENT_MATCH_COLS = 'id,team_a,team_b,format_label,created_at';
     let pollTimer = null;
+
+    function applyBundle(bundle) {
+      if (!bundle || !bundle.match) return;
+      currentMatch = bundle.match;
+      currentEvents = Array.isArray(bundle.events) ? bundle.events : [];
+      currentPlayersById = {};
+      for (const p of (bundle.players || [])) {
+        if (p && p.id && p.display_name) currentPlayersById[p.id] = p.display_name;
+      }
+      currentTeamsById = {};
+      for (const t of (bundle.teams || [])) {
+        if (t && t.id && t.name) currentTeamsById[t.id] = t.name;
+      }
+    }
 
     function upsertLocalEvent(ev) {
       if (!ev || !ev.id) return;
@@ -613,31 +662,24 @@
       if (pollTimer) return;
       pollTimer = setInterval(async () => {
         if (document.hidden) return;
-        const [{ data: freshMatch }, { data: freshEvents }] = await Promise.all([
-          sb.from('matches').select(MATCH_COLS).eq('id', id).maybeSingle(),
-          sb.from('ball_events').select(BALL_COLS).eq('match_id', id).order('sequence_number', { ascending: true }),
-        ]);
-        if (freshMatch) currentMatch = freshMatch;
-        if (freshEvents) currentEvents = freshEvents;
-        renderMatch();
+        const { data: bundle } = await sb.rpc('get_live_match_bundle', { p_match_id: id });
+        if (bundle && bundle.match) {
+          applyBundle(bundle);
+          renderMatch();
+        }
       }, 12000);
     }
 
     async function loadSingleMatch(id) {
-      const [{ data: match }, { data: events }] = await Promise.all([
-        sb.from('matches').select(MATCH_COLS).eq('id', id).maybeSingle(),
-        sb.from('ball_events').select(BALL_COLS).eq('match_id', id).order('sequence_number', { ascending: true }),
-      ]);
-      if (!match) {
+      const { data: bundle } = await sb.rpc('get_live_match_bundle', { p_match_id: id });
+      if (!bundle || !bundle.match) {
         document.getElementById('app').innerHTML = `<div class="glass">Match not found yet. Ask the scorer to sync online.</div>`;
         return;
       }
-      currentMatch = match;
-      currentEvents = events || [];
+      applyBundle(bundle);
       renderMatch();
 
-      // Subscribe to live Realtime ball updates incrementally (zero full re-fetch per ball)
-      // and fall back to lightweight polling if Realtime hits connection limits or drops.
+      // Subscribe to live Realtime ball & player updates incrementally
       sb.channel(`match-${id}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'ball_events', filter: `match_id=eq.${id}` }, (payload) => {
           if (payload.eventType === 'DELETE' && payload.old?.id) {
@@ -650,6 +692,12 @@
         .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${id}` }, (payload) => {
           if (payload.new) {
             currentMatch = { ...currentMatch, ...payload.new };
+            renderMatch();
+          }
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'players' }, (payload) => {
+          if (payload.new && payload.new.id && currentPlayersById[payload.new.id]) {
+            currentPlayersById[payload.new.id] = payload.new.display_name;
             renderMatch();
           }
         })
@@ -725,9 +773,10 @@
     }
 
     async function loadTournament(id) {
-      const TOURN_COLS = 'id, name, location, start_date, end_date, overs_limit, format_label, team_rosters, points_for_win, points_for_tie, structure';
-      const [{ data: t }, { data: matches }] = await Promise.all([
+      const TOURN_COLS = 'id, name, location, start_date, end_date, overs_limit, format_label, points_for_win, points_for_tie, structure';
+      const [{ data: t }, { data: ttRows }, { data: matches }] = await Promise.all([
         sb.from('tournaments').select(TOURN_COLS).eq('id', id).maybeSingle(),
+        sb.from('tournament_teams').select('team_id, ad_hoc_name, seed_order, teams(name)').eq('tournament_id', id).order('seed_order', { ascending: true }),
         sb.from('matches').select(MATCH_COLS).eq('tournament_id', id).order('created_at', { ascending: false }),
       ]);
       if (!t) {
@@ -747,7 +796,7 @@
         (eventsByMatch[e.match_id] ||= []).push(e);
       }
 
-      const teamNames = Object.keys(t.team_rosters || {});
+      const teamNames = (ttRows || []).map(r => (r.teams && r.teams.name) || r.ad_hoc_name).filter(Boolean);
       const stats = {};
       const ensure = (name) => {
         const k = name.toLowerCase();

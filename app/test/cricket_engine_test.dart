@@ -1,9 +1,21 @@
 import 'package:crease/data/sample_match.dart';
 import 'package:crease/domain/cricket_engine.dart';
 import 'package:crease/domain/models.dart';
+import 'package:crease/domain/stats_engine.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  const names = {
+    'ali': 'Ali',
+    'bilal': 'Bilal',
+    'zain': 'Zain',
+    'kamran': 'Kamran',
+    'wk': 'WK',
+    'saad': 'Saad',
+    'omer': 'Omer',
+    'hamza': 'Hamza',
+  };
+
   group('CricketEngine derivation', () {
     test('derives exact sample match totals from 100 real ball events', () {
       final config = SampleMatchSeed.config();
@@ -35,49 +47,47 @@ void main() {
         teamB: 'B',
         oversLimit: 2,
         formatLabel: '2OV',
-        battingFirstTeam: 'A',
-        openingStrikerInnings1: 'Ali',
-        openingNonStrikerInnings1: 'Bilal',
-        openingBowlerInnings1: 'Zain',
+        battingFirstSide: MatchSide.a,
+        openingStriker1Id: 'ali',
+        openingNonStriker1Id: 'bilal',
+        openingBowler1Id: 'zain',
+        adHocPlayers: names,
         createdAt: DateTime(2026, 11, 21),
       );
 
       final now = DateTime(2026, 11, 21);
       final events = [
-        // Ball 1: single -> Bilal on strike
         BallEvent(
           id: '1',
           matchId: 'm1',
           inningsNumber: 1,
           sequenceNumber: 1,
-          striker: 'Ali',
-          nonStriker: 'Bilal',
-          bowler: 'Zain',
+          strikerId: 'ali',
+          nonStrikerId: 'bilal',
+          bowlerId: 'zain',
           runsOffBat: 1,
           createdAt: now,
         ),
-        // Wide (+1 penalty): not a legal ball, strike stays with Bilal
         BallEvent(
           id: '2',
           matchId: 'm1',
           inningsNumber: 1,
           sequenceNumber: 2,
-          striker: 'Bilal',
-          nonStriker: 'Ali',
-          bowler: 'Zain',
+          strikerId: 'bilal',
+          nonStrikerId: 'ali',
+          bowlerId: 'zain',
           extraType: ExtraType.wide,
           extraRuns: 1,
           createdAt: now,
         ),
-        // Ball 2: four -> Bilal stays on strike
         BallEvent(
           id: '3',
           matchId: 'm1',
           inningsNumber: 1,
           sequenceNumber: 3,
-          striker: 'Bilal',
-          nonStriker: 'Ali',
-          bowler: 'Zain',
+          strikerId: 'bilal',
+          nonStrikerId: 'ali',
+          bowlerId: 'zain',
           runsOffBat: 4,
           createdAt: now,
         ),
@@ -98,7 +108,6 @@ void main() {
     test('voiding any ball recalculates score cleanly with zero drift', () {
       final config = SampleMatchSeed.config();
       final events = SampleMatchSeed.events();
-      // Void the 4 on ball 17.3 (second to last ball)
       events[events.length - 2] =
           events[events.length - 2].copyWith(voided: true);
 
@@ -107,23 +116,26 @@ void main() {
       expect(state.activeInnings.oversText, '16.3');
     });
 
-    test('recording a wicket without nextBatter prompts for next batter', () {
+    test('recording a wicket without nextBatterId prompts for next batter', () {
       final config = SampleMatchSeed.config();
       final events = SampleMatchSeed.events();
       final last = events.last;
+      final shadabId = config.adHocPlayers.entries
+          .firstWhere((e) => e.value == 'Shadab K.')
+          .key;
       events[events.length - 1] = BallEvent(
         id: last.id,
         matchId: last.matchId,
         inningsNumber: last.inningsNumber,
         sequenceNumber: last.sequenceNumber,
-        striker: last.striker,
-        nonStriker: last.nonStriker,
-        bowler: last.bowler,
+        strikerId: last.strikerId,
+        nonStrikerId: last.nonStrikerId,
+        bowlerId: last.bowlerId,
         isWicket: true,
         wicketType: WicketType.caught,
-        dismissedBatter: last.dismissedBatter,
-        fielder: last.fielder,
-        nextBatter: null,
+        dismissedBatterId: last.dismissedBatterId,
+        fielderId: last.fielderId,
+        nextBatterId: null,
         createdAt: last.createdAt,
       );
 
@@ -131,9 +143,8 @@ void main() {
       expect(pending.activeInnings.needsNextBatter, isTrue);
       expect(pending.activeInnings.striker, isEmpty);
 
-      // Selecting the next batter resolves the crease cleanly
       events[events.length - 1] =
-          events.last.copyWith(nextBatter: 'Shadab K.');
+          events.last.copyWith(nextBatterId: shadabId);
       final resolved = CricketEngine.derive(config, events);
       expect(resolved.activeInnings.needsNextBatter, isFalse);
       expect(resolved.activeInnings.striker, 'Shadab K.');
@@ -146,10 +157,11 @@ void main() {
         teamB: 'B',
         oversLimit: 10,
         formatLabel: 'T10',
-        battingFirstTeam: 'A',
-        openingStrikerInnings1: 'Ali',
-        openingNonStrikerInnings1: 'Bilal',
-        openingBowlerInnings1: 'Zain',
+        battingFirstSide: MatchSide.a,
+        openingStriker1Id: 'ali',
+        openingNonStriker1Id: 'bilal',
+        openingBowler1Id: 'zain',
+        adHocPlayers: names,
         firstInningsTargetOverride: 55,
         createdAt: DateTime(2026),
       );
@@ -159,9 +171,9 @@ void main() {
           matchId: cfg.id,
           inningsNumber: 1,
           sequenceNumber: 1,
-          striker: 'Ali',
-          nonStriker: 'Bilal',
-          bowler: 'Zain',
+          strikerId: 'ali',
+          nonStrikerId: 'bilal',
+          bowlerId: 'zain',
           extraType: ExtraType.penalty,
           extraRuns: 5,
           createdAt: DateTime(2026),
@@ -171,13 +183,13 @@ void main() {
           matchId: cfg.id,
           inningsNumber: 1,
           sequenceNumber: 2,
-          striker: 'Ali',
-          nonStriker: 'Bilal',
-          bowler: 'Zain',
+          strikerId: 'ali',
+          nonStrikerId: 'bilal',
+          bowlerId: 'zain',
           isWicket: true,
           wicketType: WicketType.retiredHurt,
-          dismissedBatter: 'Ali',
-          nextBatter: 'Kamran',
+          dismissedBatterId: 'ali',
+          nextBatterId: 'kamran',
           createdAt: DateTime(2026),
         ),
         BallEvent(
@@ -185,15 +197,15 @@ void main() {
           matchId: cfg.id,
           inningsNumber: 1,
           sequenceNumber: 3,
-          striker: 'Kamran',
-          nonStriker: 'Bilal',
-          bowler: 'Zain',
+          strikerId: 'kamran',
+          nonStrikerId: 'bilal',
+          bowlerId: 'zain',
           extraType: ExtraType.wide,
           extraRuns: 1,
           isWicket: true,
           wicketType: WicketType.stumped,
-          dismissedBatter: 'Kamran',
-          fielder: 'WK',
+          dismissedBatterId: 'kamran',
+          fielderId: 'wk',
           createdAt: DateTime(2026),
         ),
       ];
@@ -217,19 +229,19 @@ void main() {
         oversLimit: 1,
         playersPerSide: 11,
         formatLabel: '1OV',
-        battingFirstTeam: 'Bhatti XI',
-        openingStrikerInnings1: 'Ali',
-        openingNonStrikerInnings1: 'Bilal',
-        openingBowlerInnings1: 'Zain',
-        openingStrikerInnings2: 'Saad',
-        openingNonStrikerInnings2: 'Omer',
-        openingBowlerInnings2: 'Hamza',
-        teamAPlayers: const ['Ali', 'Bilal', 'Hamza'],
-        teamBPlayers: const ['Saad', 'Omer', 'Zain'],
+        battingFirstSide: MatchSide.a,
+        openingStriker1Id: 'ali',
+        openingNonStriker1Id: 'bilal',
+        openingBowler1Id: 'zain',
+        openingStriker2Id: 'saad',
+        openingNonStriker2Id: 'omer',
+        openingBowler2Id: 'hamza',
+        teamAPlayerIds: const ['ali', 'bilal', 'hamza'],
+        teamBPlayerIds: const ['saad', 'omer', 'zain'],
+        adHocPlayers: names,
         createdAt: DateTime(2026),
       );
 
-      // Both teams score 6 runs in 1 over -> tied regulation match.
       final regEvents = <BallEvent>[
         for (var i = 1; i <= 6; i++)
           BallEvent(
@@ -237,9 +249,9 @@ void main() {
             matchId: cfg.id,
             inningsNumber: 1,
             sequenceNumber: i,
-            striker: 'Ali',
-            nonStriker: 'Bilal',
-            bowler: 'Zain',
+            strikerId: 'ali',
+            nonStrikerId: 'bilal',
+            bowlerId: 'zain',
             runsOffBat: i == 1 ? 6 : 0,
             createdAt: DateTime(2026),
           ),
@@ -249,9 +261,9 @@ void main() {
             matchId: cfg.id,
             inningsNumber: 2,
             sequenceNumber: i,
-            striker: 'Saad',
-            nonStriker: 'Omer',
-            bowler: 'Hamza',
+            strikerId: 'saad',
+            nonStrikerId: 'omer',
+            bowlerId: 'hamza',
             runsOffBat: i == 1 ? 6 : 0,
             createdAt: DateTime(2026),
           ),
@@ -262,8 +274,6 @@ void main() {
       expect(tied.resultSummary, 'Match tied');
       expect(tied.innings3, isNull);
 
-      // Super Over Innings 1 (inningsNumber 3): Street XI (batted 2nd) bats first,
-      // scores 4 then loses 2 wickets -> all out at 2 wickets!
       final so1Events = [
         ...regEvents,
         BallEvent(
@@ -271,9 +281,9 @@ void main() {
           matchId: cfg.id,
           inningsNumber: 3,
           sequenceNumber: 1,
-          striker: 'Saad',
-          nonStriker: 'Omer',
-          bowler: 'Hamza',
+          strikerId: 'saad',
+          nonStrikerId: 'omer',
+          bowlerId: 'hamza',
           runsOffBat: 4,
           createdAt: DateTime(2026),
         ),
@@ -282,13 +292,13 @@ void main() {
           matchId: cfg.id,
           inningsNumber: 3,
           sequenceNumber: 2,
-          striker: 'Saad',
-          nonStriker: 'Omer',
-          bowler: 'Hamza',
+          strikerId: 'saad',
+          nonStrikerId: 'omer',
+          bowlerId: 'hamza',
           isWicket: true,
           wicketType: WicketType.bowled,
-          dismissedBatter: 'Saad',
-          nextBatter: 'Zain',
+          dismissedBatterId: 'saad',
+          nextBatterId: 'zain',
           createdAt: DateTime(2026),
         ),
         BallEvent(
@@ -296,12 +306,12 @@ void main() {
           matchId: cfg.id,
           inningsNumber: 3,
           sequenceNumber: 3,
-          striker: 'Zain',
-          nonStriker: 'Omer',
-          bowler: 'Hamza',
+          strikerId: 'zain',
+          nonStrikerId: 'omer',
+          bowlerId: 'hamza',
           isWicket: true,
           wicketType: WicketType.bowled,
-          dismissedBatter: 'Zain',
+          dismissedBatterId: 'zain',
           createdAt: DateTime(2026),
         ),
       ];
@@ -313,7 +323,6 @@ void main() {
       expect(soBreak.innings3!.totalRuns, 4);
       expect(soBreak.status, MatchStatus.inningsBreak);
 
-      // Super Over Innings 2 (inningsNumber 4): Bhatti XI hits 6 on ball 1 -> wins!
       final so2Events = [
         ...so1Events,
         BallEvent(
@@ -321,9 +330,9 @@ void main() {
           matchId: cfg.id,
           inningsNumber: 4,
           sequenceNumber: 1,
-          striker: 'Ali',
-          nonStriker: 'Bilal',
-          bowler: 'Zain',
+          strikerId: 'ali',
+          nonStrikerId: 'bilal',
+          bowlerId: 'zain',
           runsOffBat: 6,
           createdAt: DateTime(2026),
         ),
@@ -337,5 +346,126 @@ void main() {
       expect(done.resultSummary, 'Bhatti XI won Super Over');
     });
   });
-}
 
+  group('Strict 3NF Player Identity (UUID normalization)', () {
+    test('renaming a player updates past scorecards, dismissals, and career stats without splitting', () {
+      const pAbdur = '00000000-0000-4000-8000-000000000101';
+      const pSheran = '00000000-0000-4000-8000-000000000102';
+      const pBasit = '00000000-0000-4000-8000-000000000103';
+      const pFielder = '00000000-0000-4000-8000-000000000104';
+
+      final cfg = MatchConfig(
+        id: 'm-rename',
+        teamA: 'Bhatti XI',
+        teamB: 'Abu G',
+        oversLimit: 2,
+        formatLabel: '2OV',
+        battingFirstSide: MatchSide.a,
+        openingStriker1Id: pAbdur,
+        openingNonStriker1Id: pSheran,
+        openingBowler1Id: pBasit,
+        createdAt: DateTime(2026, 11, 26),
+      );
+
+      final events = [
+        BallEvent(
+          id: 'b1',
+          matchId: cfg.id,
+          inningsNumber: 1,
+          sequenceNumber: 1,
+          strikerId: pAbdur,
+          nonStrikerId: pSheran,
+          bowlerId: pBasit,
+          runsOffBat: 6,
+          createdAt: DateTime(2026, 11, 26),
+        ),
+        BallEvent(
+          id: 'b2',
+          matchId: cfg.id,
+          inningsNumber: 1,
+          sequenceNumber: 2,
+          strikerId: pAbdur,
+          nonStrikerId: pSheran,
+          bowlerId: pBasit,
+          isWicket: true,
+          wicketType: WicketType.caught,
+          dismissedBatterId: pAbdur,
+          fielderId: pFielder,
+          createdAt: DateTime(2026, 11, 26),
+        ),
+      ];
+
+      // Before rename: "Abdur" and "Rehman"
+      final beforeNames = {
+        pAbdur: 'Abdur',
+        pSheran: 'Sheran',
+        pBasit: 'Basit',
+        pFielder: 'Rehman',
+      };
+      final before = CricketEngine.derive(cfg, events, playerNamesById: beforeNames);
+      expect(before.innings1.batterById(pAbdur).name, 'Abdur');
+      expect(before.innings1.batterById(pAbdur).dismissalText, 'c Rehman b Basit');
+
+      // After renaming both players in `players` (zero ball_events rewritten!)
+      final afterNames = {
+        pAbdur: 'Abdur Rehman',
+        pSheran: 'Sheran Bhatti',
+        pBasit: 'Basit Khan',
+        pFielder: 'Rehman Ali',
+      };
+      final after = CricketEngine.derive(cfg, events, playerNamesById: afterNames);
+      expect(after.innings1.batterById(pAbdur).name, 'Abdur Rehman');
+      expect(after.innings1.batterById(pAbdur).dismissalText, 'c Rehman Ali b Basit Khan');
+      expect(after.innings1.fallOfWickets.first.batterName, 'Abdur Rehman');
+
+      final stats = StatsEngine.derive([after], playerNamesById: afterNames);
+      final abdurStats = stats.where((s) => s.playerId == pAbdur).toList();
+      expect(abdurStats.length, 1);
+      expect(abdurStats.first.name, 'Abdur Rehman');
+      expect(abdurStats.first.runs, 6);
+    });
+
+    test('two players sharing the exact same display name remain distinct by playerId', () {
+      const aliClubA = '00000000-0000-4000-8000-000000000201';
+      const aliClubB = '00000000-0000-4000-8000-000000000202';
+      const partner = '00000000-0000-4000-8000-000000000203';
+
+      final dir = {
+        aliClubA: 'Ali',
+        aliClubB: 'Ali',
+        partner: 'Bilal',
+      };
+      final cfg = MatchConfig(
+        id: 'm-same-player-name',
+        teamA: 'Club A',
+        teamB: 'Club B',
+        oversLimit: 1,
+        formatLabel: '1OV',
+        battingFirstSide: MatchSide.a,
+        openingStriker1Id: aliClubA,
+        openingNonStriker1Id: partner,
+        openingBowler1Id: aliClubB,
+        createdAt: DateTime(2026, 11, 26),
+      );
+      final events = [
+        BallEvent(
+          id: 'b1',
+          matchId: cfg.id,
+          inningsNumber: 1,
+          sequenceNumber: 1,
+          strikerId: aliClubA,
+          nonStrikerId: partner,
+          bowlerId: aliClubB,
+          runsOffBat: 4,
+          createdAt: DateTime(2026, 11, 26),
+        ),
+      ];
+      final derived = CricketEngine.derive(cfg, events, playerNamesById: dir);
+      final stats = StatsEngine.derive([derived], playerNamesById: dir);
+      final aliEntries = stats.where((s) => s.name == 'Ali').toList();
+      expect(aliEntries.length, 2);
+      expect(aliEntries.firstWhere((s) => s.playerId == aliClubA).runs, 4);
+      expect(aliEntries.firstWhere((s) => s.playerId == aliClubB).runsConceded, 4);
+    });
+  });
+}

@@ -415,6 +415,7 @@ class OverTimeline extends StatelessWidget {
     required this.recentWicket,
     required this.onBallTap,
     this.hideEmptySlots = false,
+    this.playerNamesById = const {},
   });
 
   final OverSummary? previousOver;
@@ -422,6 +423,7 @@ class OverTimeline extends StatelessWidget {
   final BallEvent? recentWicket;
   final ValueChanged<BallEvent> onBallTap;
   final bool hideEmptySlots;
+  final Map<String, String> playerNamesById;
 
   @override
   Widget build(BuildContext context) {
@@ -516,7 +518,7 @@ class OverTimeline extends StatelessWidget {
             ],
           ),
         ),
-        if (recentWicket?.dismissalSummary != null) ...[
+        if (recentWicket?.dismissalSummary(playerNamesById) != null) ...[
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -525,7 +527,7 @@ class OverTimeline extends StatelessWidget {
               borderRadius: BorderRadius.circular(CreaseRadius.badge),
             ),
             child: Text(
-              recentWicket!.dismissalSummary!,
+              recentWicket!.dismissalSummary(playerNamesById)!,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     color: c.wicketRed,
                     fontWeight: FontWeight.w600,

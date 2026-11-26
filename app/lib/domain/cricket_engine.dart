@@ -1,29 +1,55 @@
 import 'models.dart';
 
 /// Deterministic cricket scoring engine.
-/// Derives the complete state of a match solely from [MatchConfig] and its
-/// ordered list of [BallEvent]s. Nothing is mutated or cached out-of-band, so
-/// undo, edit-any-ball, offline replay, and NRR can never drift.
+/// Derives the complete state of a match solely from [MatchConfig], its
+/// ordered list of UUID-referenced [BallEvent]s, and current [playerNamesById].
 class CricketEngine {
   CricketEngine._();
 
-  /// Returns a team's display label for plain-text summaries/banners.
-  /// Leaves names untouched for normal matches; appends `(A)` / `(B)` only
-  /// when both clubs share the exact same name (case-insensitive).
-  static String _displayLabel(MatchConfig config, MatchSide side) {
-    final name = config.teamNameForSide(side);
-    if (!config.hasSameTeamNames) return name;
+  static String _teamName(
+    MatchConfig config,
+    MatchSide side,
+    Map<String, String> teamNamesById,
+  ) {
+    final tid = config.teamIdForSide(side);
+    if (tid != null && tid.isNotEmpty) {
+      final resolved = teamNamesById[tid]?.trim();
+      if (resolved != null && resolved.isNotEmpty) return resolved;
+    }
+    return config.teamNameForSide(side);
+  }
+
+  static String _displayLabel(
+    MatchConfig config,
+    MatchSide side,
+    Map<String, String> teamNamesById,
+  ) {
+    final nameA = _teamName(config, MatchSide.a, teamNamesById);
+    final nameB = _teamName(config, MatchSide.b, teamNamesById);
+    final name = side == MatchSide.a ? nameA : nameB;
+    if (nameA.trim().toLowerCase() != nameB.trim().toLowerCase()) return name;
     return '$name (${side == MatchSide.a ? 'A' : 'B'})';
   }
 
   static DerivedMatchState derive(
     MatchConfig config,
     List<BallEvent> allEvents, {
+    Map<String, String> playerNamesById = const {},
+    Map<String, String> teamNamesById = const {},
     int? forcedInnings,
-    String? manualStrikerOverride,
-    String? manualNonStrikerOverride,
-    String? manualBowlerOverride,
+    String? manualStrikerIdOverride,
+    String? manualNonStrikerIdOverride,
+    String? manualBowlerIdOverride,
   }) {
+    final resolvedConfig = config.copyWith(
+      teamA: _teamName(config, MatchSide.a, teamNamesById),
+      teamB: _teamName(config, MatchSide.b, teamNamesById),
+    );
+    final resolvedNames = <String, String>{
+      ...resolvedConfig.adHocPlayers,
+      ...playerNamesById,
+    };
+
     final activeEvents = allEvents.where((e) => !e.voided).toList()
       ..sort((a, b) => a.sequenceNumber.compareTo(b.sequenceNumber));
 
@@ -38,40 +64,43 @@ class CricketEngine {
     final inn4Events =
         activeEvents.where((e) => e.inningsNumber == 4).toList();
 
-    final hasDemoChase = config.firstInningsTargetOverride != null;
-    final isTest = config.isTestMatch;
+    final hasDemoChase = resolvedConfig.firstInningsTargetOverride != null;
+    final isTest = resolvedConfig.isTestMatch;
 
     if (isTest) {
       return _deriveTestMatch(
-        config: config,
+        config: resolvedConfig,
+        resolvedNames: resolvedNames,
+        teamNamesById: teamNamesById,
         inn1Events: inn1Events,
         inn2Events: inn2Events,
         inn3Events: inn3Events,
         inn4Events: inn4Events,
         unsyncedCount: unsyncedCount,
         forcedInnings: forcedInnings,
-        manualStrikerOverride: manualStrikerOverride,
-        manualNonStrikerOverride: manualNonStrikerOverride,
-        manualBowlerOverride: manualBowlerOverride,
+        manualStrikerIdOverride: manualStrikerIdOverride,
+        manualNonStrikerIdOverride: manualNonStrikerIdOverride,
+        manualBowlerIdOverride: manualBowlerIdOverride,
       );
     }
 
     final innings1 = _deriveInnings(
       inningsNumber: 1,
-      battingTeam: config.battingFirstTeam,
-      bowlingTeam: config.battingSecondTeam,
-      battingSide: config.battingFirstSide,
-      oversLimit: config.oversLimit,
-      playersPerSide: config.playersPerSide,
-      openingStriker: config.openingStrikerInnings1,
-      openingNonStriker: config.openingNonStrikerInnings1,
-      openingBowler: config.openingBowlerInnings1,
+      battingTeam: resolvedConfig.battingFirstTeam,
+      bowlingTeam: resolvedConfig.battingSecondTeam,
+      battingSide: resolvedConfig.battingFirstSide,
+      oversLimit: resolvedConfig.oversLimit,
+      playersPerSide: resolvedConfig.playersPerSide,
+      openingStrikerId: resolvedConfig.openingStriker1Id ?? '',
+      openingNonStrikerId: resolvedConfig.openingNonStriker1Id ?? '',
+      openingBowlerId: resolvedConfig.openingBowler1Id ?? '',
       events: inn1Events,
-      isDeclared: config.declaredInnings.contains(1),
+      resolvedNames: resolvedNames,
+      isDeclared: resolvedConfig.declaredInnings.contains(1),
       target: null,
     );
 
-    final int? targetForInn2 = config.firstInningsTargetOverride ??
+    final int? targetForInn2 = resolvedConfig.firstInningsTargetOverride ??
         ((innings1.isComplete || inn2Events.isNotEmpty)
             ? innings1.totalRuns + 1
             : null);
@@ -86,21 +115,21 @@ class CricketEngine {
     if (showInnings2) {
       innings2 = _deriveInnings(
         inningsNumber: 2,
-        battingTeam: config.battingSecondTeam,
-        bowlingTeam: config.battingFirstTeam,
-        battingSide: config.battingSecondSide,
-        oversLimit: config.oversLimit,
-        playersPerSide: config.playersPerSide,
-        openingStriker: config.openingStrikerInnings2,
-        openingNonStriker: config.openingNonStrikerInnings2,
-        openingBowler: config.openingBowlerInnings2,
+        battingTeam: resolvedConfig.battingSecondTeam,
+        bowlingTeam: resolvedConfig.battingFirstTeam,
+        battingSide: resolvedConfig.battingSecondSide,
+        oversLimit: resolvedConfig.oversLimit,
+        playersPerSide: resolvedConfig.playersPerSide,
+        openingStrikerId: resolvedConfig.openingStriker2Id ?? '',
+        openingNonStrikerId: resolvedConfig.openingNonStriker2Id ?? '',
+        openingBowlerId: resolvedConfig.openingBowler2Id ?? '',
         events: inn2Events,
-        isDeclared: config.declaredInnings.contains(2),
+        resolvedNames: resolvedNames,
+        isDeclared: resolvedConfig.declaredInnings.contains(2),
         target: targetForInn2,
       );
     }
 
-    // True In-Match Super Over (innings 3 & 4) when regulation limited-overs match ties.
     final regulationTarget =
         innings2?.target ?? (innings1.totalRuns + 1);
     final isRegulationTied = innings2 != null &&
@@ -113,28 +142,23 @@ class CricketEngine {
             (forcedInnings != null && forcedInnings >= 3));
     DerivedInningsState? innings3;
     if (showSuperOver1) {
-      // ICC Super Over rule: team that batted 2nd in regulation bats 1st.
-      final so1BatSide = config.battingSecondSide;
-      final so1BowlSide = config.battingFirstSide;
-      final so1BatTeam = config.teamNameForSide(so1BatSide);
-      final so1BowlTeam = config.teamNameForSide(so1BowlSide);
-      final so1BatRoster = config.rosterForSide(so1BatSide);
-      final so1BowlRoster = config.rosterForSide(so1BowlSide);
+      final so1BatSide = resolvedConfig.battingSecondSide;
+      final so1BowlSide = resolvedConfig.battingFirstSide;
+      final so1BatRoster = resolvedConfig.rosterIdsForSide(so1BatSide);
+      final so1BowlRoster = resolvedConfig.rosterIdsForSide(so1BowlSide);
       innings3 = _deriveInnings(
         inningsNumber: 3,
-        battingTeam: so1BatTeam,
-        bowlingTeam: so1BowlTeam,
+        battingTeam: resolvedConfig.teamNameForSide(so1BatSide),
+        bowlingTeam: resolvedConfig.teamNameForSide(so1BowlSide),
         battingSide: so1BatSide,
         oversLimit: 1,
-        playersPerSide: 3, // 2 wickets all-out
-        openingStriker:
-            so1BatRoster.isNotEmpty ? so1BatRoster[0] : 'Batter 1',
-        openingNonStriker:
-            so1BatRoster.length > 1 ? so1BatRoster[1] : 'Batter 2',
-        openingBowler:
-            so1BowlRoster.isNotEmpty ? so1BowlRoster[0] : 'Bowler 1',
+        playersPerSide: 3,
+        openingStrikerId: so1BatRoster.isNotEmpty ? so1BatRoster[0] : '',
+        openingNonStrikerId: so1BatRoster.length > 1 ? so1BatRoster[1] : '',
+        openingBowlerId: so1BowlRoster.isNotEmpty ? so1BowlRoster[0] : '',
         events: inn3Events,
-        isDeclared: config.declaredInnings.contains(3),
+        resolvedNames: resolvedNames,
+        isDeclared: resolvedConfig.declaredInnings.contains(3),
         target: null,
       );
     }
@@ -144,27 +168,23 @@ class CricketEngine {
             (forcedInnings != null && forcedInnings >= 4));
     DerivedInningsState? innings4;
     if (showSuperOver2) {
-      final so2BatSide = config.battingFirstSide;
-      final so2BowlSide = config.battingSecondSide;
-      final so2BatTeam = config.teamNameForSide(so2BatSide);
-      final so2BowlTeam = config.teamNameForSide(so2BowlSide);
-      final so2BatRoster = config.rosterForSide(so2BatSide);
-      final so2BowlRoster = config.rosterForSide(so2BowlSide);
+      final so2BatSide = resolvedConfig.battingFirstSide;
+      final so2BowlSide = resolvedConfig.battingSecondSide;
+      final so2BatRoster = resolvedConfig.rosterIdsForSide(so2BatSide);
+      final so2BowlRoster = resolvedConfig.rosterIdsForSide(so2BowlSide);
       innings4 = _deriveInnings(
         inningsNumber: 4,
-        battingTeam: so2BatTeam,
-        bowlingTeam: so2BowlTeam,
+        battingTeam: resolvedConfig.teamNameForSide(so2BatSide),
+        bowlingTeam: resolvedConfig.teamNameForSide(so2BowlSide),
         battingSide: so2BatSide,
         oversLimit: 1,
-        playersPerSide: 3, // 2 wickets all-out
-        openingStriker:
-            so2BatRoster.isNotEmpty ? so2BatRoster[0] : 'Batter 1',
-        openingNonStriker:
-            so2BatRoster.length > 1 ? so2BatRoster[1] : 'Batter 2',
-        openingBowler:
-            so2BowlRoster.isNotEmpty ? so2BowlRoster[0] : 'Bowler 1',
+        playersPerSide: 3,
+        openingStrikerId: so2BatRoster.isNotEmpty ? so2BatRoster[0] : '',
+        openingNonStrikerId: so2BatRoster.length > 1 ? so2BatRoster[1] : '',
+        openingBowlerId: so2BowlRoster.isNotEmpty ? so2BowlRoster[0] : '',
         events: inn4Events,
-        isDeclared: config.declaredInnings.contains(4),
+        resolvedNames: resolvedNames,
+        isDeclared: resolvedConfig.declaredInnings.contains(4),
         target: innings3.totalRuns + 1,
       );
     }
@@ -182,8 +202,6 @@ class CricketEngine {
     if (forcedInnings == 3 && innings3 != null) activeInningsNumber = 3;
     if (forcedInnings == 4 && innings4 != null) activeInningsNumber = 4;
 
-    // Apply optional manual striker/bowler overrides (e.g. scorer swapped strike
-    // or picked a new bowler before bowling the next ball).
     DerivedInningsState finalInn1 = innings1;
     DerivedInningsState? finalInn2 = innings2;
     DerivedInningsState? finalInn3 = innings3;
@@ -191,30 +209,34 @@ class CricketEngine {
     if (activeInningsNumber == 1) {
       finalInn1 = _applyManualOverrides(
         innings1,
-        striker: manualStrikerOverride,
-        nonStriker: manualNonStrikerOverride,
-        bowler: manualBowlerOverride,
+        resolvedNames: resolvedNames,
+        strikerId: manualStrikerIdOverride,
+        nonStrikerId: manualNonStrikerIdOverride,
+        bowlerId: manualBowlerIdOverride,
       );
     } else if (activeInningsNumber == 2 && finalInn2 != null) {
       finalInn2 = _applyManualOverrides(
         finalInn2,
-        striker: manualStrikerOverride,
-        nonStriker: manualNonStrikerOverride,
-        bowler: manualBowlerOverride,
+        resolvedNames: resolvedNames,
+        strikerId: manualStrikerIdOverride,
+        nonStrikerId: manualNonStrikerIdOverride,
+        bowlerId: manualBowlerIdOverride,
       );
     } else if (activeInningsNumber == 3 && finalInn3 != null) {
       finalInn3 = _applyManualOverrides(
         finalInn3,
-        striker: manualStrikerOverride,
-        nonStriker: manualNonStrikerOverride,
-        bowler: manualBowlerOverride,
+        resolvedNames: resolvedNames,
+        strikerId: manualStrikerIdOverride,
+        nonStrikerId: manualNonStrikerIdOverride,
+        bowlerId: manualBowlerIdOverride,
       );
     } else if (activeInningsNumber == 4 && finalInn4 != null) {
       finalInn4 = _applyManualOverrides(
         finalInn4,
-        striker: manualStrikerOverride,
-        nonStriker: manualNonStrikerOverride,
-        bowler: manualBowlerOverride,
+        resolvedNames: resolvedNames,
+        strikerId: manualStrikerIdOverride,
+        nonStrikerId: manualNonStrikerIdOverride,
+        bowlerId: manualBowlerIdOverride,
       );
     }
 
@@ -222,7 +244,7 @@ class CricketEngine {
     MatchSide? winnerSide;
     String? resultSummary;
 
-    if (config.isAbandoned) {
+    if (resolvedConfig.isAbandoned) {
       status = MatchStatus.completed;
       resultSummary = 'Match abandoned (No result)';
     } else if (finalInn4 != null && finalInn4.isComplete && finalInn3 != null) {
@@ -231,18 +253,18 @@ class CricketEngine {
       if (finalInn4.totalRuns >= soTarget) {
         winnerSide = finalInn4.battingSide;
         resultSummary =
-            '${_displayLabel(config, finalInn4.battingSide)} won Super Over';
+            '${_displayLabel(resolvedConfig, finalInn4.battingSide, teamNamesById)} won Super Over';
       } else if (finalInn4.totalRuns == finalInn3.totalRuns) {
         resultSummary = 'Super Over tied';
       } else {
         winnerSide = finalInn4.bowlingSide;
         resultSummary =
-            '${_displayLabel(config, finalInn4.bowlingSide)} won Super Over';
+            '${_displayLabel(resolvedConfig, finalInn4.bowlingSide, teamNamesById)} won Super Over';
       }
     } else if (finalInn4 == null && finalInn3 != null && finalInn3.isComplete) {
       status = MatchStatus.inningsBreak;
       resultSummary =
-          'Super Over break · ${_displayLabel(config, config.battingFirstSide)} need ${finalInn3.totalRuns + 1} in 1 ov';
+          'Super Over break · ${_displayLabel(resolvedConfig, resolvedConfig.battingFirstSide, teamNamesById)} need ${finalInn3.totalRuns + 1} in 1 ov';
     } else if (finalInn3 != null) {
       status = MatchStatus.live;
     } else if (finalInn2 != null && finalInn2.isComplete) {
@@ -252,25 +274,25 @@ class CricketEngine {
       if (finalInn2.totalRuns >= target) {
         winnerSide = finalInn2.battingSide;
         final wicketsLeft =
-            (config.playersPerSide - 1 - finalInn2.wickets).clamp(1, 10);
+            (resolvedConfig.playersPerSide - 1 - finalInn2.wickets).clamp(1, 10);
         resultSummary =
-            '${_displayLabel(config, finalInn2.battingSide)} won by $wicketsLeft wicket${wicketsLeft == 1 ? '' : 's'}';
+            '${_displayLabel(resolvedConfig, finalInn2.battingSide, teamNamesById)} won by $wicketsLeft wicket${wicketsLeft == 1 ? '' : 's'}';
       } else if (finalInn2.totalRuns == targetScore) {
         resultSummary = 'Match tied';
       } else {
         winnerSide = finalInn2.bowlingSide;
         final margin = targetScore - finalInn2.totalRuns;
         resultSummary =
-            '${_displayLabel(config, finalInn2.bowlingSide)} won by $margin run${margin == 1 ? '' : 's'}';
+            '${_displayLabel(resolvedConfig, finalInn2.bowlingSide, teamNamesById)} won by $margin run${margin == 1 ? '' : 's'}';
       }
     } else if (!showInnings2 && finalInn1.isComplete) {
       status = MatchStatus.inningsBreak;
       resultSummary =
-          'Innings break · ${_displayLabel(config, config.battingSecondSide)} need ${finalInn1.totalRuns + 1}';
+          'Innings break · ${_displayLabel(resolvedConfig, resolvedConfig.battingSecondSide, teamNamesById)} need ${finalInn1.totalRuns + 1}';
     }
 
     return DerivedMatchState(
-      config: config,
+      config: resolvedConfig,
       innings1: finalInn1,
       innings2: finalInn2,
       innings3: finalInn3,
@@ -280,20 +302,23 @@ class CricketEngine {
       winnerSide: winnerSide,
       resultSummary: resultSummary,
       unsyncedCount: unsyncedCount,
+      resolvedPlayerNames: Map.unmodifiable(resolvedNames),
     );
   }
 
   static DerivedMatchState _deriveTestMatch({
     required MatchConfig config,
+    required Map<String, String> resolvedNames,
+    required Map<String, String> teamNamesById,
     required List<BallEvent> inn1Events,
     required List<BallEvent> inn2Events,
     required List<BallEvent> inn3Events,
     required List<BallEvent> inn4Events,
     required int unsyncedCount,
     int? forcedInnings,
-    String? manualStrikerOverride,
-    String? manualNonStrikerOverride,
-    String? manualBowlerOverride,
+    String? manualStrikerIdOverride,
+    String? manualNonStrikerIdOverride,
+    String? manualBowlerIdOverride,
   }) {
     final side1 = config.battingFirstSide;
     final side2 = config.battingSecondSide;
@@ -315,24 +340,24 @@ class CricketEngine {
     ) {
       if (inn == 1) {
         return (
-          config.openingStrikerInnings1,
-          config.openingNonStrikerInnings1,
-          config.openingBowlerInnings1,
+          config.openingStriker1Id ?? '',
+          config.openingNonStriker1Id ?? '',
+          config.openingBowler1Id ?? '',
         );
       }
       if (inn == 2) {
         return (
-          config.openingStrikerInnings2,
-          config.openingNonStrikerInnings2,
-          config.openingBowlerInnings2,
+          config.openingStriker2Id ?? '',
+          config.openingNonStriker2Id ?? '',
+          config.openingBowler2Id ?? '',
         );
       }
-      final batRoster = config.rosterForSide(batSide);
-      final bowlRoster = config.rosterForSide(bowlSide);
+      final batRoster = config.rosterIdsForSide(batSide);
+      final bowlRoster = config.rosterIdsForSide(bowlSide);
       return (
-        batRoster.isNotEmpty ? batRoster[0] : 'Opener 1',
-        batRoster.length > 1 ? batRoster[1] : 'Opener 2',
-        bowlRoster.isNotEmpty ? bowlRoster[0] : 'Bowler 1',
+        batRoster.isNotEmpty ? batRoster[0] : '',
+        batRoster.length > 1 ? batRoster[1] : '',
+        bowlRoster.isNotEmpty ? bowlRoster[0] : '',
       );
     }
 
@@ -346,10 +371,11 @@ class CricketEngine {
       battingSide: batSide1,
       oversLimit: 0,
       playersPerSide: config.playersPerSide,
-      openingStriker: op1.$1,
-      openingNonStriker: op1.$2,
-      openingBowler: op1.$3,
+      openingStrikerId: op1.$1,
+      openingNonStrikerId: op1.$2,
+      openingBowlerId: op1.$3,
       events: inn1Events,
+      resolvedNames: resolvedNames,
       isDeclared: config.declaredInnings.contains(1),
       target: null,
     );
@@ -370,10 +396,11 @@ class CricketEngine {
         battingSide: batSide2,
         oversLimit: 0,
         playersPerSide: config.playersPerSide,
-        openingStriker: op2.$1,
-        openingNonStriker: op2.$2,
-        openingBowler: op2.$3,
+        openingStrikerId: op2.$1,
+        openingNonStrikerId: op2.$2,
+        openingBowlerId: op2.$3,
         events: inn2Events,
+        resolvedNames: resolvedNames,
         isDeclared: config.declaredInnings.contains(2),
         target: null,
       );
@@ -394,24 +421,22 @@ class CricketEngine {
         battingSide: batSide3,
         oversLimit: 0,
         playersPerSide: config.playersPerSide,
-        openingStriker: op3.$1,
-        openingNonStriker: op3.$2,
-        openingBowler: op3.$3,
+        openingStrikerId: op3.$1,
+        openingNonStrikerId: op3.$2,
+        openingBowlerId: op3.$3,
         events: inn3Events,
+        resolvedNames: resolvedNames,
         isDeclared: config.declaredInnings.contains(3),
         target: null,
       );
     }
 
-    // Calculate 4th innings target (if inn3 completed without an innings victory)
     int? target4;
     if (inn2 != null && inn3 != null) {
       if (followOn) {
-        // Team 2 batted in inn2 + inn3; Team 1 chases in inn4
         final lead = (inn2.totalRuns + inn3.totalRuns) - inn1.totalRuns;
         if (lead >= 0) target4 = lead + 1;
       } else {
-        // Team 1 batted in inn1 + inn3; Team 2 chases in inn4
         final lead = (inn1.totalRuns + inn3.totalRuns) - inn2.totalRuns;
         if (lead >= 0) target4 = lead + 1;
       }
@@ -431,10 +456,11 @@ class CricketEngine {
         battingSide: batSide4,
         oversLimit: 0,
         playersPerSide: config.playersPerSide,
-        openingStriker: op4.$1,
-        openingNonStriker: op4.$2,
-        openingBowler: op4.$3,
+        openingStrikerId: op4.$1,
+        openingNonStrikerId: op4.$2,
+        openingBowlerId: op4.$3,
         events: inn4Events,
+        resolvedNames: resolvedNames,
         isDeclared: config.declaredInnings.contains(4),
         target: target4,
       );
@@ -455,38 +481,40 @@ class CricketEngine {
       if (forcedInnings == 1) activeNum = 1;
     }
 
-    // Apply manual overrides to active innings
     if (activeNum == 1) {
       inn1 = _applyManualOverrides(
         inn1,
-        striker: manualStrikerOverride,
-        nonStriker: manualNonStrikerOverride,
-        bowler: manualBowlerOverride,
+        resolvedNames: resolvedNames,
+        strikerId: manualStrikerIdOverride,
+        nonStrikerId: manualNonStrikerIdOverride,
+        bowlerId: manualBowlerIdOverride,
       );
     } else if (activeNum == 2 && inn2 != null) {
       inn2 = _applyManualOverrides(
         inn2,
-        striker: manualStrikerOverride,
-        nonStriker: manualNonStrikerOverride,
-        bowler: manualBowlerOverride,
+        resolvedNames: resolvedNames,
+        strikerId: manualStrikerIdOverride,
+        nonStrikerId: manualNonStrikerIdOverride,
+        bowlerId: manualBowlerIdOverride,
       );
     } else if (activeNum == 3 && inn3 != null) {
       inn3 = _applyManualOverrides(
         inn3,
-        striker: manualStrikerOverride,
-        nonStriker: manualNonStrikerOverride,
-        bowler: manualBowlerOverride,
+        resolvedNames: resolvedNames,
+        strikerId: manualStrikerIdOverride,
+        nonStrikerId: manualNonStrikerIdOverride,
+        bowlerId: manualBowlerIdOverride,
       );
     } else if (activeNum == 4 && inn4 != null) {
       inn4 = _applyManualOverrides(
         inn4,
-        striker: manualStrikerOverride,
-        nonStriker: manualNonStrikerOverride,
-        bowler: manualBowlerOverride,
+        resolvedNames: resolvedNames,
+        strikerId: manualStrikerIdOverride,
+        nonStrikerId: manualNonStrikerIdOverride,
+        bowlerId: manualBowlerIdOverride,
       );
     }
 
-    // Compute Lead / Trail text and MatchStatus
     MatchStatus status = MatchStatus.live;
     MatchSide? winnerSide;
     String? resultSummary;
@@ -502,22 +530,24 @@ class CricketEngine {
           final wLeft =
               (config.playersPerSide - 1 - inn4.wickets).clamp(1, 10);
           resultSummary =
-              '${_displayLabel(config, inn4.battingSide)} won by $wLeft wicket${wLeft == 1 ? '' : 's'}';
+              '${_displayLabel(config, inn4.battingSide, teamNamesById)} won by $wLeft wicket${wLeft == 1 ? '' : 's'}';
         } else if (inn4.totalRuns == t4 - 1) {
           resultSummary = 'Match tied';
         } else {
           winnerSide = inn4.bowlingSide;
           final margin = (t4 - 1) - inn4.totalRuns;
           resultSummary =
-              '${_displayLabel(config, inn4.bowlingSide)} won by $margin run${margin == 1 ? '' : 's'}';
+              '${_displayLabel(config, inn4.bowlingSide, teamNamesById)} won by $margin run${margin == 1 ? '' : 's'}';
         }
       } else {
         final need = (t4 - inn4.totalRuns).clamp(0, 99999);
-        leadTrailText = '${_displayLabel(config, inn4.battingSide)} need $need runs';
+        leadTrailText =
+            '${_displayLabel(config, inn4.battingSide, teamNamesById)} need $need runs';
       }
     } else if (inn3 != null && inn2 != null) {
-      final team3Total =
-          followOn ? (inn2.totalRuns + inn3.totalRuns) : (inn1.totalRuns + inn3.totalRuns);
+      final team3Total = followOn
+          ? (inn2.totalRuns + inn3.totalRuns)
+          : (inn1.totalRuns + inn3.totalRuns);
       final oppTotal = followOn ? inn1.totalRuns : inn2.totalRuns;
       final diff = team3Total - oppTotal;
 
@@ -526,19 +556,19 @@ class CricketEngine {
         winnerSide = inn3.bowlingSide;
         final margin = -diff;
         resultSummary =
-            '${_displayLabel(config, inn3.bowlingSide)} won by an innings and $margin run${margin == 1 ? '' : 's'}';
+            '${_displayLabel(config, inn3.bowlingSide, teamNamesById)} won by an innings and $margin run${margin == 1 ? '' : 's'}';
       } else if (inn3.isComplete) {
         status = MatchStatus.inningsBreak;
         final target = diff + 1;
         leadTrailText =
-            '${_displayLabel(config, inn3.bowlingSide)} need $target to win';
+            '${_displayLabel(config, inn3.bowlingSide, teamNamesById)} need $target to win';
         resultSummary = 'Innings break · Target $target';
       } else if (diff >= 0) {
         leadTrailText =
-            '${_displayLabel(config, inn3.battingSide)} lead by $diff';
+            '${_displayLabel(config, inn3.battingSide, teamNamesById)} lead by $diff';
       } else {
         leadTrailText =
-            '${_displayLabel(config, inn3.battingSide)} trail by ${-diff}';
+            '${_displayLabel(config, inn3.battingSide, teamNamesById)} trail by ${-diff}';
       }
     } else if (inn2 != null) {
       final diff = inn2.totalRuns - inn1.totalRuns;
@@ -547,30 +577,30 @@ class CricketEngine {
         if (diff < 0) {
           canEnforceFollowOn = true;
           leadTrailText =
-              '${_displayLabel(config, inn1.battingSide)} lead by ${-diff}';
+              '${_displayLabel(config, inn1.battingSide, teamNamesById)} lead by ${-diff}';
           resultSummary =
-              'Innings break · ${_displayLabel(config, inn1.battingSide)} lead by ${-diff}';
+              'Innings break · ${_displayLabel(config, inn1.battingSide, teamNamesById)} lead by ${-diff}';
         } else if (diff > 0) {
           leadTrailText =
-              '${_displayLabel(config, inn2.battingSide)} lead by $diff';
+              '${_displayLabel(config, inn2.battingSide, teamNamesById)} lead by $diff';
           resultSummary =
-              'Innings break · ${_displayLabel(config, inn2.battingSide)} lead by $diff';
+              'Innings break · ${_displayLabel(config, inn2.battingSide, teamNamesById)} lead by $diff';
         } else {
           leadTrailText = 'Scores level';
           resultSummary = 'Innings break · Scores level';
         }
       } else if (diff >= 0) {
         leadTrailText =
-            '${_displayLabel(config, inn2.battingSide)} lead by $diff';
+            '${_displayLabel(config, inn2.battingSide, teamNamesById)} lead by $diff';
       } else {
         leadTrailText =
-            '${_displayLabel(config, inn2.battingSide)} trail by ${-diff}';
+            '${_displayLabel(config, inn2.battingSide, teamNamesById)} trail by ${-diff}';
       }
     } else {
       if (inn1.isComplete) {
         status = MatchStatus.inningsBreak;
         resultSummary =
-            'Innings break · ${_displayLabel(config, inn1.battingSide)} ${inn1.scoreText}';
+            'Innings break · ${_displayLabel(config, inn1.battingSide, teamNamesById)} ${inn1.scoreText}';
       } else {
         leadTrailText = '1st Innings';
       }
@@ -589,16 +619,26 @@ class CricketEngine {
       leadTrailText: leadTrailText,
       canEnforceFollowOn: canEnforceFollowOn,
       unsyncedCount: unsyncedCount,
+      resolvedPlayerNames: Map.unmodifiable(resolvedNames),
     );
   }
 
   static DerivedInningsState _applyManualOverrides(
     DerivedInningsState state, {
-    String? striker,
-    String? nonStriker,
-    String? bowler,
+    required Map<String, String> resolvedNames,
+    String? strikerId,
+    String? nonStrikerId,
+    String? bowlerId,
   }) {
-    if (striker == null && nonStriker == null && bowler == null) return state;
+    if (strikerId == null && nonStrikerId == null && bowlerId == null) {
+      return state;
+    }
+    final nextStrikerId = strikerId ?? state.strikerId;
+    final nextNonStrikerId = nonStrikerId ?? state.nonStrikerId;
+    final nextBowlerId = bowlerId ?? state.currentBowlerId;
+    String nameOf(String id, String prev) =>
+        id.isEmpty ? '' : (resolvedNames[id] ?? (id == prev ? prev : id));
+
     return DerivedInningsState(
       inningsNumber: state.inningsNumber,
       battingTeam: state.battingTeam,
@@ -609,9 +649,18 @@ class CricketEngine {
       legalBalls: state.legalBalls,
       oversLimit: state.oversLimit,
       playersPerSide: state.playersPerSide,
-      striker: striker ?? state.striker,
-      nonStriker: nonStriker ?? state.nonStriker,
-      currentBowler: bowler ?? state.currentBowler,
+      strikerId: nextStrikerId,
+      nonStrikerId: nextNonStrikerId,
+      currentBowlerId: nextBowlerId,
+      striker: nextStrikerId == state.strikerId
+          ? state.striker
+          : nameOf(nextStrikerId, state.striker),
+      nonStriker: nextNonStrikerId == state.nonStrikerId
+          ? state.nonStriker
+          : nameOf(nextNonStrikerId, state.nonStriker),
+      currentBowler: nextBowlerId == state.currentBowlerId
+          ? state.currentBowler
+          : nameOf(nextBowlerId, state.currentBowler),
       batters: state.batters,
       bowlers: state.bowlers,
       overs: state.overs,
@@ -633,13 +682,17 @@ class CricketEngine {
     required MatchSide battingSide,
     required int oversLimit,
     required int playersPerSide,
-    required String openingStriker,
-    required String openingNonStriker,
-    required String openingBowler,
+    required String openingStrikerId,
+    required String openingNonStrikerId,
+    required String openingBowlerId,
     required List<BallEvent> events,
+    required Map<String, String> resolvedNames,
     bool isDeclared = false,
     required int? target,
   }) {
+    String nameOf(String id) =>
+        id.isEmpty ? '' : (resolvedNames[id] ?? 'Player');
+
     int totalRuns = 0;
     int wickets = 0;
     int legalBalls = 0;
@@ -648,19 +701,23 @@ class CricketEngine {
     int byes = 0;
     int legByes = 0;
 
-    String striker = openingStriker;
-    String nonStriker = openingNonStriker;
-    String currentBowler = openingBowler;
+    String strikerId = openingStrikerId.trim();
+    String nonStrikerId = openingNonStrikerId.trim();
+    String currentBowlerId = openingBowlerId.trim();
 
-    final batterOrder = <String>[openingStriker, openingNonStriker];
+    final batterOrder = <String>[
+      if (strikerId.isNotEmpty) strikerId,
+      if (nonStrikerId.isNotEmpty && nonStrikerId != strikerId) nonStrikerId,
+    ];
     final batterStats = <String, _MutableBatter>{
-      openingStriker: _MutableBatter(openingStriker),
-      openingNonStriker: _MutableBatter(openingNonStriker),
+      for (final id in batterOrder) id: _MutableBatter(id, nameOf(id)),
     };
 
-    final bowlerOrder = <String>[openingBowler];
+    final bowlerOrder = <String>[
+      if (currentBowlerId.isNotEmpty) currentBowlerId,
+    ];
     final bowlerStats = <String, _MutableBowler>{
-      openingBowler: _MutableBowler(openingBowler),
+      for (final id in bowlerOrder) id: _MutableBowler(id, nameOf(id)),
     };
 
     final overs = <OverSummary>[];
@@ -668,41 +725,40 @@ class CricketEngine {
     var currentOverLegal = 0;
     var currentOverRuns = 0;
     var currentOverWickets = 0;
-    var currentOverBowler = openingBowler;
+    var currentOverBowlerId = currentBowlerId;
     var currentOverNumber = 1;
 
     final fallOfWickets = <FallOfWicket>[];
 
-    _MutableBatter ensureBatter(String name) {
-      if (!batterStats.containsKey(name)) {
-        batterOrder.add(name);
-        batterStats[name] = _MutableBatter(name);
+    _MutableBatter ensureBatter(String id) {
+      if (!batterStats.containsKey(id)) {
+        batterOrder.add(id);
+        batterStats[id] = _MutableBatter(id, nameOf(id));
       }
-      return batterStats[name]!;
+      return batterStats[id]!;
     }
 
-    _MutableBowler ensureBowler(String name) {
-      if (!bowlerStats.containsKey(name)) {
-        bowlerOrder.add(name);
-        bowlerStats[name] = _MutableBowler(name);
+    _MutableBowler ensureBowler(String id) {
+      if (!bowlerStats.containsKey(id)) {
+        bowlerOrder.add(id);
+        bowlerStats[id] = _MutableBowler(id, nameOf(id));
       }
-      return bowlerStats[name]!;
+      return bowlerStats[id]!;
     }
 
     for (final ball in events) {
-      final b = ensureBatter(ball.striker);
-      ensureBatter(ball.nonStriker);
-      final bowl = ensureBowler(ball.bowler);
+      final b = ensureBatter(ball.strikerId);
+      ensureBatter(ball.nonStrikerId);
+      final bowl = ensureBowler(ball.bowlerId);
 
-      striker = ball.striker;
-      nonStriker = ball.nonStriker;
-      currentBowler = ball.bowler;
-      currentOverBowler = ball.bowler;
+      strikerId = ball.strikerId;
+      nonStrikerId = ball.nonStrikerId;
+      currentBowlerId = ball.bowlerId;
+      currentOverBowlerId = ball.bowlerId;
 
       totalRuns += ball.totalRuns;
       currentOverRuns += ball.totalRuns;
 
-      // Batter stats (wide, penalty, and retired hurt do not count as a ball faced)
       b.runs += ball.runsOffBat;
       final isRetiredHurt =
           ball.isWicket && ball.wicketType == WicketType.retiredHurt;
@@ -714,7 +770,6 @@ class CricketEngine {
       if (ball.runsOffBat == 4) b.fours += 1;
       if (ball.runsOffBat == 6) b.sixes += 1;
 
-      // Extras breakdown
       switch (ball.extraType) {
         case ExtraType.none:
           break;
@@ -730,7 +785,6 @@ class CricketEngine {
           byes += ball.extraRuns;
       }
 
-      // Bowler runs conceded (byes, leg-byes, and penalty runs are not charged to bowler)
       if (ball.extraType == ExtraType.penalty) {
         // Penalty runs are dead-ball awards — not charged to bowler.
       } else if (ball.extraType == ExtraType.bye ||
@@ -746,17 +800,17 @@ class CricketEngine {
         bowl.legalBalls += 1;
       }
 
-      // Wicket / Retired Hurt handling
       if (ball.isWicket) {
-        final dismissedName = ball.dismissedBatter ?? ball.striker;
-        final dismissed = ensureBatter(dismissedName);
+        final dismissedId = ball.dismissedBatterId ?? ball.strikerId;
+        final dismissed = ensureBatter(dismissedId);
         final countsWicket = ball.wicketType?.countsAsTeamWicket ?? true;
 
         if (countsWicket) {
           wickets += 1;
           currentOverWickets += 1;
           dismissed.isOut = true;
-          dismissed.dismissalText = ball.scorecardDismissalText ?? 'out';
+          dismissed.dismissalText =
+              ball.scorecardDismissalText(resolvedNames) ?? 'out';
 
           if (ball.wicketType?.creditedToBowler ?? true) {
             bowl.wickets += 1;
@@ -767,36 +821,34 @@ class CricketEngine {
               wicketNumber: wickets,
               runsAtFall: totalRuns,
               oversAtFall: '${legalBalls ~/ 6}.${legalBalls % 6}',
-              batterName: dismissedName,
+              batterId: dismissedId,
+              batterName: nameOf(dismissedId),
             ),
           );
         } else {
-          // Retired hurt: batter leaves crease without losing a wicket
           dismissed.isOut = false;
           dismissed.dismissalText = 'retired hurt';
         }
 
-        final incoming = ball.nextBatter?.trim() ?? '';
-        if (incoming.isNotEmpty) {
-          ensureBatter(incoming);
+        final incomingId = ball.nextBatterId?.trim() ?? '';
+        if (incomingId.isNotEmpty) {
+          ensureBatter(incomingId);
         }
-        if (dismissedName == nonStriker) {
-          nonStriker = incoming;
+        if (dismissedId == nonStrikerId) {
+          nonStrikerId = incomingId;
         } else {
-          striker = incoming;
+          strikerId = incomingId;
         }
       }
 
-      // Rotate strike on odd running runs
       if (ball.runningRuns.isOdd) {
-        final temp = striker;
-        striker = nonStriker;
-        nonStriker = temp;
+        final temp = strikerId;
+        strikerId = nonStrikerId;
+        nonStrikerId = temp;
       }
 
       currentOverBalls.add(ball);
 
-      // End of over
       if (currentOverLegal == 6) {
         if (currentOverRuns == 0) {
           bowl.maidens += 1;
@@ -804,7 +856,8 @@ class CricketEngine {
         overs.add(
           OverSummary(
             overNumber: currentOverNumber,
-            bowler: currentOverBowler,
+            bowlerId: currentOverBowlerId,
+            bowler: nameOf(currentOverBowlerId),
             balls: List.unmodifiable(currentOverBalls),
             runsInOver: currentOverRuns,
             wicketsInOver: currentOverWickets,
@@ -817,19 +870,20 @@ class CricketEngine {
         currentOverRuns = 0;
         currentOverWickets = 0;
 
-        // Swap strike at end of over
-        final temp = striker;
-        striker = nonStriker;
-        nonStriker = temp;
+        final temp = strikerId;
+        strikerId = nonStrikerId;
+        nonStrikerId = temp;
       }
     }
 
-    // Add in-progress over (or an empty current over slot so the timeline always shows current over)
-    if (currentOverBalls.isNotEmpty || oversLimit <= 0 || overs.length < oversLimit) {
+    if (currentOverBalls.isNotEmpty ||
+        oversLimit <= 0 ||
+        overs.length < oversLimit) {
       overs.add(
         OverSummary(
           overNumber: currentOverNumber,
-          bowler: currentOverBowler,
+          bowlerId: currentOverBowlerId,
+          bowler: nameOf(currentOverBowlerId),
           balls: List.unmodifiable(currentOverBalls),
           runsInOver: currentOverRuns,
           wicketsInOver: currentOverWickets,
@@ -855,14 +909,17 @@ class CricketEngine {
       legalBalls: legalBalls,
       oversLimit: oversLimit,
       playersPerSide: playersPerSide,
-      striker: striker,
-      nonStriker: nonStriker,
-      currentBowler: currentBowler,
+      strikerId: strikerId,
+      nonStrikerId: nonStrikerId,
+      currentBowlerId: currentBowlerId,
+      striker: nameOf(strikerId),
+      nonStriker: nameOf(nonStrikerId),
+      currentBowler: nameOf(currentBowlerId),
       batters: [
-        for (final name in batterOrder) batterStats[name]!.toLine(),
+        for (final id in batterOrder) batterStats[id]!.toLine(),
       ],
       bowlers: [
-        for (final name in bowlerOrder) bowlerStats[name]!.toLine(),
+        for (final id in bowlerOrder) bowlerStats[id]!.toLine(),
       ],
       overs: overs,
       fallOfWickets: fallOfWickets,
@@ -878,7 +935,8 @@ class CricketEngine {
 }
 
 class _MutableBatter {
-  _MutableBatter(this.name);
+  _MutableBatter(this.playerId, this.name);
+  final String playerId;
   final String name;
   int runs = 0;
   int balls = 0;
@@ -888,6 +946,7 @@ class _MutableBatter {
   String? dismissalText;
 
   BatterLine toLine() => BatterLine(
+        playerId: playerId,
         name: name,
         runs: runs,
         balls: balls,
@@ -899,7 +958,8 @@ class _MutableBatter {
 }
 
 class _MutableBowler {
-  _MutableBowler(this.name);
+  _MutableBowler(this.playerId, this.name);
+  final String playerId;
   final String name;
   int legalBalls = 0;
   int maidens = 0;
@@ -907,6 +967,7 @@ class _MutableBowler {
   int wickets = 0;
 
   BowlerLine toLine() => BowlerLine(
+        playerId: playerId,
         name: name,
         legalBalls: legalBalls,
         maidens: maidens,
@@ -914,4 +975,3 @@ class _MutableBowler {
         wickets: wickets,
       );
 }
-

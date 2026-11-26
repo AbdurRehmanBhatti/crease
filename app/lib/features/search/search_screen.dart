@@ -49,8 +49,14 @@ class _SearchScreenState extends State<SearchScreen> {
   late final List<PlayerCareerStats> _localPlayerStats;
   late final Map<String, List<String>> _localPlayerTeams;
 
-  List<({String id, String name, String? location, List<String> players})>
-      _remoteTeams = const [];
+  List<
+      ({
+        String id,
+        String name,
+        String? location,
+        String? profileCode,
+        List<PlayerProfile> squad,
+      })> _remoteTeams = const [];
   List<
       ({
         String id,
@@ -70,7 +76,10 @@ class _SearchScreenState extends State<SearchScreen> {
       })> _remoteTournaments = const [];
   List<
       ({
+        String playerId,
         String playerName,
+        String role,
+        String? avatarUrl,
         String teamId,
         String teamName,
         String? teamLocation,
@@ -81,7 +90,7 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     final realMatches =
         widget.localMatches.where((m) => !m.config.isDemo).toList();
-    _localPlayerStats = StatsEngine.derive(
+    _localPlayerStats = LocalEventStore.instance.deriveStats(
       realMatches.isNotEmpty ? realMatches : widget.localMatches,
       excludeDemo: realMatches.isNotEmpty,
     );
@@ -156,7 +165,13 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted || seq != _seq) return;
       setState(() {
         _remoteTeams = results[0] as List<
-            ({String id, String name, String? location, List<String> players})>;
+            ({
+              String id,
+              String name,
+              String? location,
+              String? profileCode,
+              List<PlayerProfile> squad,
+            })>;
         _remoteMatches = results[1] as List<
             ({
               String id,
@@ -176,7 +191,10 @@ class _SearchScreenState extends State<SearchScreen> {
             })>;
         _remotePlayers = results[3] as List<
             ({
+              String playerId,
               String playerName,
+              String role,
+              String? avatarUrl,
               String teamId,
               String teamName,
               String? teamLocation,
@@ -189,12 +207,18 @@ class _SearchScreenState extends State<SearchScreen> {
   void _openPlayerProfile(
     BuildContext context, {
     required String name,
+    String? playerId,
+    String? role,
+    String? avatarUrl,
     List<String> teams = const [],
   }) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlayerProfileScreen(
           playerName: name,
+          playerId: playerId,
+          role: role,
+          avatarUrl: avatarUrl,
           teams: teams,
           matches: widget.localMatches,
         ),
@@ -513,8 +537,8 @@ class _SearchScreenState extends State<SearchScreen> {
                                   if (rt.location != null &&
                                       rt.location!.isNotEmpty)
                                     rt.location!,
-                                  if (rt.players.isNotEmpty)
-                                    '${rt.players.length} ${rt.players.length == 1 ? 'player' : 'players'}',
+                                  if (rt.squad.isNotEmpty)
+                                    '${rt.squad.length} ${rt.squad.length == 1 ? 'player' : 'players'}',
                                 ].join(' · '),
                                 onTap: () => Navigator.of(context).push(
                                   MaterialPageRoute(
@@ -524,12 +548,14 @@ class _SearchScreenState extends State<SearchScreen> {
                                         id: rt.id,
                                         name: rt.name,
                                         location: rt.location,
+                                        profileCode: rt.profileCode,
                                         isMyTeam: false,
                                         isOwner: false,
-                                        players: rt.players,
+                                        squad: rt.squad,
                                         createdAt: DateTime.now(),
                                       ),
-                                      initialRoster: rt.players,
+                                      initialRoster:
+                                          rt.squad.map((p) => p.displayName).toList(),
                                       matches: widget.localMatches,
                                       readOnlyPublic: true,
                                     ),
@@ -607,6 +633,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 onTap: () => _openPlayerProfile(
                                   context,
                                   name: p.name,
+                                  playerId: p.stats?.playerId,
                                   teams: p.teams,
                                 ),
                               ),
@@ -614,6 +641,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               _ResultCard(
                                 leading: CreasePlayerAvatar(
                                   name: rp.playerName,
+                                  avatarUrl: rp.avatarUrl,
                                   size: 38,
                                 ),
                                 title: rp.playerName,
@@ -625,6 +653,9 @@ class _SearchScreenState extends State<SearchScreen> {
                                 onTap: () => _openPlayerProfile(
                                   context,
                                   name: rp.playerName,
+                                  playerId: rp.playerId,
+                                  role: rp.role,
+                                  avatarUrl: rp.avatarUrl,
                                   teams: [rp.teamName],
                                 ),
                               ),

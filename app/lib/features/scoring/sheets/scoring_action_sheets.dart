@@ -31,12 +31,19 @@ Future<String?> showNextBowlerSheet(
   BuildContext context, {
   required DerivedInningsState innings,
   required MatchConfig? config,
+  Map<String, String> playerNamesById = const {},
+  String? title,
+  String? placeholderFallback,
 }) async {
   final controller = TextEditingController();
   final rosterSet = <String>{
-    if (config != null) ...config.rosterForSide(innings.bowlingSide),
+    if (config != null)
+      for (final id in config.rosterIdsForSide(innings.bowlingSide))
+        config.resolvePlayerName(id, playerNamesById),
     ...innings.bowlers.map((b) => b.name),
-  }..remove(innings.currentBowler);
+  }
+    ..removeWhere((n) => n.trim().isEmpty)
+    ..remove(innings.currentBowler);
   final availableBowlers = rosterSet.toList();
 
   try {
@@ -59,7 +66,7 @@ Future<String?> showNextBowlerSheet(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 CreaseSheetHeader(
-                  title: 'Select next bowler · ${innings.bowlingTeam}',
+                  title: title ?? 'Select next bowler · ${innings.bowlingTeam}',
                 ),
                 const SizedBox(height: 12),
                 if (availableBowlers.isNotEmpty) ...[
@@ -152,6 +159,16 @@ Future<String?> showNextBowlerSheet(
                     );
                   },
                 ),
+                if (placeholderFallback != null) ...[
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, placeholderFallback),
+                    child: Text(
+                      'Skip & use "$placeholderFallback"',
+                      style: TextStyle(color: c.inkSecondary),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -159,7 +176,7 @@ Future<String?> showNextBowlerSheet(
       },
     );
   } finally {
-    controller.dispose();
+    Future<void>.delayed(const Duration(milliseconds: 500), controller.dispose);
   }
 }
 
@@ -273,10 +290,12 @@ Future<WicketSheetResult?> showRecordWicketSheet(
   String? selectedFielder;
   final customFielderCtrl = TextEditingController();
 
-  final fieldingRoster = <String>{
-    ...state.config.rosterForSide(inn.bowlingSide),
+  final fieldingRoster = (<String>{
+    for (final id in state.config.rosterIdsForSide(inn.bowlingSide))
+      state.resolvedPlayerNames[id] ?? '',
     ...inn.bowlers.map((b) => b.name),
-  }.toList();
+  }..removeWhere((n) => n.trim().isEmpty))
+      .toList();
 
   try {
     return await showModalBottomSheet<WicketSheetResult>(
@@ -525,19 +544,26 @@ Future<WicketSheetResult?> showRecordWicketSheet(
     },
   );
   } finally {
-    customFielderCtrl.dispose();
+    Future<void>.delayed(
+      const Duration(milliseconds: 500),
+      customFielderCtrl.dispose,
+    );
   }
 }
 
 Future<String?> showNextBatterSheet(
   BuildContext context,
-  DerivedMatchState state,
-) async {
+  DerivedMatchState state, {
+  String? title,
+  String? placeholderFallback,
+}) async {
   final inn = state.activeInnings;
   final roster = <String>{
-    ...state.config.rosterForSide(inn.battingSide),
+    for (final id in state.config.rosterIdsForSide(inn.battingSide))
+      state.resolvedPlayerNames[id] ?? '',
     ...inn.batters.map((b) => b.name),
-  }.toList();
+  }..removeWhere((n) => n.trim().isEmpty);
+  final rosterList = roster.toList();
 
   final batterMap = {for (final b in inn.batters) b.name: b};
   final unavailable = <String>{
@@ -548,8 +574,9 @@ Future<String?> showNextBatterSheet(
   };
 
   final availablePlayers =
-      roster.where((p) => !unavailable.contains(p)).toList();
-  final disabledPlayers = roster.where((p) => unavailable.contains(p)).toList();
+      rosterList.where((p) => !unavailable.contains(p)).toList();
+  final disabledPlayers =
+      rosterList.where((p) => unavailable.contains(p)).toList();
 
   final newBatterCtrl = TextEditingController();
 
@@ -583,7 +610,7 @@ Future<String?> showNextBatterSheet(
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  'Select next batter · ${inn.battingTeam}',
+                  title ?? 'Select next batter · ${inn.battingTeam}',
                   style: Theme.of(ctx).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 12),
@@ -692,6 +719,16 @@ Future<String?> showNextBatterSheet(
                     ),
                   ],
                 ),
+                if (placeholderFallback != null) ...[
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, placeholderFallback),
+                    child: Text(
+                      'Skip & use "$placeholderFallback"',
+                      style: TextStyle(color: c.inkSecondary),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -700,11 +737,21 @@ Future<String?> showNextBatterSheet(
     },
   );
   } finally {
-    newBatterCtrl.dispose();
+    Future<void>.delayed(
+      const Duration(milliseconds: 500),
+      newBatterCtrl.dispose,
+    );
   }
 }
 
-Future<String?> showEditBallSheet(BuildContext context, BallEvent ball) {
+Future<String?> showEditBallSheet(
+  BuildContext context,
+  BallEvent ball, {
+  Map<String, String> playerNamesById = const {},
+}) {
+  final strikerName = playerNamesById[ball.strikerId] ?? 'Batter';
+  final bowlerName = playerNamesById[ball.bowlerId] ?? 'Bowler';
+  final summary = ball.dismissalSummary(playerNamesById);
   return showModalBottomSheet<String>(
     context: context,
     backgroundColor: Colors.transparent,
@@ -730,13 +777,13 @@ Future<String?> showEditBallSheet(BuildContext context, BallEvent ball) {
             ),
             const SizedBox(height: 14),
             Text(
-              'Edit ball · ${ball.striker} off ${ball.bowler}',
+              'Edit ball · $strikerName off $bowlerName',
               style: Theme.of(ctx).textTheme.titleMedium,
             ),
-            if (ball.dismissalSummary != null) ...[
+            if (summary != null) ...[
               const SizedBox(height: 4),
               Text(
-                ball.dismissalSummary!,
+                summary,
                 style: Theme.of(ctx)
                     .textTheme
                     .bodyMedium

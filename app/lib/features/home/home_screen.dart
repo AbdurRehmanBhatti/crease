@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/local_event_store.dart';
-import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
 import '../../domain/team_profile.dart';
 import '../../domain/tournament_engine.dart';
@@ -11,6 +10,7 @@ import '../../domain/user_profile.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../auth/auth_sheet.dart';
 import '../profile/profile_screen.dart';
 import '../quick_match/quick_match_sheet.dart';
 import '../scorecard/scorecard_screen.dart';
@@ -40,6 +40,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    LocalEventStore.instance.directoryNotifier.addListener(_onDirectoryChanged);
+    _loadMatches();
+  }
+
+  @override
+  void dispose() {
+    LocalEventStore.instance.directoryNotifier
+        .removeListener(_onDirectoryChanged);
+    super.dispose();
+  }
+
+  void _onDirectoryChanged() {
+    if (!mounted || _loading) return;
     _loadMatches();
   }
 
@@ -69,25 +82,29 @@ class _HomeScreenState extends State<HomeScreen> {
       merge(t.name, t.players);
     }
     final savedNameById = {for (final t in teams) t.id: t.name};
-    for (final t in tournaments) {
-      for (final entry in t.teamRosters.entries) {
-        merge(entry.key, entry.value);
-      }
-    }
+    final dir = LocalEventStore.instance.directory;
     for (final m in matches) {
+      final aNames = m.config.teamAPlayerIds
+          .map((id) => dir.resolvePlayerName(id, adHocPlayers: m.config.adHocPlayers))
+          .where((n) => n.isNotEmpty)
+          .toList();
+      final bNames = m.config.teamBPlayerIds
+          .map((id) => dir.resolvePlayerName(id, adHocPlayers: m.config.adHocPlayers))
+          .where((n) => n.isNotEmpty)
+          .toList();
       if (m.config.teamAId == null) {
         if (!m.config.teamA.trim().endsWith('(2)')) {
-          merge(m.config.teamA, m.config.teamAPlayers);
+          merge(m.config.teamA, aNames);
         }
       } else if (savedNameById.containsKey(m.config.teamAId)) {
-        merge(savedNameById[m.config.teamAId]!, m.config.teamAPlayers);
+        merge(savedNameById[m.config.teamAId]!, aNames);
       }
       if (m.config.teamBId == null) {
         if (!m.config.teamB.trim().endsWith('(2)')) {
-          merge(m.config.teamB, m.config.teamBPlayers);
+          merge(m.config.teamB, bNames);
         }
       } else if (savedNameById.containsKey(m.config.teamBId)) {
-        merge(savedNameById[m.config.teamBId]!, m.config.teamBPlayers);
+        merge(savedNameById[m.config.teamBId]!, bNames);
       }
     }
     return rosters;
@@ -95,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadMatches() async {
     final store = LocalEventStore.instance;
+    await store.refreshDirectory();
     final configs = await store.listMatches();
     final tournaments = await store.listTournaments();
     final teams = await store.listTeams();
@@ -102,7 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final derived = <DerivedMatchState>[];
     for (final cfg in configs) {
       final events = await store.getBallEvents(cfg.id);
-      derived.add(CricketEngine.derive(cfg, events));
+      derived.add(store.deriveMatch(cfg, events));
     }
     final knownRosters = _deriveKnownRosters(teams, tournaments, derived);
     if (!mounted) return;
@@ -140,7 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (existingIdx >= 0) nextMatches.removeAt(existingIdx);
     } else {
       final events = await store.getBallEvents(cfg.id);
-      final derived = CricketEngine.derive(cfg, events);
+      final derived = store.deriveMatch(cfg, events);
       if (existingIdx >= 0) {
         nextMatches[existingIdx] = derived;
       } else {
@@ -153,7 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
     for (final c in allConfigs) {
       if (!knownIds.contains(c.id)) {
         final ev = await store.getBallEvents(c.id);
-        nextMatches.insert(0, CricketEngine.derive(c, ev));
+        nextMatches.insert(0, store.deriveMatch(c, ev));
       }
     }
     if (!mounted) return;
@@ -170,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final refreshed = <DerivedMatchState>[];
     for (final cfg in tConfigs) {
       final events = await store.getBallEvents(cfg.id);
-      refreshed.add(CricketEngine.derive(cfg, events));
+      refreshed.add(store.deriveMatch(cfg, events));
     }
     final nextMatches = _matches
         .where((m) => m.config.tournamentId != tournamentId)
@@ -208,6 +226,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _createTournament() async {
+    final ok = await requireSignedInAccount(
+      context,
+      title: 'Sign in to create a tournament',
+      subtitle:
+          'Tournaments sync standings, NRR, and fixtures across participating teams.',
+    );
+    if (!ok || !mounted) return;
     final tournament = await showCreateTournamentSheet(context);
     if (tournament == null) return;
     await LocalEventStore.instance.saveTournament(tournament);
@@ -281,6 +306,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _joinAsScorer() async {
+    final ok = await requireSignedInAccount(
+      context,
+      title: 'Sign in to join as a scorer',
+      subtitle: 'Co-scoring syncs live balls across devices under your account.',
+    );
+    if (!ok || !mounted) return;
     final matchId = await showJoinAsScorerSheet(context);
     if (matchId == null || !mounted) return;
     await _openMatch(matchId);
@@ -301,7 +332,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openProfile() async {
-    final versionBefore = LocalEventStore.instance.accountDataVersion;
+    final versionBefore = LocalEventStore.accountDataVersion.value;
     String? uidBefore;
     try {
       uidBefore = Supabase.instance.client.auth.currentUser?.id;
@@ -317,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
       uidAfter = Supabase.instance.client.auth.currentUser?.id;
     } catch (_) {}
 
-    if (LocalEventStore.instance.accountDataVersion != versionBefore ||
+    if (LocalEventStore.accountDataVersion.value != versionBefore ||
         uidAfter != uidBefore) {
       await _loadMatches();
     } else {
@@ -325,14 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  bool get _isGuestAccount {
-    try {
-      final email = Supabase.instance.client.auth.currentUser?.email;
-      return email == null || email.trim().isEmpty;
-    } catch (_) {
-      return true;
-    }
-  }
+  bool get _isGuestAccount => !isSignedInAccount();
 
   Future<void> _refreshAndSync() async {
     await LocalEventStore.instance.syncAllPendingToSupabase();

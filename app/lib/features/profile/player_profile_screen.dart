@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../data/local_event_store.dart';
-import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
 import '../../domain/stats_engine.dart';
 import '../../theme/crease_theme.dart';
@@ -18,6 +17,8 @@ class PlayerProfileScreen extends StatefulWidget {
   const PlayerProfileScreen({
     super.key,
     required this.playerName,
+    this.playerId,
+    this.userId,
     this.role,
     this.teams = const [],
     this.isVerified = false,
@@ -26,6 +27,8 @@ class PlayerProfileScreen extends StatefulWidget {
   });
 
   final String playerName;
+  final String? playerId;
+  final String? userId;
   final String? role;
   final List<String> teams;
   final bool isVerified;
@@ -54,6 +57,11 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
 
   Future<void> _load() async {
     final store = LocalEventStore.instance;
+    if (store.directory.playersById.isEmpty) {
+      await store.refreshDirectory();
+    }
+    final dir = store.directory;
+
     List<DerivedMatchState> matches;
     if (widget.matches != null) {
       matches = widget.matches!;
@@ -62,16 +70,20 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
       matches = <DerivedMatchState>[];
       for (final cfg in configs) {
         final events = await store.getBallEvents(cfg.id);
-        matches.add(CricketEngine.derive(cfg, events));
+        matches.add(store.deriveMatch(cfg, events));
       }
     }
 
     var teams = List<String>.from(_teams);
     final lower = widget.playerName.trim().toLowerCase();
+    final pid = widget.playerId?.trim();
     if (teams.isEmpty) {
       final savedTeams = await store.listTeams();
       for (final t in savedTeams) {
-        if (t.players.any((p) => p.trim().toLowerCase() == lower)) {
+        final hasMatch = (pid != null && pid.isNotEmpty)
+            ? t.squad.any((p) => p.id == pid)
+            : t.players.any((p) => p.trim().toLowerCase() == lower);
+        if (hasMatch) {
           teams.add(t.name);
         }
       }
@@ -86,8 +98,8 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
           myProfile.avatarUrl != null &&
           myProfile.avatarUrl!.isNotEmpty) {
         resolvedAvatar = myProfile.avatarUrl;
-      } else {
-        resolvedAvatar = await store.fetchPublicPlayerAvatar(widget.playerName);
+      } else if (pid != null && pid.isNotEmpty) {
+        resolvedAvatar = await store.fetchPublicPlayerAvatar(pid);
       }
     }
 
@@ -95,7 +107,11 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
     final derived = StatsEnginePlayerProfile.derivePlayerProfile(
       realMatches.isNotEmpty ? realMatches : matches,
       widget.playerName,
+      playerId: widget.playerId,
+      userId: widget.userId,
       excludeDemo: realMatches.isNotEmpty,
+      playerNamesById: dir.playerNamesById,
+      playerUserIdsById: dir.playerUserIdsById,
     );
 
     if (!mounted) return;

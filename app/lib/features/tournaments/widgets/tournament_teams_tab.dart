@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../data/local_event_store.dart';
+
 import '../../../domain/tournament_engine.dart';
 import '../../../theme/crease_theme.dart';
 import '../../../widgets/crease_ui.dart';
@@ -131,7 +133,13 @@ class _TournamentTeamsTabState extends State<TournamentTeamsTab> {
         }
 
         final team = teams[index - 1];
-        final roster = widget.tournament.teamRosters[team] ?? const [];
+        final entry = widget.tournament.entryForName(team);
+        final roster = (entry?.teamId != null && entry!.teamId!.isNotEmpty)
+            ? LocalEventStore.instance.directory
+                .activePlayersForTeam(entry.teamId!)
+                .map((p) => p.displayName)
+                .toList()
+            : const <String>[];
         final isExpanded = _expandedTeams.contains(team);
         final canRemoveThisTeam = !widget.readOnly &&
             widget.canEditTeams &&

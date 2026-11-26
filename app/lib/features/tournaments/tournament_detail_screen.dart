@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../data/local_event_store.dart';
-import '../../domain/cricket_engine.dart';
 import '../../domain/models.dart';
 import '../../domain/stats_engine.dart';
 import '../../domain/tournament_engine.dart';
@@ -51,6 +50,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     if (!widget.readOnlyPublic) {
       final localTournament = await store.getTournament(widget.tournamentId);
       if (localTournament != null) {
+        await store.refreshDirectory();
         final unlockedEarly = await store.isTournamentKnockoutsUnlockedEarly(
           widget.tournamentId,
         );
@@ -59,7 +59,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
         final derived = <DerivedMatchState>[];
         for (final cfg in matchConfigs) {
           final events = await store.getBallEvents(cfg.id);
-          derived.add(CricketEngine.derive(cfg, events));
+          derived.add(store.deriveMatch(cfg, events));
         }
         if (!mounted) return;
         setState(() {
@@ -75,7 +75,7 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
 
     // Public or shared tournament not owned locally — load strictly in memory
     // so another user's tournament/matches never pollute local SQLite.
-    final snap = await store.fetchPublicTournamentSnapshot(widget.tournamentId);
+    final snap = await store.fetchRemoteTournament(widget.tournamentId);
     if (!mounted) return;
     setState(() {
       _tournament = snap?.tournament;
@@ -93,35 +93,28 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     required MatchStage stage,
     int? fixtureIndex,
   }) async {
-    final rosterA = List<String>.from(
-      tournament.teamRosters[battingFirst] ?? const [],
-    );
-    final rosterB = List<String>.from(
-      tournament.teamRosters[bowlingFirst] ?? const [],
-    );
-    final striker1 = rosterA.isNotEmpty ? rosterA[0] : 'Batter 1';
-    final nonStriker1 = rosterA.length > 1 ? rosterA[1] : 'Batter 2';
-    final bowler1 = rosterB.isNotEmpty ? rosterB[0] : 'Bowler 1';
-    final striker2 = rosterB.isNotEmpty ? rosterB[0] : 'Opener 1';
-    final nonStriker2 = rosterB.length > 1 ? rosterB[1] : 'Opener 2';
-    final bowler2 = rosterA.isNotEmpty ? rosterA[0] : 'Bowler 1';
+    final entryA = tournament.entryForName(battingFirst);
+    final entryB = tournament.entryForName(bowlingFirst);
+    final dir = LocalEventStore.instance.directory;
+    final rosterAIds = (entryA?.teamId != null && entryA!.teamId!.isNotEmpty)
+        ? dir.activePlayersForTeam(entryA.teamId!).map((p) => p.id).toList()
+        : const <String>[];
+    final rosterBIds = (entryB?.teamId != null && entryB!.teamId!.isNotEmpty)
+        ? dir.activePlayersForTeam(entryB.teamId!).map((p) => p.id).toList()
+        : const <String>[];
 
     final matchConfig = MatchConfig(
       id: _uuid.v4(),
       teamA: battingFirst,
       teamB: bowlingFirst,
+      teamAId: entryA?.teamId,
+      teamBId: entryB?.teamId,
+      battingFirstSide: MatchSide.a,
       oversLimit: tournament.oversLimit,
       playersPerSide: tournament.playersPerSide,
       formatLabel: tournament.formatLabel,
-      battingFirstTeam: battingFirst,
-      openingStrikerInnings1: striker1,
-      openingNonStrikerInnings1: nonStriker1,
-      openingBowlerInnings1: bowler1,
-      openingStrikerInnings2: striker2,
-      openingNonStrikerInnings2: nonStriker2,
-      openingBowlerInnings2: bowler2,
-      teamAPlayers: rosterA.isEmpty ? [striker1, nonStriker1] : rosterA,
-      teamBPlayers: rosterB.isEmpty ? [bowler1] : rosterB,
+      teamAPlayerIds: rosterAIds,
+      teamBPlayerIds: rosterBIds,
       tournamentId: tournament.id,
       tournamentStage: stage.name,
       fixtureIndex: fixtureIndex,
@@ -471,6 +464,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     final t = _tournament;
     if (t == null) return;
     final knownRosters = await LocalEventStore.instance.listKnownTeamRosters();
+    final savedTeams = await LocalEventStore.instance.listTeams();
+    final teamByLower = {
+      for (final st in savedTeams) st.name.trim().toLowerCase(): st,
+    };
     if (!mounted) return;
     final added = await showAddTournamentTeamsSheet(
       context,
@@ -480,18 +477,30 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
     if (added == null || added.isEmpty) return;
     final latest = _tournament;
     if (latest == null) return;
-    final updatedRosters = {
-      for (final e in latest.teamRosters.entries)
-        e.key: List<String>.from(e.value),
-    };
+    final nextEntries = List<TournamentTeamEntry>.from(latest.entries);
+    final existingLower =
+        nextEntries.map((e) => e.displayName.trim().toLowerCase()).toSet();
+    final now = DateTime.now();
     for (final entry in added.entries) {
-      if (updatedRosters.keys
-          .any((k) => k.toLowerCase() == entry.key.toLowerCase())) {
+      final clean = entry.key.trim();
+      if (clean.isEmpty || existingLower.contains(clean.toLowerCase())) {
         continue;
       }
-      updatedRosters[entry.key] = List<String>.from(entry.value);
+      final saved = teamByLower[clean.toLowerCase()];
+      nextEntries.add(
+        TournamentTeamEntry(
+          id: _uuid.v4(),
+          tournamentId: latest.id,
+          teamId: saved?.id,
+          adHocName: saved == null ? clean : null,
+          resolvedTeamName: saved?.name ?? clean,
+          seedOrder: nextEntries.length,
+          createdAt: now,
+        ),
+      );
+      existingLower.add(clean.toLowerCase());
     }
-    final updated = latest.copyWith(teamRosters: updatedRosters);
+    final updated = latest.copyWith(entries: nextEntries);
     await LocalEventStore.instance.saveTournament(updated);
     LocalEventStore.instance.syncTournamentToSupabase(updated.id);
     if (!mounted) return;
@@ -506,10 +515,10 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       teamName: teamName,
     );
     if (!ok) return;
-    final updatedRosters = {
-      for (final e in t.teamRosters.entries) e.key: List<String>.from(e.value),
-    }..remove(teamName);
-    final updated = t.copyWith(teamRosters: updatedRosters);
+    final nextEntries = t.entries
+        .where((e) => e.displayName.toLowerCase() != teamName.toLowerCase())
+        .toList();
+    final updated = t.copyWith(entries: nextEntries);
     await LocalEventStore.instance.saveTournament(updated);
     LocalEventStore.instance.syncTournamentToSupabase(updated.id);
     if (!mounted) return;
@@ -519,41 +528,47 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   Future<void> _saveTeamRoster(String teamName, List<String> nextRoster) async {
     final t = _tournament;
     if (t == null) return;
-    final updatedRosters = {
-      for (final e in t.teamRosters.entries) e.key: List<String>.from(e.value),
+    final entry = t.entryForName(teamName);
+    if (entry?.teamId == null) return;
+    final existing = await LocalEventStore.instance.listPlayersForTeam(entry!.teamId!);
+    final existingByLower = {
+      for (final p in existing) p.displayName.trim().toLowerCase(): p,
     };
-    updatedRosters[teamName] = List<String>.from(nextRoster);
-    final updated = t.copyWith(teamRosters: updatedRosters);
-    await LocalEventStore.instance.saveTournament(updated);
-    LocalEventStore.instance.syncTournamentToSupabase(updated.id);
+    final nextLower = nextRoster.map((n) => n.trim().toLowerCase()).toSet();
+    for (final name in nextRoster) {
+      final clean = name.trim();
+      if (clean.isNotEmpty && !existingByLower.containsKey(clean.toLowerCase())) {
+        await LocalEventStore.instance.addPlayerToClub(
+          teamId: entry.teamId!,
+          displayName: clean,
+        );
+      }
+    }
+    for (final p in existing) {
+      if (!nextLower.contains(p.displayName.trim().toLowerCase())) {
+        await LocalEventStore.instance.archivePlayer(p.id);
+      }
+    }
     if (!mounted) return;
-    setState(() => _tournament = updated);
+    setState(() {});
   }
 
   Future<void> _openAddPlayersSheet(String teamName) async {
     final t = _tournament;
     if (t == null) return;
-    final savedTeams = await LocalEventStore.instance.listTeams();
-    final savedClubPlayers = <String>[];
-    for (final st in savedTeams) {
-      if (st.name.trim().toLowerCase() == teamName.trim().toLowerCase()) {
-        for (final p in st.players) {
-          final trimmed = p.trim();
-          if (trimmed.isNotEmpty &&
-              !savedClubPlayers.any(
-                (e) => e.toLowerCase() == trimmed.toLowerCase(),
-              )) {
-            savedClubPlayers.add(trimmed);
-          }
-        }
-      }
-    }
+    final entry = t.entryForName(teamName);
+    final currentRoster = (entry?.teamId != null)
+        ? LocalEventStore.instance.directory
+            .activePlayersForTeam(entry!.teamId!)
+            .map((p) => p.displayName)
+            .toList()
+        : const <String>[];
     if (!mounted) return;
     await showAddTournamentPlayersSheet(
       context,
       teamName: teamName,
-      initialRoster: t.teamRosters[teamName] ?? const [],
-      savedClubPlayers: savedClubPlayers,
+      initialRoster: currentRoster,
+      savedClubPlayers: currentRoster,
       onSaveRoster: (next) => _saveTeamRoster(teamName, next),
     );
   }
@@ -561,18 +576,24 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   Future<void> _renamePlayerInRoster(String teamName, String currentName) async {
     final t = _tournament;
     if (t == null) return;
-    final roster = List<String>.from(t.teamRosters[teamName] ?? const []);
-    final idx = roster.indexOf(currentName);
-    if (idx < 0) return;
+    final entry = t.entryForName(teamName);
+    if (entry?.teamId == null) return;
+    final squad =
+        LocalEventStore.instance.directory.activePlayersForTeam(entry!.teamId!);
+    final target = squad
+        .where((p) => p.displayName == currentName)
+        .firstOrNull;
+    if (target == null) return;
     final renamed = await showRenameTournamentPlayerDialog(
       context,
       teamName: teamName,
       currentName: currentName,
-      roster: roster,
+      roster: squad.map((p) => p.displayName).toList(),
     );
     if (renamed == null || renamed == currentName) return;
-    roster[idx] = renamed;
-    await _saveTeamRoster(teamName, roster);
+    await LocalEventStore.instance.renamePlayer(target.id, renamed);
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _removePlayerFromRoster(
@@ -581,18 +602,30 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   ) async {
     final t = _tournament;
     if (t == null) return;
-    final previous = List<String>.from(t.teamRosters[teamName] ?? const []);
-    final next = List<String>.from(previous)..remove(playerName);
-    await _saveTeamRoster(teamName, next);
+    final entry = t.entryForName(teamName);
+    if (entry?.teamId == null) return;
+    final squad =
+        LocalEventStore.instance.directory.activePlayersForTeam(entry!.teamId!);
+    final target = squad
+        .where((p) => p.displayName == playerName)
+        .firstOrNull;
+    if (target == null) return;
+    await LocalEventStore.instance.archivePlayer(target.id);
     if (!mounted) return;
+    setState(() {});
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text("Removed $playerName from this tournament's squad"),
+          content: Text('Removed $playerName from $teamName'),
           action: SnackBarAction(
             label: 'Undo',
-            onPressed: () => _saveTeamRoster(teamName, previous),
+            onPressed: () async {
+              await LocalEventStore.instance.savePlayer(
+                target.copyWith(archived: false),
+              );
+              if (mounted) setState(() {});
+            },
           ),
         ),
       );
@@ -734,7 +767,17 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       _matches,
       forceUnlockKnockouts: _unlockKnockoutsEarly,
     );
-    final mvpList = StatsEngine.byMvp(StatsEngine.derive(_matches));
+    final mergedResolved = <String, String>{
+      for (final m in _matches) ...m.resolvedPlayerNames,
+      ...LocalEventStore.instance.directory.playerNamesById,
+    };
+    final mvpList = StatsEngine.byMvp(
+      StatsEngine.derive(
+        _matches,
+        playerNamesById: mergedResolved,
+        playerUserIdsById: LocalEventStore.instance.directory.playerUserIdsById,
+      ),
+    );
     final tournamentMvp = mvpList.isNotEmpty ? mvpList.first : null;
     final isPureKnockout = t.structure == TournamentStructure.knockout;
 

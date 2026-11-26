@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/local_event_store.dart';
-import '../../domain/cricket_engine.dart';
+import '../../domain/guest_sync_guards.dart';
 import '../../domain/models.dart';
 import '../../domain/stats_engine.dart';
 import '../../domain/team_profile.dart';
@@ -14,6 +14,7 @@ import '../../domain/user_profile.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../auth/auth_sheet.dart';
 import 'player_career_poster.dart';
 
 /// Daylight Glass Profile & Account screen:
@@ -79,6 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _load() async {
     final store = LocalEventStore.instance;
+    await store.refreshDirectory();
     final profile = await store.getUserProfile();
     final teams = await store.listTeams();
     final myTeam = teams.where((t) => t.isMyTeam).firstOrNull;
@@ -86,12 +88,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final derived = <DerivedMatchState>[];
     for (final cfg in configs) {
       final events = await store.getBallEvents(cfg.id);
-      derived.add(CricketEngine.derive(cfg, events));
+      derived.add(store.deriveMatch(cfg, events));
     }
 
     final realMatches = derived.where((m) => !m.config.isDemo).toList();
     final statsPool = realMatches.isNotEmpty ? realMatches : derived;
-    final allStats = StatsEngine.derive(
+    final allStats = store.deriveStats(
       statsPool,
       excludeDemo: realMatches.isNotEmpty,
     );
@@ -375,396 +377,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _openAuthSheet({bool initialSignIn = false}) async {
-    final emailCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
-    var isSignInMode = initialSignIn;
-    var obscurePassword = true;
-    String? busyAction; // 'google' | 'email'
-    String? errorText;
-
-    final done = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final c = ctx.crease;
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            final isBusy = busyAction != null;
-
-            Future<void> continueWithGoogle() async {
-              setModalState(() {
-                busyAction = 'google';
-                errorText = null;
-              });
-              try {
-                const webClientId = String.fromEnvironment(
-                  'GOOGLE_WEB_CLIENT_ID',
-                  defaultValue:
-                      '232733391231-5ua6le5ihsadi54892ugm10j71uqt6mm.apps.googleusercontent.com',
-                );
-                final googleSignIn = GoogleSignIn(
-                  serverClientId: webClientId,
-                  scopes: const ['email', 'profile'],
-                );
-                final googleUser = await googleSignIn.signIn();
-                if (googleUser == null) {
-                  setModalState(() => busyAction = null);
-                  return;
-                }
-                final googleAuth = await googleUser.authentication;
-                final idToken = googleAuth.idToken;
-                final accessToken = googleAuth.accessToken;
-                if (idToken == null) {
-                  setModalState(() {
-                    errorText =
-                        'Google sign-in didn\'t finish. Please try again or sign in with email.';
-                    busyAction = null;
-                  });
-                  return;
-                }
-
-                final auth = Supabase.instance.client.auth;
-                final prevUser = auth.currentUser;
-                final prevGuestUid = (prevUser != null &&
-                        (prevUser.email == null ||
-                            prevUser.email!.trim().isEmpty))
-                    ? prevUser.id
-                    : null;
-
-                await auth.signInWithIdToken(
-                  provider: OAuthProvider.google,
-                  idToken: idToken,
-                  accessToken: accessToken,
-                );
-
-                // Claim & sync any local guest data, then restore cloud account data
-                final claimed = await LocalEventStore.instance
-                    .claimGuestDataForSignedInUser(
-                  previousGuestUid: prevGuestUid,
-                );
-                final restored = await LocalEventStore.instance
-                    .restoreAccountDataFromCloud();
-
-                // Auto-fill display name & photo from Google profile if still empty
-                final currentProfile =
-                    await LocalEventStore.instance.getUserProfile();
-                final googleName = googleUser.displayName?.trim() ?? '';
-                final googlePhoto = googleUser.photoUrl?.trim() ?? '';
-                final needsName = currentProfile.displayName.trim().isEmpty &&
-                    googleName.isNotEmpty;
-                final needsPhoto =
-                    (currentProfile.avatarUrl == null ||
-                        currentProfile.avatarUrl!.isEmpty) &&
-                    googlePhoto.isNotEmpty;
-                if (needsName || needsPhoto) {
-                  await LocalEventStore.instance.saveUserProfile(
-                    currentProfile.copyWith(
-                      displayName: needsName ? googleName : null,
-                      avatarUrl: needsPhoto ? googlePhoto : null,
-                    ),
-                  );
-                }
-
-                if (!ctx.mounted) return;
-                final savedGuestCount = claimed.matchesSaved;
-                final message = savedGuestCount > 0
-                    ? 'Signed in as ${googleUser.email} · saved $savedGuestCount guest ${savedGuestCount == 1 ? 'match' : 'matches'}.'
-                    : restored > 0
-                        ? 'Signed in as ${googleUser.email} & restored $restored ${restored == 1 ? 'match' : 'matches'}.'
-                        : 'Signed in as ${googleUser.email}';
-                Navigator.of(ctx).pop(message);
-              } on AuthException catch (e) {
-                setModalState(() {
-                  errorText = e.message;
-                  busyAction = null;
-                });
-              } catch (e) {
-                setModalState(() {
-                  errorText =
-                      'Google sign-in didn\'t finish. Check your connection and try again, or use email.';
-                  busyAction = null;
-                });
-              }
-            }
-
-            Future<void> submitEmail() async {
-              final email = emailCtrl.text.trim();
-              final pass = passCtrl.text;
-              if (!email.contains('@') || pass.length < 6) {
-                setModalState(() {
-                  errorText = 'Enter a valid email and at least 6 characters.';
-                });
-                return;
-              }
-              setModalState(() {
-                busyAction = 'email';
-                errorText = null;
-              });
-              try {
-                final auth = Supabase.instance.client.auth;
-                if (isSignInMode) {
-                  final prevUser = auth.currentUser;
-                  final prevGuestUid = (prevUser != null &&
-                          (prevUser.email == null ||
-                              prevUser.email!.trim().isEmpty))
-                      ? prevUser.id
-                      : null;
-                  await auth.signInWithPassword(email: email, password: pass);
-                  final claimed = await LocalEventStore.instance
-                      .claimGuestDataForSignedInUser(
-                    previousGuestUid: prevGuestUid,
-                  );
-                  final restored = await LocalEventStore.instance
-                      .restoreAccountDataFromCloud();
-                  if (!ctx.mounted) return;
-                  final savedGuestCount = claimed.matchesSaved;
-                  final message = savedGuestCount > 0
-                      ? 'Signed in as $email · saved $savedGuestCount guest ${savedGuestCount == 1 ? 'match' : 'matches'}.'
-                      : restored > 0
-                          ? 'Signed in & restored $restored ${restored == 1 ? 'match' : 'matches'}.'
-                          : 'Signed in as $email';
-                  Navigator.of(ctx).pop(message);
-                } else {
-                  const redirect = 'crease://login-callback';
-                  if (auth.currentSession == null) {
-                    await auth.signUp(
-                      email: email,
-                      password: pass,
-                      emailRedirectTo: redirect,
-                    );
-                  } else {
-                    await auth.updateUser(
-                      UserAttributes(email: email, password: pass),
-                      emailRedirectTo: redirect,
-                    );
-                  }
-                  await LocalEventStore.instance.syncAllPendingToSupabase();
-                  if (!ctx.mounted) return;
-                  Navigator.of(ctx).pop(
-                    'Account created and backed up. Check $email if confirmation is enabled.',
-                  );
-                }
-              } on AuthException catch (e) {
-                setModalState(() {
-                  errorText = e.message;
-                  busyAction = null;
-                });
-              } catch (_) {
-                setModalState(() {
-                  errorText = 'Check your internet connection and try again.';
-                  busyAction = null;
-                });
-              }
-            }
-
-            return PopScope(
-              canPop: !isBusy,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
-                ),
-                child: GlassSurface(
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(24)),
-                  fillColor: c.surfaceSheet,
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                  child: SafeArea(
-                    top: false,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  isSignInMode
-                                      ? 'Sign in to Crease'
-                                      : 'Create account',
-                                  style: Theme.of(ctx).textTheme.titleLarge,
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: 'Close',
-                                onPressed: isBusy
-                                    ? null
-                                    : () => Navigator.of(ctx).pop(),
-                                icon: const Icon(Icons.close_rounded, size: 20),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            isSignInMode
-                                ? 'Restore your backed-up teams, matches, and career stats.'
-                                : 'Save your teams, matches, and stats to an account so you never lose them.',
-                            style: Theme.of(ctx).textTheme.bodyMedium,
-                          ),
-                          const SizedBox(height: 16),
-                          OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size.fromHeight(48),
-                              side: BorderSide(color: c.hairline),
-                              backgroundColor: c.surfaceGlass,
-                              foregroundColor: c.inkPrimary,
-                            ),
-                            onPressed: isBusy ? null : continueWithGoogle,
-                            child: busyAction == 'google'
-                                ? Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: c.pitchGreen,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      const Text('Signing in with Google…'),
-                                    ],
-                                  )
-                                : const Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      GoogleGMark(size: 18),
-                                      SizedBox(width: 10),
-                                      Text('Continue with Google'),
-                                    ],
-                                  ),
-                          ),
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              Expanded(child: Divider(color: c.hairlineSubtle)),
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 12),
-                                child: Text(
-                                  'or use email',
-                                  style: Theme.of(ctx)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(color: c.inkSecondary),
-                                ),
-                              ),
-                              Expanded(child: Divider(color: c.hairlineSubtle)),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: emailCtrl,
-                            enabled: !isBusy,
-                            keyboardType: TextInputType.emailAddress,
-                            autofillHints: const [AutofillHints.email],
-                            decoration: const InputDecoration(
-                              labelText: 'Email',
-                              hintText: 'you@example.com',
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: passCtrl,
-                            enabled: !isBusy,
-                            obscureText: obscurePassword,
-                        decoration: InputDecoration(
-                          labelText:
-                              isSignInMode ? 'Password' : 'Create a password',
-                          hintText: 'At least 6 characters',
-                          suffixIcon: IconButton(
-                            tooltip: obscurePassword
-                                ? 'Show password'
-                                : 'Hide password',
-                            icon: Icon(
-                              obscurePassword
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
-                              size: 20,
-                            ),
-                            onPressed: () => setModalState(
-                              () => obscurePassword = !obscurePassword,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (errorText != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          errorText!,
-                          style: Theme.of(ctx)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: c.wicketRed),
-                        ),
-                      ],
-                      const SizedBox(height: 18),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: c.pitchGreen,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size.fromHeight(48),
-                        ),
-                        onPressed: isBusy ? null : submitEmail,
-                        child: busyAction == 'email'
-                            ? Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: c.pitchGreen,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    isSignInMode
-                                        ? 'Signing in…'
-                                        : 'Creating account…',
-                                  ),
-                                ],
-                              )
-                            : Text(
-                                isSignInMode ? 'Sign in' : 'Create account',
-                              ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: isBusy
-                            ? null
-                            : () => setModalState(() {
-                                  isSignInMode = !isSignInMode;
-                                  errorText = null;
-                                }),
-                        child: Text(
-                          isSignInMode
-                              ? 'New to Crease? Create account'
-                              : 'Already have an account? Sign in',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              ),
-              ),
-            );
-          },
-        );
-      },
+    final done = await showCreaseAuthSheet(
+      context,
+      initialSignIn: initialSignIn,
     );
-
-    Future<void>.delayed(const Duration(milliseconds: 500), () {
-      emailCtrl.dispose();
-      passCtrl.dispose();
-    });
-
     if (done != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(done)));
       await _load();
@@ -772,6 +388,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _pickAndUploadAvatar(ImageSource source) async {
+    final ok = await requireSignedInAccount(
+      context,
+      title: 'Sign in to upload a profile photo',
+      subtitle: 'Your photo syncs across scorecards and team rosters.',
+    );
+    if (!ok || !mounted) return;
     try {
       final picker = ImagePicker();
       final picked = await picker.pickImage(
@@ -904,14 +526,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     setState(() => _loading = true);
     try {
-      await LocalEventStore.instance.syncAllPendingToSupabase();
-      await LocalEventStore.instance.clearLocalUserDataOnSignOut();
-      try {
-        await GoogleSignIn().signOut();
-      } catch (_) {}
       final auth = Supabase.instance.client.auth;
-      await auth.signOut();
-      await auth.signInAnonymously();
+      await SafeSignOutCoordinator.execute(
+        backupPending: LocalEventStore.instance.syncAllPendingBeforeSignOut,
+        signOutGoogle: () => GoogleSignIn().signOut(),
+        signOutCloud: () => auth.signOut(),
+        clearLocalData: LocalEventStore.instance.clearLocalUserDataOnSignOut,
+        ensureFreshAnonymousSession: () async {},
+      );
+
       if (!mounted) return;
       await _load();
       if (!mounted) return;

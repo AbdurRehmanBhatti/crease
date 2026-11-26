@@ -61,6 +61,14 @@ class MatchInsights {
   MatchInsights._();
 
   static List<PartnershipSegment> partnerships(DerivedInningsState inn) {
+    final nameById = <String, String>{
+      for (final b in inn.batters) b.playerId: b.name,
+      if (inn.strikerId.isNotEmpty) inn.strikerId: inn.striker,
+      if (inn.nonStrikerId.isNotEmpty) inn.nonStrikerId: inn.nonStriker,
+    };
+    String nameOf(String? id, String fallback) =>
+        (id != null && id.isNotEmpty) ? (nameById[id] ?? fallback) : fallback;
+
     final segments = <PartnershipSegment>[];
     var wicketNum = 1;
     var runs = 0;
@@ -74,15 +82,15 @@ class MatchInsights {
 
     for (final ov in inn.overs) {
       for (final ball in ov.balls) {
-        bA ??= ball.striker;
-        bB ??= ball.nonStriker;
+        bA ??= ball.strikerId;
+        bB ??= ball.nonStrikerId;
         runs += ball.totalRuns;
         if (ball.isLegalDelivery) balls += 1;
 
-        if (ball.striker == bA) {
+        if (ball.strikerId == bA) {
           runsA += ball.runsOffBat;
           if (ball.extraType != ExtraType.wide) ballsA += 1;
-        } else if (ball.striker == bB) {
+        } else if (ball.strikerId == bB) {
           runsB += ball.runsOffBat;
           if (ball.extraType != ExtraType.wide) ballsB += 1;
         }
@@ -91,10 +99,10 @@ class MatchInsights {
           segments.add(
             PartnershipSegment(
               wicketNumber: wicketNum,
-              batterA: bA,
+              batterA: nameOf(bA, 'Batter 1'),
               runsA: runsA,
               ballsA: ballsA,
-              batterB: bB,
+              batterB: nameOf(bB, 'Batter 2'),
               runsB: runsB,
               ballsB: ballsB,
               runs: runs,
@@ -119,10 +127,10 @@ class MatchInsights {
       segments.add(
         PartnershipSegment(
           wicketNumber: wicketNum,
-          batterA: bA ?? inn.striker,
+          batterA: nameOf(bA, inn.striker),
           runsA: runsA,
           ballsA: ballsA,
-          batterB: bB ?? inn.nonStriker,
+          batterB: nameOf(bB, inn.nonStriker),
           runsB: runsB,
           ballsB: ballsB,
           runs: runs,

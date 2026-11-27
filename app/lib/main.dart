@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'config/app_links.dart';
+import 'config/in_app_update_service.dart';
 import 'data/local_event_store.dart';
 import 'domain/user_profile.dart';
 import 'features/home/home_screen.dart';
@@ -84,6 +85,7 @@ class CreaseApp extends StatefulWidget {
 
 class _CreaseAppState extends State<CreaseApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
+  final _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
   final _appLinks = AppLinks();
   StreamSubscription<Uri>? _linkSub;
   String? _lastOpenedMatchId;
@@ -92,6 +94,36 @@ class _CreaseAppState extends State<CreaseApp> {
   void initState() {
     super.initState();
     _initDeepLinks();
+    _initInAppUpdates();
+  }
+
+  void _initInAppUpdates() {
+    InAppUpdateService.instance.init(
+      onUpdateDownloaded: _showUpdateReadyBanner,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(InAppUpdateService.instance.checkForFlexibleUpdate());
+    });
+  }
+
+  void _showUpdateReadyBanner() {
+    final messenger = _scaffoldMessengerKey.currentState;
+    if (messenger == null) return;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(days: 1),
+          behavior: SnackBarBehavior.floating,
+          content: const Text('Update downloaded. Restart to install.'),
+          action: SnackBarAction(
+            label: 'Restart',
+            onPressed: () {
+              unawaited(InAppUpdateService.instance.completeUpdate());
+            },
+          ),
+        ),
+      );
   }
 
   @override
@@ -162,6 +194,7 @@ class _CreaseAppState extends State<CreaseApp> {
       builder: (context, themeMode, _) {
         return MaterialApp(
           navigatorKey: _navigatorKey,
+          scaffoldMessengerKey: _scaffoldMessengerKey,
           title: 'Crease',
           debugShowCheckedModeBanner: false,
           theme: CreaseTheme.light(),

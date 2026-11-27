@@ -11,6 +11,8 @@ class LiveCreaseCard extends StatelessWidget {
     super.key,
     required this.strikerEmpty,
     required this.nonStrikerEmpty,
+    this.isLastManStanding = false,
+    this.maxOversPerBowler,
     required this.striker,
     required this.nonStriker,
     required this.bowler,
@@ -24,6 +26,8 @@ class LiveCreaseCard extends StatelessWidget {
 
   final bool strikerEmpty;
   final bool nonStrikerEmpty;
+  final bool isLastManStanding;
+  final int? maxOversPerBowler;
   final BatterLine striker;
   final BatterLine nonStriker;
   final BowlerLine bowler;
@@ -58,12 +62,14 @@ class LiveCreaseCard extends StatelessWidget {
                   child: Row(
                     children: [
                       Text('Batter', style: headerStyle),
-                      const SizedBox(width: 4),
-                      Icon(
-                        Icons.swap_vert_rounded,
-                        size: 13,
-                        color: c.inkSecondary.withValues(alpha: 0.7),
-                      ),
+                      if (!isLastManStanding) ...[
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.swap_vert_rounded,
+                          size: 13,
+                          color: c.inkSecondary.withValues(alpha: 0.7),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -89,7 +95,45 @@ class LiveCreaseCard extends StatelessWidget {
               onTap: onSwapStrike,
             ),
           const SizedBox(height: 2),
-          if (nonStrikerEmpty)
+          if (isLastManStanding)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: c.pitchGreenSoft,
+                      borderRadius: BorderRadius.circular(CreaseRadius.badge),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.person_outline_rounded,
+                          size: 13,
+                          color: c.pitchGreen,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          'Last man stands · Batting solo',
+                          style:
+                              Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: c.pitchGreen,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (nonStrikerEmpty)
             _ActionCreaseRow(
               icon: Icons.person_add_alt_1_rounded,
               label: isOpeningSelection
@@ -158,6 +202,31 @@ class LiveCreaseCard extends StatelessWidget {
                             size: 14,
                             color: c.inkSecondary.withValues(alpha: 0.7),
                           ),
+                          if (maxOversPerBowler != null &&
+                              bowler.legalBalls >= maxOversPerBowler! * 6) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 1.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: c.wicketRedSoft,
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: Text(
+                                'Max ${maxOversPerBowler}ov',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                      color: c.wicketRed,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

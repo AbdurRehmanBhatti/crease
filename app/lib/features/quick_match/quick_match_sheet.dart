@@ -9,6 +9,7 @@ import '../../domain/team_profile.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../../widgets/match_rules_section.dart';
 import '../auth/auth_sheet.dart';
 import '../live/widgets/live_broadcast_toggle.dart';
 
@@ -64,6 +65,9 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
   Map<String, String> _savedTeamIdByLowerName = {};
   Map<String, String> _savedTeamLocationByLowerName = {};
   int _overs = 6;
+  int _playersPerSide = 11;
+  bool _lastManStands = false;
+  int? _maxOversPerBowler;
   bool _isCustomOvers = false;
   bool _isTestMatch = false;
   bool _showPlayers = false;
@@ -939,7 +943,9 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
       teamBId: _teamBId,
       battingFirstSide: MatchSide.a,
       oversLimit: oversLimit,
-      playersPerSide: 11,
+      playersPerSide: _playersPerSide,
+      lastManStands: _lastManStands,
+      maxOversPerBowler: _isTestMatch ? null : _maxOversPerBowler,
       formatLabel: _isTestMatch ? 'TEST' : _formatForOvers(oversLimit),
       openingStriker1Id: striker1Id,
       openingNonStriker1Id: nonStriker1Id,
@@ -1310,6 +1316,20 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 12),
+                MatchRulesSection(
+                  playersPerSide: _playersPerSide,
+                  lastManStands: _lastManStands,
+                  maxOversPerBowler: _maxOversPerBowler,
+                  oversLimit: _isTestMatch ? 0 : _resolvedOvers,
+                  isTestMatch: _isTestMatch,
+                  onPlayersPerSideChanged: (v) =>
+                      setState(() => _playersPerSide = v),
+                  onLastManStandsChanged: (v) =>
+                      setState(() => _lastManStands = v),
+                  onMaxOversPerBowlerChanged: (v) =>
+                      setState(() => _maxOversPerBowler = v),
                 ),
                 const SizedBox(height: 12),
                 LiveBroadcastToggleTile(

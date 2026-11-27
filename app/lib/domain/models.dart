@@ -125,6 +125,8 @@ class MatchConfig {
     this.teamBId,
     required this.oversLimit,
     this.playersPerSide = 11,
+    this.lastManStands = false,
+    this.maxOversPerBowler,
     required this.formatLabel,
     this.battingFirstSide = MatchSide.a,
     this.openingStriker1Id,
@@ -156,6 +158,8 @@ class MatchConfig {
   final String? teamBId;
   final int oversLimit; // 0 = unlimited overs (Test match)
   final int playersPerSide;
+  final bool lastManStands;
+  final int? maxOversPerBowler;
   final String formatLabel;
   final MatchSide battingFirstSide;
   final String? openingStriker1Id;
@@ -290,6 +294,10 @@ class MatchConfig {
     String? teamAId,
     String? teamBId,
     int? oversLimit,
+    int? playersPerSide,
+    bool? lastManStands,
+    int? maxOversPerBowler,
+    bool clearMaxOversPerBowler = false,
     String? formatLabel,
     MatchSide? battingFirstSide,
     String? openingStriker1Id,
@@ -316,7 +324,11 @@ class MatchConfig {
         teamAId: teamAId ?? this.teamAId,
         teamBId: teamBId ?? this.teamBId,
         oversLimit: oversLimit ?? this.oversLimit,
-        playersPerSide: playersPerSide,
+        playersPerSide: playersPerSide ?? this.playersPerSide,
+        lastManStands: lastManStands ?? this.lastManStands,
+        maxOversPerBowler: clearMaxOversPerBowler
+            ? null
+            : (maxOversPerBowler ?? this.maxOversPerBowler),
         formatLabel: formatLabel ?? this.formatLabel,
         battingFirstSide: battingFirstSide ?? this.battingFirstSide,
         openingStriker1Id: openingStriker1Id ?? this.openingStriker1Id,
@@ -352,6 +364,8 @@ class MatchConfig {
         'batting_first_side': battingFirstSide.name,
         'overs_limit': oversLimit,
         'players_per_side': playersPerSide,
+        'last_man_stands': lastManStands ? 1 : 0,
+        'max_overs_per_bowler': maxOversPerBowler,
         'format_label': formatLabel,
         'opening_striker_1_id': openingStriker1Id,
         'opening_non_striker_1_id': openingNonStriker1Id,
@@ -447,6 +461,8 @@ class MatchConfig {
         battingFirstSide: MatchSide.fromName(map['batting_first_side'] as String?),
         oversLimit: (map['overs_limit']! as num).toInt(),
         playersPerSide: ((map['players_per_side'] as num?) ?? 11).toInt(),
+        lastManStands: _decodeBool(map['last_man_stands']),
+        maxOversPerBowler: (map['max_overs_per_bowler'] as num?)?.toInt(),
         formatLabel: map['format_label']! as String,
         openingStriker1Id: _cleanNullableId(map['opening_striker_1_id']),
         openingNonStriker1Id: _cleanNullableId(map['opening_non_striker_1_id']),
@@ -801,6 +817,7 @@ class DerivedInningsState {
     required this.legByes,
     required this.isComplete,
     this.isDeclared = false,
+    this.isLastManStanding = false,
     this.target,
   });
 
@@ -832,11 +849,13 @@ class DerivedInningsState {
   final int legByes;
   final bool isComplete;
   final bool isDeclared;
+  final bool isLastManStanding;
   final int? target;
 
   int get extrasTotal => wides + noBalls + byes + legByes;
   bool get needsNextBatter =>
-      !isComplete && (strikerId.isEmpty || nonStrikerId.isEmpty);
+      !isComplete &&
+      (strikerId.isEmpty || (!isLastManStanding && nonStrikerId.isEmpty));
   String get scoreText =>
       '$totalRuns/$wickets${isDeclared ? 'd' : ''}';
   String get oversText => '${legalBalls ~/ 6}.${legalBalls % 6}';

@@ -209,6 +209,8 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       battingFirstSide: MatchSide.a,
       oversLimit: tournament.oversLimit,
       playersPerSide: tournament.playersPerSide,
+      lastManStands: tournament.lastManStands,
+      maxOversPerBowler: tournament.maxOversPerBowler,
       formatLabel: tournament.formatLabel,
       teamAPlayerIds: rosterAIds,
       teamBPlayerIds: rosterBIds,

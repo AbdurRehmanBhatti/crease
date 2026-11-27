@@ -374,6 +374,8 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
       'batting_first_side': match.battingFirstSide.name,
       'overs_limit': match.oversLimit,
       'players_per_side': match.playersPerSide,
+      'last_man_stands': match.lastManStands,
+      'max_overs_per_bowler': match.maxOversPerBowler,
       'format_label': match.formatLabel,
       'opening_striker_1_id': match.openingStriker1Id,
       'opening_non_striker_1_id': match.openingNonStriker1Id,

@@ -91,6 +91,7 @@ class CricketEngine {
       battingSide: resolvedConfig.battingFirstSide,
       oversLimit: resolvedConfig.oversLimit,
       playersPerSide: resolvedConfig.playersPerSide,
+      lastManStands: resolvedConfig.lastManStands,
       openingStrikerId: resolvedConfig.openingStriker1Id ?? '',
       openingNonStrikerId: resolvedConfig.openingNonStriker1Id ?? '',
       openingBowlerId: resolvedConfig.openingBowler1Id ?? '',
@@ -120,6 +121,7 @@ class CricketEngine {
         battingSide: resolvedConfig.battingSecondSide,
         oversLimit: resolvedConfig.oversLimit,
         playersPerSide: resolvedConfig.playersPerSide,
+        lastManStands: resolvedConfig.lastManStands,
         openingStrikerId: resolvedConfig.openingStriker2Id ?? '',
         openingNonStrikerId: resolvedConfig.openingNonStriker2Id ?? '',
         openingBowlerId: resolvedConfig.openingBowler2Id ?? '',
@@ -273,8 +275,11 @@ class CricketEngine {
       final targetScore = target - 1;
       if (finalInn2.totalRuns >= target) {
         winnerSide = finalInn2.battingSide;
+        final maxWickets = resolvedConfig.lastManStands
+            ? resolvedConfig.playersPerSide
+            : (resolvedConfig.playersPerSide - 1);
         final wicketsLeft =
-            (resolvedConfig.playersPerSide - 1 - finalInn2.wickets).clamp(1, 10);
+            (maxWickets - finalInn2.wickets).clamp(1, maxWickets);
         resultSummary =
             '${_displayLabel(resolvedConfig, finalInn2.battingSide, teamNamesById)} won by $wicketsLeft wicket${wicketsLeft == 1 ? '' : 's'}';
       } else if (finalInn2.totalRuns == targetScore) {
@@ -371,6 +376,7 @@ class CricketEngine {
       battingSide: batSide1,
       oversLimit: 0,
       playersPerSide: config.playersPerSide,
+      lastManStands: config.lastManStands,
       openingStrikerId: op1.$1,
       openingNonStrikerId: op1.$2,
       openingBowlerId: op1.$3,
@@ -396,6 +402,7 @@ class CricketEngine {
         battingSide: batSide2,
         oversLimit: 0,
         playersPerSide: config.playersPerSide,
+        lastManStands: config.lastManStands,
         openingStrikerId: op2.$1,
         openingNonStrikerId: op2.$2,
         openingBowlerId: op2.$3,
@@ -421,6 +428,7 @@ class CricketEngine {
         battingSide: batSide3,
         oversLimit: 0,
         playersPerSide: config.playersPerSide,
+        lastManStands: config.lastManStands,
         openingStrikerId: op3.$1,
         openingNonStrikerId: op3.$2,
         openingBowlerId: op3.$3,
@@ -456,6 +464,7 @@ class CricketEngine {
         battingSide: batSide4,
         oversLimit: 0,
         playersPerSide: config.playersPerSide,
+        lastManStands: config.lastManStands,
         openingStrikerId: op4.$1,
         openingNonStrikerId: op4.$2,
         openingBowlerId: op4.$3,
@@ -671,6 +680,7 @@ class CricketEngine {
       legByes: state.legByes,
       isComplete: state.isComplete,
       isDeclared: state.isDeclared,
+      isLastManStanding: state.isLastManStanding,
       target: state.target,
     );
   }
@@ -682,6 +692,7 @@ class CricketEngine {
     required MatchSide battingSide,
     required int oversLimit,
     required int playersPerSide,
+    bool lastManStands = false,
     required String openingStrikerId,
     required String openingNonStrikerId,
     required String openingBowlerId,
@@ -748,11 +759,18 @@ class CricketEngine {
 
     for (final ball in events) {
       final b = ensureBatter(ball.strikerId);
-      ensureBatter(ball.nonStrikerId);
+      final isSoloBeforeBall = lastManStands && wickets == playersPerSide - 1;
+      if (!isSoloBeforeBall &&
+          ball.nonStrikerId.isNotEmpty &&
+          ball.nonStrikerId != ball.strikerId) {
+        ensureBatter(ball.nonStrikerId);
+      }
       final bowl = ensureBowler(ball.bowlerId);
 
       strikerId = ball.strikerId;
-      nonStrikerId = ball.nonStrikerId;
+      nonStrikerId = (isSoloBeforeBall || ball.nonStrikerId == ball.strikerId)
+          ? ''
+          : ball.nonStrikerId;
       currentBowlerId = ball.bowlerId;
       currentOverBowlerId = ball.bowlerId;
 
@@ -834,14 +852,23 @@ class CricketEngine {
         if (incomingId.isNotEmpty) {
           ensureBatter(incomingId);
         }
-        if (dismissedId == nonStrikerId) {
+        if (lastManStands && countsWicket && wickets == playersPerSide - 1) {
+          // Last Man Stands: surviving batter continues solo on strike.
+          final surviving =
+              dismissedId == nonStrikerId ? strikerId : nonStrikerId;
+          strikerId = surviving.isNotEmpty ? surviving : incomingId;
+          nonStrikerId = '';
+        } else if (lastManStands && countsWicket && wickets >= playersPerSide) {
+          strikerId = '';
+          nonStrikerId = '';
+        } else if (dismissedId == nonStrikerId) {
           nonStrikerId = incomingId;
         } else {
           strikerId = incomingId;
         }
       }
 
-      if (ball.runningRuns.isOdd) {
+      if (ball.runningRuns.isOdd && nonStrikerId.isNotEmpty) {
         final temp = strikerId;
         strikerId = nonStrikerId;
         nonStrikerId = temp;
@@ -870,9 +897,11 @@ class CricketEngine {
         currentOverRuns = 0;
         currentOverWickets = 0;
 
-        final temp = strikerId;
-        strikerId = nonStrikerId;
-        nonStrikerId = temp;
+        if (nonStrikerId.isNotEmpty) {
+          final temp = strikerId;
+          strikerId = nonStrikerId;
+          nonStrikerId = temp;
+        }
       }
     }
 
@@ -892,12 +921,18 @@ class CricketEngine {
       );
     }
 
-    final maxWickets = (playersPerSide - 1).clamp(1, 10);
+    final maxWickets = lastManStands
+        ? playersPerSide.clamp(2, 15)
+        : (playersPerSide - 1).clamp(1, 14);
     final bool allOut = wickets >= maxWickets;
     final bool oversFinished = oversLimit > 0 && legalBalls >= oversLimit * 6;
     final bool targetChased = target != null && totalRuns >= target;
     final bool isComplete =
         allOut || oversFinished || targetChased || isDeclared;
+    final bool isLastManStanding = lastManStands &&
+        !isComplete &&
+        wickets == playersPerSide - 1 &&
+        strikerId.isNotEmpty;
 
     return DerivedInningsState(
       inningsNumber: inningsNumber,
@@ -929,6 +964,7 @@ class CricketEngine {
       legByes: legByes,
       isComplete: isComplete,
       isDeclared: isDeclared,
+      isLastManStanding: isLastManStanding,
       target: target,
     );
   }

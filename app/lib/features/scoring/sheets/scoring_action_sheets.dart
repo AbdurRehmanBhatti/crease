@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../domain/models.dart';
 import '../../../theme/crease_theme.dart';
@@ -34,6 +35,7 @@ Future<String?> showNextBowlerSheet(
   Map<String, String> playerNamesById = const {},
   String? title,
   String? placeholderFallback,
+  Future<void> Function(String bowlerName)? onConfirm,
 }) async {
   final controller = TextEditingController();
   final rosterSet = <String>{
@@ -45,6 +47,28 @@ Future<String?> showNextBowlerSheet(
     ..removeWhere((n) => n.trim().isEmpty)
     ..remove(innings.currentBowler);
   final availableBowlers = rosterSet.toList();
+  final maxOvers = config?.maxOversPerBowler;
+  final eligibleBowlers = <String>[];
+  final quotaReachedBowlers = <String>[];
+  for (final name in availableBowlers) {
+    final stats = innings.bowlerByName(name);
+    if (maxOvers != null && stats.legalBalls >= maxOvers * 6) {
+      quotaReachedBowlers.add(name);
+    } else {
+      eligibleBowlers.add(name);
+    }
+  }
+
+  String bowlerChipLabel(String name) {
+    final stats = innings.bowlerByName(name);
+    if (stats.legalBalls == 0) return name;
+    if (maxOvers != null) return '$name · ${stats.oversText}/$maxOvers';
+    return '$name · ${stats.oversText}';
+  }
+
+  var saving = false;
+  String? savingName;
+  String? errorText;
 
   try {
     return await showModalBottomSheet<String>(
@@ -53,125 +77,307 @@ Future<String?> showNextBowlerSheet(
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final c = ctx.crease;
-        return Padding(
-          padding:
-              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: GlassSurface(
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(24)),
-            fillColor: c.surfaceSheet,
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                CreaseSheetHeader(
-                  title: title ?? 'Select next bowler · ${innings.bowlingTeam}',
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            Future<void> submitPick(String name) async {
+              final clean = name.trim();
+              if (clean.isEmpty || saving) return;
+              HapticFeedback.selectionClick();
+              if (onConfirm == null) {
+                Navigator.pop(ctx, clean);
+                return;
+              }
+              FocusScope.of(ctx).unfocus();
+              setModalState(() {
+                saving = true;
+                savingName = clean;
+                errorText = null;
+              });
+              try {
+                await onConfirm(clean);
+                if (ctx.mounted) Navigator.pop(ctx, clean);
+              } catch (_) {
+                if (ctx.mounted) {
+                  setModalState(() {
+                    saving = false;
+                    savingName = null;
+                    errorText = 'Could not update bowler. Please try again.';
+                  });
+                }
+              }
+            }
+
+            return PopScope(
+              canPop: !saving,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
                 ),
-                const SizedBox(height: 12),
-                if (availableBowlers.isNotEmpty) ...[
-                  Text(
-                    'Available bowlers',
-                    style: Theme.of(ctx).textTheme.labelMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final name in availableBowlers)
-                        ActionChip(
-                          label: Text(name),
-                          backgroundColor: c.surfaceKey,
-                          side: BorderSide(color: c.pitchGreen, width: 1),
-                          labelStyle: TextStyle(
-                            color: c.inkPrimary,
-                            fontWeight: FontWeight.w500,
+                child: GlassSurface(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
+                  fillColor: c.surfaceSheet,
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+                  child: AbsorbPointer(
+                    absorbing: saving,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          CreaseSheetHeader(
+                            title: title ??
+                                'Select next bowler · ${innings.bowlingTeam}',
                           ),
-                          onPressed: () => Navigator.pop(ctx, name),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                // Show who just bowled as muted/disabled so it's clear why they can't bowl back-to-back overs
-                if (innings.legalBalls > 0 &&
-                    innings.currentBowler.isNotEmpty) ...[
-                  Text(
-                    'Bowled previous over',
-                    style: Theme.of(ctx).textTheme.labelMedium,
-                  ),
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Opacity(
-                      opacity: 0.45,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: c.pillMutedBg,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: c.hairline),
-                        ),
-                        child: Text(
-                          '${innings.currentBowler} · ${innings.bowlerByName(innings.currentBowler).figuresText}',
-                          style: Theme.of(ctx).textTheme.labelMedium,
-                        ),
+                          const SizedBox(height: 12),
+                          if (eligibleBowlers.isNotEmpty) ...[
+                            Text(
+                              maxOvers != null
+                                  ? 'Available bowlers (max $maxOvers ov each)'
+                                  : 'Available bowlers',
+                              style: Theme.of(ctx).textTheme.labelMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (final name in eligibleBowlers)
+                                  Opacity(
+                                    opacity:
+                                        saving && savingName != name ? 0.45 : 1,
+                                    child: ActionChip(
+                                      avatar: saving && savingName == name
+                                          ? SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: c.pitchGreen,
+                                              ),
+                                            )
+                                          : null,
+                                      label: Text(bowlerChipLabel(name)),
+                                      backgroundColor:
+                                          saving && savingName == name
+                                              ? c.pitchGreenSoft
+                                              : c.surfaceKey,
+                                      side: BorderSide(
+                                        color: c.pitchGreen,
+                                        width: 1,
+                                      ),
+                                      labelStyle: TextStyle(
+                                        color: c.inkPrimary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      onPressed: () => submitPick(name),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          if (quotaReachedBowlers.isNotEmpty &&
+                              maxOvers != null) ...[
+                            Text(
+                              'Quota complete ($maxOvers ov max)',
+                              style: Theme.of(ctx)
+                                  .textTheme
+                                  .labelMedium
+                                  ?.copyWith(color: c.wicketRed),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (final name in quotaReachedBowlers)
+                                  Opacity(
+                                    opacity:
+                                        saving && savingName != name ? 0.45 : 1,
+                                    child: ActionChip(
+                                      avatar: saving && savingName == name
+                                          ? SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: c.wicketRed,
+                                              ),
+                                            )
+                                          : null,
+                                      label: Text(bowlerChipLabel(name)),
+                                      backgroundColor: c.wicketRedSoft
+                                          .withValues(alpha: 0.45),
+                                      side: BorderSide(
+                                        color:
+                                            c.wicketRed.withValues(alpha: 0.45),
+                                        width: 1,
+                                      ),
+                                      labelStyle: TextStyle(
+                                        color: c.wicketRed,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      onPressed: () async {
+                                        final allow = await showDialog<bool>(
+                                          context: ctx,
+                                          builder: (dCtx) => AlertDialog(
+                                            title: const Text(
+                                              'Bowler quota reached',
+                                            ),
+                                            content: Text(
+                                              '$name has already bowled $maxOvers of $maxOvers overs. Allow them to bowl another over anyway?',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(dCtx, false),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              FilledButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(dCtx, true),
+                                                child:
+                                                    const Text('Bowl anyway'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (allow == true && ctx.mounted) {
+                                          await submitPick(name);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          // Show who just bowled as muted/disabled so it's clear why they can't bowl back-to-back overs
+                          if (innings.legalBalls > 0 &&
+                              innings.currentBowler.isNotEmpty) ...[
+                            Text(
+                              'Bowled previous over',
+                              style: Theme.of(ctx).textTheme.labelMedium,
+                            ),
+                            const SizedBox(height: 6),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Opacity(
+                                opacity: 0.45,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: c.pillMutedBg,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: c.hairline),
+                                  ),
+                                  child: Text(
+                                    '${innings.currentBowler} · ${innings.bowlerByName(innings.currentBowler).figuresText}',
+                                    style: Theme.of(ctx).textTheme.labelMedium,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
+                          TextField(
+                            controller: controller,
+                            enabled: !saving,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: InputDecoration(
+                              hintText: '+ Add new bowler',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onSubmitted: (val) => submitPick(val),
+                          ),
+                          if (errorText != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              errorText!,
+                              style: Theme.of(ctx)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: c.wicketRed,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: controller,
+                            builder: (_, val, _) {
+                              final trimmed = val.text.trim();
+                              final isSavingCustom =
+                                  saving && savingName == trimmed;
+                              return FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: c.pitchGreen,
+                                  foregroundColor: c.onPitchGreen,
+                                  disabledBackgroundColor: isSavingCustom
+                                      ? c.pitchGreen
+                                      : null,
+                                  disabledForegroundColor: isSavingCustom
+                                      ? c.onPitchGreen
+                                      : null,
+                                  minimumSize: const Size.fromHeight(48),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                onPressed: (trimmed.isEmpty || saving)
+                                    ? null
+                                    : () => submitPick(trimmed),
+                                child: isSavingCustom
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: c.onPitchGreen,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          const Text('Applying bowler…'),
+                                        ],
+                                      )
+                                    : const Text('Add & select bowler'),
+                              );
+                            },
+                          ),
+                          if (placeholderFallback != null) ...[
+                            const SizedBox(height: 6),
+                            TextButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => submitPick(placeholderFallback),
+                              child: Text(
+                                saving && savingName == placeholderFallback
+                                    ? 'Applying…'
+                                    : 'Skip & use "$placeholderFallback"',
+                                style: TextStyle(color: c.inkSecondary),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 14),
-                ],
-                TextField(
-                  controller: controller,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(
-                    hintText: '+ Add new bowler',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  onSubmitted: (val) {
-                    if (val.trim().isNotEmpty) Navigator.pop(ctx, val.trim());
-                  },
                 ),
-                const SizedBox(height: 14),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: controller,
-                  builder: (_, val, _) {
-                    final trimmed = val.text.trim();
-                    return FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: c.pitchGreen,
-                        foregroundColor: c.onPitchGreen,
-                        minimumSize: const Size.fromHeight(48),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      onPressed: trimmed.isEmpty
-                          ? null
-                          : () => Navigator.pop(ctx, trimmed),
-                      child: const Text('Add & select bowler'),
-                    );
-                  },
-                ),
-                if (placeholderFallback != null) ...[
-                  const SizedBox(height: 6),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, placeholderFallback),
-                    child: Text(
-                      'Skip & use "$placeholderFallback"',
-                      style: TextStyle(color: c.inkSecondary),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -309,8 +515,9 @@ Future<WicketSheetResult?> showRecordWicketSheet(
           final needsFielder = selectedType == WicketType.caught ||
               selectedType == WicketType.runOut ||
               selectedType == WicketType.stumped;
-          final canPickBatter = selectedType == WicketType.runOut ||
-              selectedType == WicketType.retiredHurt;
+          final canPickBatter = !inn.isLastManStanding &&
+              (selectedType == WicketType.runOut ||
+                  selectedType == WicketType.retiredHurt);
           final canHaveExtra = selectedType == WicketType.stumped ||
               selectedType == WicketType.runOut ||
               selectedType == WicketType.hitWicket;
@@ -556,6 +763,7 @@ Future<String?> showNextBatterSheet(
   DerivedMatchState state, {
   String? title,
   String? placeholderFallback,
+  Future<void> Function(String batterName)? onConfirm,
 }) async {
   final inn = state.activeInnings;
   final roster = <String>{
@@ -579,163 +787,263 @@ Future<String?> showNextBatterSheet(
       rosterList.where((p) => unavailable.contains(p)).toList();
 
   final newBatterCtrl = TextEditingController();
+  var saving = false;
+  String? savingName;
+  String? errorText;
 
   try {
     return await showModalBottomSheet<String>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) {
-      final c = ctx.crease;
-      return Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: GlassSurface(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          fillColor: c.surfaceSheet,
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: c.hairline,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = ctx.crease;
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            Future<void> submitPick(String name) async {
+              final clean = name.trim();
+              if (clean.isEmpty || saving) return;
+              HapticFeedback.selectionClick();
+              if (onConfirm == null) {
+                Navigator.pop(ctx, clean);
+                return;
+              }
+              FocusScope.of(ctx).unfocus();
+              setModalState(() {
+                saving = true;
+                savingName = clean;
+                errorText = null;
+              });
+              try {
+                await onConfirm(clean);
+                if (ctx.mounted) Navigator.pop(ctx, clean);
+              } catch (_) {
+                if (ctx.mounted) {
+                  setModalState(() {
+                    saving = false;
+                    savingName = null;
+                    errorText = 'Could not update batter. Please try again.';
+                  });
+                }
+              }
+            }
+
+            return PopScope(
+              canPop: !saving,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  title ?? 'Select next batter · ${inn.battingTeam}',
-                  style: Theme.of(ctx).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                if (availablePlayers.isNotEmpty) ...[
-                  Text(
-                    'Available squad',
-                    style: Theme.of(ctx).textTheme.labelMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final player in availablePlayers)
-                        ActionChip(
-                          label: Text(player),
-                          backgroundColor: c.surfaceKey,
-                          side: BorderSide(color: c.pitchGreen, width: 1),
-                          labelStyle: TextStyle(
-                            color: c.inkPrimary,
-                            fontWeight: FontWeight.w500,
+                child: GlassSurface(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
+                  fillColor: c.surfaceSheet,
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+                  child: AbsorbPointer(
+                    absorbing: saving,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 40,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: c.hairline,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
                           ),
-                          onPressed: () => Navigator.pop(ctx, player),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                if (disabledPlayers.isNotEmpty) ...[
-                  Text(
-                    'Already batted',
-                    style: Theme.of(ctx).textTheme.labelMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final player in disabledPlayers)
-                        Opacity(
-                          opacity: 0.45,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: c.pillMutedBg,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: c.hairline),
-                            ),
-                            child: Text(
-                              () {
-                                final stats = batterMap[player];
-                                if (stats == null) return player;
-                                if (!stats.isOut) return '$player · At crease';
-                                return '$player · Out ${stats.runs} (${stats.balls})';
-                              }(),
+                          const SizedBox(height: 14),
+                          Text(
+                            title ?? 'Select next batter · ${inn.battingTeam}',
+                            style: Theme.of(ctx).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 12),
+                          if (availablePlayers.isNotEmpty) ...[
+                            Text(
+                              'Available squad',
                               style: Theme.of(ctx).textTheme.labelMedium,
                             ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (final player in availablePlayers)
+                                  Opacity(
+                                    opacity: saving && savingName != player
+                                        ? 0.45
+                                        : 1,
+                                    child: ActionChip(
+                                      avatar: saving && savingName == player
+                                          ? SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: c.pitchGreen,
+                                              ),
+                                            )
+                                          : null,
+                                      label: Text(player),
+                                      backgroundColor:
+                                          saving && savingName == player
+                                              ? c.pitchGreenSoft
+                                              : c.surfaceKey,
+                                      side: BorderSide(
+                                        color: c.pitchGreen,
+                                        width: 1,
+                                      ),
+                                      labelStyle: TextStyle(
+                                        color: c.inkPrimary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      onPressed: () => submitPick(player),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                          ],
+                          if (disabledPlayers.isNotEmpty) ...[
+                            Text(
+                              'Already batted',
+                              style: Theme.of(ctx).textTheme.labelMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (final player in disabledPlayers)
+                                  Opacity(
+                                    opacity: 0.45,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: c.pillMutedBg,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: c.hairline),
+                                      ),
+                                      child: Text(
+                                        () {
+                                          final stats = batterMap[player];
+                                          if (stats == null) return player;
+                                          if (!stats.isOut) {
+                                            return '$player · At crease';
+                                          }
+                                          return '$player · Out ${stats.runs} (${stats.balls})';
+                                        }(),
+                                        style: Theme.of(ctx)
+                                            .textTheme
+                                            .labelMedium,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                          ],
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: newBatterCtrl,
+                                  enabled: !saving,
+                                  textCapitalization: TextCapitalization.words,
+                                  decoration: InputDecoration(
+                                    hintText: '+ Add new batter',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                  onSubmitted: (val) => submitPick(val),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              ValueListenableBuilder<TextEditingValue>(
+                                valueListenable: newBatterCtrl,
+                                builder: (_, val, _) {
+                                  final trimmed = val.text.trim();
+                                  final isSavingCustom =
+                                      saving && savingName == trimmed;
+                                  return FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: c.pitchGreen,
+                                      foregroundColor: c.onPitchGreen,
+                                      disabledBackgroundColor: isSavingCustom
+                                          ? c.pitchGreen
+                                          : null,
+                                      disabledForegroundColor: isSavingCustom
+                                          ? c.onPitchGreen
+                                          : null,
+                                      minimumSize: const Size(72, 52),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                    onPressed: (trimmed.isEmpty || saving)
+                                        ? null
+                                        : () => submitPick(trimmed),
+                                    child: isSavingCustom
+                                        ? SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: c.onPitchGreen,
+                                            ),
+                                          )
+                                        : const Text('Add'),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: newBatterCtrl,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: InputDecoration(
-                          hintText: '+ Add new batter',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        onSubmitted: (val) {
-                          if (val.trim().isNotEmpty) {
-                            Navigator.pop(ctx, val.trim());
-                          }
-                        },
+                          if (errorText != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              errorText!,
+                              style: Theme.of(ctx)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: c.wicketRed,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ],
+                          if (placeholderFallback != null) ...[
+                            const SizedBox(height: 6),
+                            TextButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => submitPick(placeholderFallback),
+                              child: Text(
+                                saving && savingName == placeholderFallback
+                                    ? 'Applying…'
+                                    : 'Skip & use "$placeholderFallback"',
+                                style: TextStyle(color: c.inkSecondary),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    ValueListenableBuilder<TextEditingValue>(
-                      valueListenable: newBatterCtrl,
-                      builder: (_, val, _) {
-                        final trimmed = val.text.trim();
-                        return FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: c.pitchGreen,
-                            foregroundColor: c.onPitchGreen,
-                            minimumSize: const Size(0, 52),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          onPressed: trimmed.isEmpty
-                              ? null
-                              : () => Navigator.pop(ctx, trimmed),
-                          child: const Text('Add'),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                if (placeholderFallback != null) ...[
-                  const SizedBox(height: 6),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, placeholderFallback),
-                    child: Text(
-                      'Skip & use "$placeholderFallback"',
-                      style: TextStyle(color: c.inkSecondary),
-                    ),
                   ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      );
-    },
-  );
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   } finally {
     Future<void>.delayed(
       const Duration(milliseconds: 500),

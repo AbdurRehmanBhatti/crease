@@ -51,8 +51,9 @@ class LocalEventStore {
       'member_role, avatar_url, claimed_at, archived, created_at, updated_at';
   static const String _tournamentSelectCols =
       'id, owner_id, name, location, start_date, end_date, overs_limit, '
-      'players_per_side, format_label, points_for_win, points_for_tie, '
-      'structure, rounds_per_pair, knockout_qualifiers, visibility, created_at';
+      'players_per_side, last_man_stands, max_overs_per_bowler, format_label, '
+      'points_for_win, points_for_tie, structure, rounds_per_pair, '
+      'knockout_qualifiers, visibility, created_at';
   static const String _tournamentTeamSelectCols =
       'id, tournament_id, team_id, ad_hoc_name, seed_order, created_at';
 
@@ -111,7 +112,7 @@ class LocalEventStore {
     final fullPath = p.join(dbPath, 'crease_events.db');
     _db = await openDatabase(
       fullPath,
-      version: 17,
+      version: 18,
       onCreate: (db, version) async => _createV15Schema(db),
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 15) {
@@ -135,6 +136,20 @@ class LocalEventStore {
               "ALTER TABLE matches ADD COLUMN visibility TEXT NOT NULL DEFAULT 'unlisted'",
             );
             await db.execute('ALTER TABLE matches ADD COLUMN venue TEXT');
+          }
+          if (oldVersion < 18) {
+            await db.execute(
+              'ALTER TABLE tournaments ADD COLUMN last_man_stands INTEGER NOT NULL DEFAULT 0',
+            );
+            await db.execute(
+              'ALTER TABLE tournaments ADD COLUMN max_overs_per_bowler INTEGER',
+            );
+            await db.execute(
+              'ALTER TABLE matches ADD COLUMN last_man_stands INTEGER NOT NULL DEFAULT 0',
+            );
+            await db.execute(
+              'ALTER TABLE matches ADD COLUMN max_overs_per_bowler INTEGER',
+            );
           }
         }
       },
@@ -198,6 +213,8 @@ class LocalEventStore {
         end_date INTEGER,
         overs_limit INTEGER NOT NULL,
         players_per_side INTEGER NOT NULL DEFAULT 11,
+        last_man_stands INTEGER NOT NULL DEFAULT 0,
+        max_overs_per_bowler INTEGER,
         format_label TEXT NOT NULL,
         points_for_win INTEGER NOT NULL DEFAULT 2,
         points_for_tie INTEGER NOT NULL DEFAULT 1,
@@ -232,6 +249,8 @@ class LocalEventStore {
         batting_first_side TEXT NOT NULL DEFAULT 'a',
         overs_limit INTEGER NOT NULL,
         players_per_side INTEGER NOT NULL,
+        last_man_stands INTEGER NOT NULL DEFAULT 0,
+        max_overs_per_bowler INTEGER,
         format_label TEXT NOT NULL,
         opening_striker_1_id TEXT,
         opening_non_striker_1_id TEXT,

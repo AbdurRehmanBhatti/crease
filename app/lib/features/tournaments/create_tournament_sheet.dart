@@ -8,6 +8,7 @@ import '../../domain/tournament_engine.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../../widgets/match_rules_section.dart';
 import '../live/widgets/live_broadcast_toggle.dart';
 
 Future<Tournament?> showCreateTournamentSheet(BuildContext context) {
@@ -37,6 +38,9 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
   Set<String> _existingTournamentNames = {};
   String? _nameError;
   int _overs = 10;
+  int _playersPerSide = 11;
+  bool _lastManStands = false;
+  int? _maxOversPerBowler;
   bool _isCustomOvers = false;
   bool _isTestMatch = false;
   TournamentStructure _structure = TournamentStructure.leagueKnockout;
@@ -155,7 +159,9 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
       startDate: _startDate,
       endDate: _endDate,
       oversLimit: oversLimit,
-      playersPerSide: 11,
+      playersPerSide: _playersPerSide,
+      lastManStands: _lastManStands,
+      maxOversPerBowler: _isTestMatch ? null : _maxOversPerBowler,
       formatLabel: _formatForOvers(oversLimit),
       entries: const [],
       structure: _structure,
@@ -468,6 +474,21 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
                   ],
                 ),
                 const SizedBox(height: 14),
+                MatchRulesSection(
+                  title: 'Tournament rules',
+                  playersPerSide: _playersPerSide,
+                  lastManStands: _lastManStands,
+                  maxOversPerBowler: _maxOversPerBowler,
+                  oversLimit: _isTestMatch ? 0 : _resolvedOvers,
+                  isTestMatch: _isTestMatch,
+                  onPlayersPerSideChanged: (v) =>
+                      setState(() => _playersPerSide = v),
+                  onLastManStandsChanged: (v) =>
+                      setState(() => _lastManStands = v),
+                  onMaxOversPerBowlerChanged: (v) =>
+                      setState(() => _maxOversPerBowler = v),
+                ),
+                const SizedBox(height: 12),
                 LiveBroadcastToggleTile(
                   isPublic: _isPublicLive,
                   isTournament: true,

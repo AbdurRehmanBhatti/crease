@@ -97,6 +97,8 @@ extension LocalEventStoreTournaments on LocalEventStore {
           'end_date': t.endDate?.millisecondsSinceEpoch,
           'overs_limit': t.oversLimit,
           'players_per_side': t.playersPerSide,
+          'last_man_stands': t.lastManStands,
+          'max_overs_per_bowler': t.maxOversPerBowler,
           'format_label': t.formatLabel,
           'points_for_win': t.pointsForWin,
           'points_for_tie': t.pointsForTie,

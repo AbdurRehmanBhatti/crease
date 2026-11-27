@@ -143,6 +143,8 @@ class Tournament {
     this.endDate,
     required this.oversLimit,
     this.playersPerSide = 11,
+    this.lastManStands = false,
+    this.maxOversPerBowler,
     required this.formatLabel,
     this.entries = const [],
     this.pointsForWin = 2,
@@ -162,6 +164,8 @@ class Tournament {
   final DateTime? endDate;
   final int oversLimit;
   final int playersPerSide;
+  final bool lastManStands;
+  final int? maxOversPerBowler;
   final String formatLabel;
   final List<TournamentTeamEntry> entries;
   final int pointsForWin;
@@ -218,6 +222,9 @@ class Tournament {
     bool clearEndDate = false,
     int? oversLimit,
     int? playersPerSide,
+    bool? lastManStands,
+    int? maxOversPerBowler,
+    bool clearMaxOversPerBowler = false,
     String? formatLabel,
     List<TournamentTeamEntry>? entries,
     int? pointsForWin,
@@ -236,6 +243,10 @@ class Tournament {
         endDate: clearEndDate ? null : (endDate ?? this.endDate),
         oversLimit: oversLimit ?? this.oversLimit,
         playersPerSide: playersPerSide ?? this.playersPerSide,
+        lastManStands: lastManStands ?? this.lastManStands,
+        maxOversPerBowler: clearMaxOversPerBowler
+            ? null
+            : (maxOversPerBowler ?? this.maxOversPerBowler),
         formatLabel: formatLabel ?? this.formatLabel,
         entries: entries ?? this.entries,
         pointsForWin: pointsForWin ?? this.pointsForWin,
@@ -258,6 +269,8 @@ class Tournament {
         'end_date': endDate?.millisecondsSinceEpoch,
         'overs_limit': oversLimit,
         'players_per_side': playersPerSide,
+        'last_man_stands': lastManStands ? 1 : 0,
+        'max_overs_per_bowler': maxOversPerBowler,
         'format_label': formatLabel,
         'points_for_win': pointsForWin,
         'points_for_tie': pointsForTie,
@@ -288,6 +301,10 @@ class Tournament {
           : null,
       oversLimit: (map['overs_limit']! as num).toInt(),
       playersPerSide: ((map['players_per_side'] as num?) ?? 11).toInt(),
+      lastManStands: (map['last_man_stands'] is bool)
+          ? (map['last_man_stands']! as bool)
+          : (((map['last_man_stands'] as num?) ?? 0) != 0),
+      maxOversPerBowler: (map['max_overs_per_bowler'] as num?)?.toInt(),
       formatLabel: map['format_label']! as String,
       entries: entries,
       pointsForWin: ((map['points_for_win'] as num?) ?? 2).toInt(),

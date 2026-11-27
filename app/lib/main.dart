@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,6 +31,7 @@ const _supabasePublishableKey = String.fromEnvironment(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _initCrashlytics();
 
   // Edge-to-edge Android system UI
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -57,10 +60,31 @@ Future<void> main() async {
   runApp(const CreaseApp());
 }
 
+Future<void> _initCrashlytics() async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+  try {
+    await Firebase.initializeApp();
+    final crashlytics = FirebaseCrashlytics.instance;
+    await crashlytics.setCrashlyticsCollectionEnabled(!kDebugMode);
+    FlutterError.onError = crashlytics.recordFlutterFatalError;
+    PlatformDispatcher.instance.onError = (error, stack) {
+      unawaited(crashlytics.recordError(error, stack, fatal: true));
+      return true;
+    };
+  } catch (e) {
+    if (kDebugMode) debugPrint('[Crease Crashlytics] Init skipped: $e');
+  }
+}
+
 Future<void> _syncIfSignedIn() async {
   try {
     final uid = LocalEventStore.instance.signedInUserId;
     if (uid == null) return;
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        Firebase.apps.isNotEmpty) {
+      unawaited(FirebaseCrashlytics.instance.setUserIdentifier(uid));
+    }
     final synced = await LocalEventStore.instance.syncAllPendingToSupabase();
     final pulled = await LocalEventStore.instance.pullLatestForMyTeams();
     if (kDebugMode) {

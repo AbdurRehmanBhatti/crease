@@ -41,6 +41,8 @@ dependencies:
   google_sign_in: ^6.2.2
   image_picker: ^1.1.2
   supabase_flutter: ^2.8.3
+  firebase_core: ^5.1.0
+  firebase_crashlytics: ^6.0.1
 
 dev_dependencies:
   flutter_test:

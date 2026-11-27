@@ -138,6 +138,7 @@ class TopMatchBar extends StatelessWidget {
     required this.title,
     required this.formatLabel,
     required this.isLive,
+    this.isPublicLive = false,
     required this.onBack,
     required this.onOptions,
     required this.onScorecard,
@@ -146,6 +147,7 @@ class TopMatchBar extends StatelessWidget {
   final String title;
   final String formatLabel;
   final bool isLive;
+  final bool isPublicLive;
   final VoidCallback onBack;
   final VoidCallback onOptions;
   final VoidCallback onScorecard;
@@ -202,6 +204,29 @@ class TopMatchBar extends StatelessWidget {
                             ),
                       ),
                     ),
+                    if (isPublicLive) ...[
+                      const SizedBox(width: 5),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: c.pitchGreenSoft,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'PUBLIC',
+                          style:
+                              Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    fontSize: 9.5,
+                                    color: c.pitchGreen,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.4,
+                                  ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

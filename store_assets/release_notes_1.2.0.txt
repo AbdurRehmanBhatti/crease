@@ -1,0 +1,5 @@
+en-US:
+• New Live tab: follow ongoing public matches, tournaments, and recent results right inside Crease with live ball-by-ball updates
+• Go Live controls: matches and tournaments stay unlisted by default—opt in anytime from Quick Match, Scoring, or Tournament Details
+• Faster live scorecards: incoming balls update instantly in memory with no reload delay
+• Smoother tournament creation with inline progress feedback

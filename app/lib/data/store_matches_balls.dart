@@ -254,6 +254,24 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
     }
   }
 
+  /// Merges a remote `matches` row into a [MatchConfig], preserving local
+  /// `visibility` and `venue` if an older server payload omits those keys.
+  static MatchConfig mergeRemoteMatchConfig(
+    Map<String, Object?> matchRawMap, {
+    MatchConfig? existingLocal,
+  }) {
+    var config = MatchConfig.fromMap(matchRawMap);
+    if (existingLocal != null) {
+      if (!matchRawMap.containsKey('visibility')) {
+        config = config.copyWith(visibility: existingLocal.visibility);
+      }
+      if (!matchRawMap.containsKey('venue') && existingLocal.venue != null) {
+        config = config.copyWith(venue: existingLocal.venue);
+      }
+    }
+    return config;
+  }
+
   Future<bool> pullRemoteMatchToLocal(String matchId) async {
     try {
       final raw = await Supabase.instance.client.rpc(
@@ -266,7 +284,11 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
       if (matchRaw is! Map) return false;
 
       final db = await database;
-      final config = MatchConfig.fromMap(Map<String, Object?>.from(matchRaw));
+      final existingLocal = await getMatch(matchId);
+      final config = mergeRemoteMatchConfig(
+        Map<String, Object?>.from(matchRaw),
+        existingLocal: existingLocal,
+      );
       final matchMap = Map<String, Object?>.from(config.toMap());
       matchMap['synced'] = 1;
       await db.insert(
@@ -368,6 +390,8 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
       'declared_innings': match.declaredInnings,
       'follow_on_enforced': match.followOnEnforced,
       'first_innings_target_override': match.firstInningsTargetOverride,
+      'visibility': match.visibility.name,
+      'venue': match.venue,
     };
 
     if (existingMatch == null) {
@@ -395,6 +419,7 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
       where: 'id = ?',
       whereArgs: [matchId],
     );
+    await syncMatchLiveSummary(matchId, config: match);
   }
 
   Future<int> syncPendingToSupabase(String matchId) async {
@@ -486,6 +511,7 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
         );
       }
       await batch.commit(noResult: true);
+      await syncMatchLiveSummary(matchId, config: match);
       return events.length;
     } catch (e) {
       if (kDebugMode) debugPrint('syncPendingToSupabase skipped: $e');

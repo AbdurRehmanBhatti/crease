@@ -10,6 +10,7 @@ import '../config/security_guards.dart';
 import '../domain/cricket_engine.dart';
 import '../domain/guest_merge.dart';
 import '../domain/guest_sync_guards.dart';
+import '../domain/live_feed.dart';
 import '../domain/models.dart' as models;
 import '../domain/models.dart';
 import '../domain/roster_sync_planner.dart';
@@ -22,6 +23,7 @@ part 'store_players_teams.dart';
 part 'store_matches_balls.dart';
 part 'store_tournaments.dart';
 part 'store_sync_auth.dart';
+part 'store_live_feed.dart';
 
 /// Offline-first SQLite v15 event store for Crease (Strict 3NF).
 /// Every entity uses a client-generated UUIDv4 so offline Guest Mode works
@@ -50,7 +52,7 @@ class LocalEventStore {
   static const String _tournamentSelectCols =
       'id, owner_id, name, location, start_date, end_date, overs_limit, '
       'players_per_side, format_label, points_for_win, points_for_tie, '
-      'structure, rounds_per_pair, knockout_qualifiers, created_at';
+      'structure, rounds_per_pair, knockout_qualifiers, visibility, created_at';
   static const String _tournamentTeamSelectCols =
       'id, tournament_id, team_id, ad_hoc_name, seed_order, created_at';
 
@@ -109,7 +111,7 @@ class LocalEventStore {
     final fullPath = p.join(dbPath, 'crease_events.db');
     _db = await openDatabase(
       fullPath,
-      version: 16,
+      version: 17,
       onCreate: (db, version) async => _createV15Schema(db),
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 15) {
@@ -121,8 +123,19 @@ class LocalEventStore {
           await db.execute('DROP TABLE IF EXISTS players');
           await db.execute('DROP TABLE IF EXISTS teams');
           await _createV15Schema(db, keepSettings: true);
-        } else if (oldVersion < 16) {
-          await db.execute('ALTER TABLE teams ADD COLUMN logo_url TEXT');
+        } else {
+          if (oldVersion < 16) {
+            await db.execute('ALTER TABLE teams ADD COLUMN logo_url TEXT');
+          }
+          if (oldVersion < 17) {
+            await db.execute(
+              "ALTER TABLE tournaments ADD COLUMN visibility TEXT NOT NULL DEFAULT 'unlisted'",
+            );
+            await db.execute(
+              "ALTER TABLE matches ADD COLUMN visibility TEXT NOT NULL DEFAULT 'unlisted'",
+            );
+            await db.execute('ALTER TABLE matches ADD COLUMN venue TEXT');
+          }
         }
       },
     );
@@ -191,6 +204,7 @@ class LocalEventStore {
         structure TEXT NOT NULL DEFAULT 'open',
         rounds_per_pair INTEGER NOT NULL DEFAULT 1,
         knockout_qualifiers INTEGER NOT NULL DEFAULT 2,
+        visibility TEXT NOT NULL DEFAULT 'unlisted',
         synced INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       )
@@ -235,6 +249,8 @@ class LocalEventStore {
         declared_innings TEXT NOT NULL DEFAULT '[]',
         follow_on_enforced INTEGER NOT NULL DEFAULT 0,
         first_innings_target_override INTEGER,
+        visibility TEXT NOT NULL DEFAULT 'unlisted',
+        venue TEXT,
         is_demo INTEGER NOT NULL DEFAULT 0,
         synced INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL

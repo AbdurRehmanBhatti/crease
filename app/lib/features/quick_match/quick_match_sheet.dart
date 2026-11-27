@@ -9,6 +9,8 @@ import '../../domain/team_profile.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../auth/auth_sheet.dart';
+import '../live/widgets/live_broadcast_toggle.dart';
 
 /// Quick Match creator: tappable team selectors, overs preset, and instant start.
 Future<MatchConfig?> showQuickMatchSheet(
@@ -65,6 +67,7 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
   bool _isCustomOvers = false;
   bool _isTestMatch = false;
   bool _showPlayers = false;
+  bool _isPublicLive = false;
 
   @override
   void initState() {
@@ -945,9 +948,30 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
       teamBPlayerIds: rosterBIds,
       adHocPlayers: adHoc,
       isTestMatch: _isTestMatch,
+      visibility: _isPublicLive
+          ? BroadcastVisibility.public
+          : BroadcastVisibility.unlisted,
+      venue: (_teamALocation != null && _teamALocation!.trim().isNotEmpty)
+          ? _teamALocation!.trim()
+          : ((_teamBLocation != null && _teamBLocation!.trim().isNotEmpty)
+              ? _teamBLocation!.trim()
+              : null),
       createdAt: DateTime.now(),
     );
     Navigator.pop(context, config);
+  }
+
+  Future<void> _togglePublicLive(bool goPublic) async {
+    if (goPublic && !isSignedInAccount()) {
+      final ok = await requireSignedInAccount(
+        context,
+        title: 'Sign in to broadcast live',
+        subtitle:
+            'Public matches sync live to the Crease Live tab under your account.',
+      );
+      if (!ok || !mounted) return;
+    }
+    setState(() => _isPublicLive = goPublic);
   }
 
   @override
@@ -1287,7 +1311,12 @@ class _QuickMatchSheetState extends State<_QuickMatchSheet> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
+                LiveBroadcastToggleTile(
+                  isPublic: _isPublicLive,
+                  onChanged: _togglePublicLive,
+                ),
+                const SizedBox(height: 16),
                 FilledButton(
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),

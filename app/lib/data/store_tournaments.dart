@@ -103,6 +103,7 @@ extension LocalEventStoreTournaments on LocalEventStore {
           'structure': t.structure.name,
           'rounds_per_pair': t.roundsPerPair,
           'knockout_qualifiers': t.knockoutQualifiers,
+          'visibility': t.visibility.name,
           'created_at': t.createdAt.millisecondsSinceEpoch,
         },
         onConflict: 'id',

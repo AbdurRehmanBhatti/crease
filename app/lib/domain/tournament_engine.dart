@@ -150,6 +150,7 @@ class Tournament {
     this.structure = TournamentStructure.open,
     this.roundsPerPair = 1,
     this.knockoutQualifiers = 2,
+    this.visibility = BroadcastVisibility.unlisted,
     this.synced = false,
     required this.createdAt,
   });
@@ -168,8 +169,11 @@ class Tournament {
   final TournamentStructure structure;
   final int roundsPerPair; // 1 = single round-robin, 2 = double round-robin
   final int knockoutQualifiers; // 0 = league only, 2 = Final, 4 = Semi-Finals + Final
+  final BroadcastVisibility visibility;
   final bool synced;
   final DateTime createdAt;
+
+  bool get isPublicLive => visibility.isPublic;
 
   List<String> get teams => entries.map((e) => e.displayName).toList();
 
@@ -221,6 +225,7 @@ class Tournament {
     TournamentStructure? structure,
     int? roundsPerPair,
     int? knockoutQualifiers,
+    BroadcastVisibility? visibility,
     bool? synced,
   }) =>
       Tournament(
@@ -238,6 +243,7 @@ class Tournament {
         structure: structure ?? this.structure,
         roundsPerPair: roundsPerPair ?? this.roundsPerPair,
         knockoutQualifiers: knockoutQualifiers ?? this.knockoutQualifiers,
+        visibility: visibility ?? this.visibility,
         synced: synced ?? this.synced,
         createdAt: createdAt,
       );
@@ -258,6 +264,7 @@ class Tournament {
         'structure': structure.name,
         'rounds_per_pair': roundsPerPair,
         'knockout_qualifiers': knockoutQualifiers,
+        'visibility': visibility.name,
         'synced': synced ? 1 : 0,
         'created_at': createdAt.millisecondsSinceEpoch,
       };
@@ -288,6 +295,7 @@ class Tournament {
       structure: TournamentStructure.fromName(map['structure'] as String?),
       roundsPerPair: ((map['rounds_per_pair'] as num?) ?? 1).toInt(),
       knockoutQualifiers: ((map['knockout_qualifiers'] as num?) ?? 2).toInt(),
+      visibility: BroadcastVisibility.fromName(map['visibility'] as String?),
       synced: ((map['synced'] as num?) ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(
         (map['created_at']! as num).toInt(),

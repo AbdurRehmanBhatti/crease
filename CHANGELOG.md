@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.0+4 — 2026-11-27
+
+### Added
+- **Public Live Tab**: Added a 4th `Live` navigation tab (`Matches · Live · Teams · Tournaments`) with `All`, `Matches`, `Tournaments`, and `Recent` filters, live tournament strip, broadcast match cards with last-ball pills (`4`, `6`, `W`), quiet-hours recent results fallback, and an ambient live dot on the nav bar.
+- **Unlisted-by-Default Go Live Controls**: Added a consistent `Show on Live tab` / `Go live` toggle across Quick Match setup, Scoring Match Options (with `PUBLIC` header pill), Home match cards, Create Tournament, and the Tournament Detail owner visibility bar (cascading visibility to fixtures).
+- **CQRS Live Summary Architecture**: Added `public.match_live_summary`, `get_live_feed`, `get_public_live_count`, and `set_tournament_visibility` RPCs with automatic zombie-match freshness gating (4h limited-overs / 24h Test) and tournament quality gating (2+ teams & 14-day/active-window freshness).
+
+### Changed
+- **Incremental Live Scorecards**: Upgraded `ScorecardScreen` to apply incoming Supabase Realtime `ball_events` `INSERT` payloads directly in memory (`0` extra database reads per ball), falling back to full bundle fetch on edits/voids or match rule changes.
+- **Smoother Tournament Creation**: Kept the New Tournament sheet open with an inline `Creating tournament…` button loader while saving & syncing, updating `My Tournaments` immediately without a pop-in delay.
+
+### Fixed
+- Refreshed `get_live_match_bundle` and hardened `pullRemoteMatchToLocal` so pulling a remote match never resets a match's `public` visibility or `venue`.
+
 ## 1.1.0+3 — 2026-11-27
 
 ### Added

@@ -93,6 +93,20 @@ enum MatchSide {
       value == 'b' ? MatchSide.b : MatchSide.a;
 }
 
+/// Controls whether a match or tournament is link-only (`unlisted`, default)
+/// or listed publicly on Crease's Live discovery tab (`public`).
+enum BroadcastVisibility {
+  unlisted,
+  public;
+
+  bool get isPublic => this == BroadcastVisibility.public;
+
+  static BroadcastVisibility fromName(String? value) =>
+      value?.trim().toLowerCase() == 'public'
+          ? BroadcastVisibility.public
+          : BroadcastVisibility.unlisted;
+}
+
 /// Returns true if [name] is a generic placeholder label like "Batter 1" or "Bowler 2".
 bool isPlaceholderPlayerName(String name) {
   final t = name.trim();
@@ -129,6 +143,8 @@ class MatchConfig {
     this.declaredInnings = const [],
     this.followOnEnforced = false,
     this.firstInningsTargetOverride,
+    this.visibility = BroadcastVisibility.unlisted,
+    this.venue,
     this.isDemo = false,
     required this.createdAt,
   });
@@ -162,8 +178,12 @@ class MatchConfig {
   final List<int> declaredInnings;
   final bool followOnEnforced;
   final int? firstInningsTargetOverride;
+  final BroadcastVisibility visibility;
+  final String? venue;
   final bool isDemo;
   final DateTime createdAt;
+
+  bool get isPublicLive => visibility.isPublic;
 
   MatchSide get battingSecondSide =>
       battingFirstSide == MatchSide.a ? MatchSide.b : MatchSide.a;
@@ -285,6 +305,9 @@ class MatchConfig {
     bool? followOnEnforced,
     int? firstInningsTargetOverride,
     bool clearTargetOverride = false,
+    BroadcastVisibility? visibility,
+    String? venue,
+    bool clearVenue = false,
   }) =>
       MatchConfig(
         id: id,
@@ -314,6 +337,8 @@ class MatchConfig {
         firstInningsTargetOverride: clearTargetOverride
             ? null
             : (firstInningsTargetOverride ?? this.firstInningsTargetOverride),
+        visibility: visibility ?? this.visibility,
+        venue: clearVenue ? null : (venue ?? this.venue),
         isDemo: isDemo,
         createdAt: createdAt,
       );
@@ -344,6 +369,10 @@ class MatchConfig {
         'declared_innings': jsonEncode(declaredInnings),
         'follow_on_enforced': followOnEnforced ? 1 : 0,
         'first_innings_target_override': firstInningsTargetOverride,
+        'visibility': visibility.name,
+        'venue': (venue != null && venue!.trim().isNotEmpty)
+            ? venue!.trim()
+            : null,
         'is_demo': isDemo ? 1 : 0,
         'created_at': createdAt.millisecondsSinceEpoch,
       };
@@ -436,6 +465,8 @@ class MatchConfig {
         followOnEnforced: _decodeBool(map['follow_on_enforced']),
         firstInningsTargetOverride:
             (map['first_innings_target_override'] as num?)?.toInt(),
+        visibility: BroadcastVisibility.fromName(map['visibility'] as String?),
+        venue: _cleanNullableId(map['venue']),
         isDemo: _decodeBool(map['is_demo']),
         createdAt: DateTime.fromMillisecondsSinceEpoch(
           (map['created_at']! as num).toInt(),

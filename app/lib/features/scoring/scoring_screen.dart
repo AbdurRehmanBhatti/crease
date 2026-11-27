@@ -571,10 +571,42 @@ class _ScoringScreenState extends State<ScoringScreen> {
     } catch (_) {}
   }
 
+  Future<bool> _togglePublicLive(DerivedMatchState state, bool goPublic) async {
+    if (goPublic && !isSignedInAccount()) {
+      final ok = await requireSignedInAccount(
+        context,
+        title: 'Sign in to broadcast live',
+        subtitle:
+            'Public matches sync live to the Crease Live tab under your account.',
+      );
+      if (!ok || !mounted) return state.config.isPublicLive;
+    }
+    final nextVis = goPublic
+        ? BroadcastVisibility.public
+        : BroadcastVisibility.unlisted;
+    final updated = await LocalEventStore.instance.setMatchVisibility(
+      state.config.id,
+      nextVis,
+    );
+    if (!mounted) return goPublic;
+    if (updated != null) {
+      setState(() => _config = updated);
+      _showSnack(
+        goPublic
+            ? 'Match is now public on the Live tab.'
+            : 'Match switched to Unlisted (link only).',
+      );
+      return updated.isPublicLive;
+    }
+    return state.config.isPublicLive;
+  }
+
   Future<void> _openMatchOptionsSheet(DerivedMatchState state) async {
     HapticFeedback.selectionClick();
     await showMatchOptionsSheet(
       context,
+      isPublicLive: state.config.isPublicLive,
+      onTogglePublicLive: (goPublic) => _togglePublicLive(state, goPublic),
       onFiveRuns: () => _recordBall(runsOffBat: 5),
       onPenaltyRuns: () =>
           _recordBall(extraType: ExtraType.penalty, extraRuns: 5),
@@ -1131,6 +1163,7 @@ class _ScoringScreenState extends State<ScoringScreen> {
               title: state.config.title,
               formatLabel: state.config.formatLabel,
               isLive: state.status == MatchStatus.live,
+              isPublicLive: state.config.isPublicLive,
               onBack: () => Navigator.of(context).maybePop(),
               onOptions: () => _openMatchOptionsSheet(state),
               onScorecard: () async {

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../data/local_event_store.dart';
+import '../../domain/models.dart';
 import '../../domain/tournament_engine.dart';
 import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
+import '../live/widgets/live_broadcast_toggle.dart';
 
 Future<Tournament?> showCreateTournamentSheet(BuildContext context) {
   return showModalBottomSheet<Tournament>(
@@ -39,6 +42,9 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
   TournamentStructure _structure = TournamentStructure.leagueKnockout;
   int _roundsPerPair = 1;
   int _knockoutQualifiers = 4;
+  bool _isPublicLive = false;
+  bool _creating = false;
+  String? _submitError;
 
   @override
   void initState() {
@@ -120,7 +126,8 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
     return '$_roundsPerPair× round-robin$koText';
   }
 
-  void _create() {
+  Future<void> _create() async {
+    if (_creating) return;
     final name = _nameCtrl.text.trim().isEmpty
         ? 'Sunday Cup'
         : _nameCtrl.text.trim();
@@ -131,6 +138,14 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
       });
       return;
     }
+
+    FocusScope.of(context).unfocus();
+    HapticFeedback.lightImpact();
+    setState(() {
+      _creating = true;
+      _submitError = null;
+    });
+
     final oversLimit = _resolvedOvers;
     final loc = _locationCtrl.text.trim();
     final tournament = Tournament(
@@ -149,9 +164,26 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
           _structure == TournamentStructure.leagueKnockout
               ? _knockoutQualifiers
               : 0,
+      visibility: _isPublicLive
+          ? BroadcastVisibility.public
+          : BroadcastVisibility.unlisted,
       createdAt: DateTime.now(),
     );
-    Navigator.pop(context, tournament);
+
+    try {
+      await LocalEventStore.instance.saveTournament(tournament);
+      await LocalEventStore.instance
+          .syncTournamentToSupabase(tournament.id)
+          .timeout(const Duration(seconds: 6), onTimeout: () {});
+      if (!mounted) return;
+      Navigator.pop(context, tournament);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _creating = false;
+        _submitError = 'Could not create tournament. Please try again.';
+      });
+    }
   }
 
   @override
@@ -160,29 +192,43 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
     final canCreate = _nameCtrl.text.trim().isNotEmpty;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.88;
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        child: GlassSurface(
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(CreaseRadius.sheet),
-          ),
-          fillColor: c.surfaceSheet,
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const CreaseSheetHeader(
-                  title: 'New tournament',
-                  subtitle: 'Set name, format, and overs — you can add teams next.',
-                ),
-                const SizedBox(height: 12),
-                Flexible(
-                  child: SingleChildScrollView(
+    return PopScope(
+      canPop: !_creating,
+      child: Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: GlassSurface(
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(CreaseRadius.sheet),
+            ),
+            fillColor: c.surfaceSheet,
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AbsorbPointer(
+                    absorbing: _creating,
+                    child: const CreaseSheetHeader(
+                      title: 'New tournament',
+                      subtitle:
+                          'Set name, format, and overs — you can add teams next.',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: AbsorbPointer(
+                      absorbing: _creating,
+                      child: AnimatedOpacity(
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 160),
+                        opacity: _creating ? 0.55 : 1.0,
+                        child: SingleChildScrollView(
                     padding: const EdgeInsets.only(top: 8, bottom: 8),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -421,13 +467,31 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 14),
+                LiveBroadcastToggleTile(
+                  isPublic: _isPublicLive,
+                  isTournament: true,
+                  onChanged: (v) => setState(() => _isPublicLive = v),
+                ),
                         const SizedBox(height: 8),
                       ],
                     ),
                   ),
-                ),
+                      ),
+                    ),
+                  ),
                 Divider(height: 1, color: c.hairlineSubtle),
                 const SizedBox(height: 10),
+                if (_submitError != null) ...[
+                  Text(
+                    _submitError!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: c.wicketRed,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 Row(
                   children: [
                     Icon(
@@ -452,17 +516,39 @@ class _CreateTournamentSheetState extends State<_CreateTournamentSheet> {
                 const SizedBox(height: 10),
                 FilledButton(
                   style: FilledButton.styleFrom(
-                    disabledBackgroundColor: c.surfaceKey,
-                    disabledForegroundColor: c.inkSecondary,
+                    backgroundColor: _creating ? c.pitchGreen : null,
+                    foregroundColor: _creating ? c.onPitchGreen : null,
+                    disabledBackgroundColor:
+                        _creating ? c.pitchGreen : c.surfaceKey,
+                    disabledForegroundColor:
+                        _creating ? c.onPitchGreen : c.inkSecondary,
                     minimumSize: const Size.fromHeight(48),
                   ),
-                  onPressed: canCreate ? _create : null,
-                  child: const Text('Create tournament'),
+                  onPressed: (canCreate && !_creating) ? _create : null,
+                  child: _creating
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: c.onPitchGreen,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            const Text('Creating tournament…'),
+                          ],
+                        )
+                      : const Text('Create tournament'),
                 ),
               ],
             ),
           ),
         ),
+      ),
       ),
     );
   }

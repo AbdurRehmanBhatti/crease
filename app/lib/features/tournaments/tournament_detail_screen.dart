@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../data/local_event_store.dart';
@@ -36,13 +38,105 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
   List<DerivedMatchState> _matches = [];
   bool _loading = true;
   bool _unlockKnockoutsEarly = false;
+  bool _togglingVisibility = false;
   late bool _readOnly;
+  RealtimeChannel? _publicRealtimeChannel;
 
   @override
   void initState() {
     super.initState();
     _readOnly = widget.readOnlyPublic;
     _load();
+  }
+
+  @override
+  void dispose() {
+    final ch = _publicRealtimeChannel;
+    if (ch != null) {
+      try {
+        Supabase.instance.client.removeChannel(ch);
+      } catch (_) {}
+    }
+    super.dispose();
+  }
+
+  void _subscribePublicTournamentUpdates() {
+    if (_publicRealtimeChannel != null || !_readOnly) return;
+    try {
+      final client = Supabase.instance.client;
+      _publicRealtimeChannel = client
+          .channel('tournament-live-${widget.tournamentId}')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'matches',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'tournament_id',
+              value: widget.tournamentId,
+            ),
+            callback: (_) => _refreshRemoteInMemory(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'match_live_summary',
+            callback: (payload) {
+              final changedId =
+                  (payload.newRecord['match_id'] ?? payload.oldRecord['match_id'])
+                      ?.toString();
+              if (changedId != null &&
+                  _matches.any((m) => m.config.id == changedId)) {
+                _refreshRemoteInMemory();
+              }
+            },
+          )
+          .subscribe();
+    } catch (_) {}
+  }
+
+  Future<void> _refreshRemoteInMemory() async {
+    final snap = await LocalEventStore.instance.fetchRemoteTournament(
+      widget.tournamentId,
+    );
+    if (!mounted || snap == null) return;
+    setState(() {
+      _tournament = snap.tournament;
+      _matches = snap.matches;
+    });
+  }
+
+  Future<void> _toggleTournamentVisibility(bool goPublic) async {
+    final t = _tournament;
+    if (t == null || _togglingVisibility) return;
+    HapticFeedback.selectionClick();
+    setState(() => _togglingVisibility = true);
+    try {
+      final nextVis = goPublic
+          ? BroadcastVisibility.public
+          : BroadcastVisibility.unlisted;
+      final updated = await LocalEventStore.instance.setTournamentVisibility(
+        t.id,
+        nextVis,
+      );
+      if (!mounted) return;
+      if (updated != null) {
+        setState(() => _tournament = updated);
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                goPublic
+                    ? 'Tournament & its live matches are now public on the Live tab.'
+                    : 'Tournament switched to Unlisted (link only).',
+              ),
+            ),
+          );
+      }
+    } finally {
+      if (mounted) setState(() => _togglingVisibility = false);
+    }
   }
 
   Future<void> _load() async {
@@ -84,6 +178,9 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       _readOnly = widget.readOnlyPublic || !(snap?.isOwner ?? false);
       _loading = false;
     });
+    if (_readOnly && snap != null) {
+      _subscribePublicTournamentUpdates();
+    }
   }
 
   Future<void> _launchMatch({
@@ -119,6 +216,8 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
       tournamentStage: stage.name,
       fixtureIndex: fixtureIndex,
       isTestMatch: tournament.oversLimit == 0,
+      visibility: tournament.visibility,
+      venue: tournament.location,
       createdAt: DateTime.now(),
     );
 
@@ -878,51 +977,165 @@ class _TournamentDetailScreenState extends State<TournamentDetailScreen> {
                           const SizedBox.shrink();
                     },
                   ),
-            body: TabBarView(
+            body: Column(
               children: [
-                if (!isPureKnockout)
-                  TournamentStandingsTab(
-                    tournament: t,
-                    overview: overview,
-                    tournamentMvp: tournamentMvp,
-                    onAddTeams: _openAddTeamSheet,
-                    onTapFixture: _handleTapFixture,
-                    onUnlockKnockoutsEarly: _confirmUnlockKnockoutsEarly,
-                    readOnly: _readOnly,
+                if (!_readOnly)
+                  _TournamentVisibilityBar(
+                    isPublic: t.isPublicLive,
+                    teamCount: t.teams.length,
+                    busy: _togglingVisibility,
+                    onToggle: _toggleTournamentVisibility,
                   ),
-                TournamentFixturesTab(
-                  tournament: t,
-                  overview: overview,
-                  tournamentMvp: isPureKnockout ? tournamentMvp : null,
-                  onAddTeams: _openAddTeamSheet,
-                  onTapFixture: _handleTapFixture,
-                  onTapExtraMatch: (m) => _openExistingMatch(m.config.id),
-                  onDiscardLiveMatch: _confirmDiscardUnstartedMatch,
-                  onUnlockKnockoutsEarly: _confirmUnlockKnockoutsEarly,
-                  readOnly: _readOnly,
-                ),
-                TournamentTeamsTab(
-                  tournament: t,
-                  canEditTeams: !_readOnly &&
-                      (t.structure == TournamentStructure.open ||
-                          _matches.isEmpty),
-                  playedTeams: {
-                    for (final m in _matches) ...[
-                      m.config.teamA.toLowerCase(),
-                      m.config.teamB.toLowerCase(),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      if (!isPureKnockout)
+                        TournamentStandingsTab(
+                          tournament: t,
+                          overview: overview,
+                          tournamentMvp: tournamentMvp,
+                          onAddTeams: _openAddTeamSheet,
+                          onTapFixture: _handleTapFixture,
+                          onUnlockKnockoutsEarly: _confirmUnlockKnockoutsEarly,
+                          readOnly: _readOnly,
+                        ),
+                      TournamentFixturesTab(
+                        tournament: t,
+                        overview: overview,
+                        tournamentMvp: isPureKnockout ? tournamentMvp : null,
+                        onAddTeams: _openAddTeamSheet,
+                        onTapFixture: _handleTapFixture,
+                        onTapExtraMatch: (m) => _openExistingMatch(m.config.id),
+                        onDiscardLiveMatch: _confirmDiscardUnstartedMatch,
+                        onUnlockKnockoutsEarly: _confirmUnlockKnockoutsEarly,
+                        readOnly: _readOnly,
+                      ),
+                      TournamentTeamsTab(
+                        tournament: t,
+                        canEditTeams: !_readOnly &&
+                            (t.structure == TournamentStructure.open ||
+                                _matches.isEmpty),
+                        playedTeams: {
+                          for (final m in _matches) ...[
+                            m.config.teamA.toLowerCase(),
+                            m.config.teamB.toLowerCase(),
+                          ],
+                        },
+                        onAddTeam: _openAddTeamSheet,
+                        onRemoveTeam: _confirmRemoveTeamFromTournament,
+                        onAddPlayer: _openAddPlayersSheet,
+                        onRenamePlayer: _renamePlayerInRoster,
+                        onRemovePlayer: _removePlayerFromRoster,
+                        readOnly: _readOnly,
+                      ),
                     ],
-                  },
-                  onAddTeam: _openAddTeamSheet,
-                  onRemoveTeam: _confirmRemoveTeamFromTournament,
-                  onAddPlayer: _openAddPlayersSheet,
-                  onRenamePlayer: _renamePlayerInRoster,
-                  onRemovePlayer: _removePlayerFromRoster,
-                  readOnly: _readOnly,
+                  ),
                 ),
               ],
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _TournamentVisibilityBar extends StatelessWidget {
+  const _TournamentVisibilityBar({
+    required this.isPublic,
+    required this.teamCount,
+    required this.busy,
+    required this.onToggle,
+  });
+
+  final bool isPublic;
+  final int teamCount;
+  final bool busy;
+  final ValueChanged<bool> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.crease;
+    final readyForLiveTab = teamCount >= 2;
+    return Container(
+      decoration: BoxDecoration(
+        color: isPublic ? c.pitchGreenSoft.withValues(alpha: 0.45) : c.surfaceSheet,
+        border: Border(bottom: BorderSide(color: c.hairlineSubtle)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          if (isPublic) ...[
+            if (readyForLiveTab)
+              const CreaseLiveDot(size: 7)
+            else
+              Icon(
+                Icons.info_outline_rounded,
+                size: 14,
+                color: c.pitchGreen,
+              ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                readyForLiveTab
+                    ? 'Public on Live tab · Fixtures live'
+                    : 'Add 2+ teams to go live',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: c.pitchGreen,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+              ),
+            ),
+          ] else ...[
+            Icon(
+              Icons.lock_outline_rounded,
+              size: 14,
+              color: c.inkSecondary,
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                'Unlisted · Link only',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: c.inkSecondary,
+                      fontSize: 12,
+                    ),
+              ),
+            ),
+          ],
+          const SizedBox(width: 8),
+          if (busy)
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: c.pitchGreen,
+              ),
+            )
+          else
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: isPublic ? c.inkSecondary : c.pitchGreen,
+                minimumSize: const Size(48, 36),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: () => onToggle(!isPublic),
+              child: Text(
+                isPublic ? 'Make unlisted' : 'Go live',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

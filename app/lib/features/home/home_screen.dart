@@ -14,6 +14,7 @@ import '../../theme/crease_theme.dart';
 import '../../widgets/crease_ui.dart';
 import '../../widgets/glass_surface.dart';
 import '../auth/auth_sheet.dart';
+import '../live/live_tab_view.dart';
 import '../profile/profile_screen.dart';
 import '../quick_match/quick_match_sheet.dart';
 import '../scorecard/scorecard_screen.dart';
@@ -40,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   UserProfile _profile = const UserProfile();
   bool _loading = true;
   int _navIndex = 0;
+  int _publicLiveCount = 0;
   bool _refreshingRostersOnResume = false;
 
   @override
@@ -158,6 +160,49 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _profile = profile;
       _loading = false;
     });
+    _refreshPublicLiveCount();
+  }
+
+  Future<void> _refreshPublicLiveCount() async {
+    final count = await LocalEventStore.instance.fetchPublicLiveCount();
+    if (!mounted) return;
+    if (count != _publicLiveCount) {
+      setState(() => _publicLiveCount = count);
+    }
+  }
+
+  Future<void> _toggleMatchVisibility(DerivedMatchState match) async {
+    final goPublic = !match.config.isPublicLive;
+    if (goPublic && !isSignedInAccount()) {
+      final ok = await requireSignedInAccount(
+        context,
+        title: 'Sign in to broadcast live',
+        subtitle:
+            'Public matches sync live to the Crease Live tab under your account.',
+      );
+      if (!ok || !mounted) return;
+    }
+    final nextVis = goPublic
+        ? BroadcastVisibility.public
+        : BroadcastVisibility.unlisted;
+    await LocalEventStore.instance.setMatchVisibility(
+      match.config.id,
+      nextVis,
+    );
+    await _refreshSingleMatch(match.config.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            goPublic
+                ? 'Match is now public on the Live tab.'
+                : 'Match switched to Unlisted (link only).',
+          ),
+        ),
+      );
+    _refreshPublicLiveCount();
   }
 
   Future<void> _refreshProfileOnly() async {
@@ -260,10 +305,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     if (!ok || !mounted) return;
     final tournament = await showCreateTournamentSheet(context);
-    if (tournament == null) return;
-    await LocalEventStore.instance.saveTournament(tournament);
-    LocalEventStore.instance.syncTournamentToSupabase(tournament.id);
-    if (!mounted) return;
+    if (tournament == null || !mounted) return;
+    setState(() {
+      _tournaments = [
+        tournament,
+        ..._tournaments.where((t) => t.id != tournament.id),
+      ];
+    });
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => TournamentDetailScreen(tournamentId: tournament.id),
@@ -391,10 +439,134 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   String get _tabHeading => switch (_navIndex) {
-        1 => 'My Teams',
-        2 => 'My Tournaments',
+        1 => 'Live',
+        2 => 'My Teams',
+        3 => 'My Tournaments',
         _ => 'Crease',
       };
+
+  Widget _buildHeaderSliver(BuildContext context, CreaseThemeExtension c) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+        child: Row(
+          children: [
+            if (_navIndex == 0) ...[
+              const CreaseMark(size: 28),
+              const SizedBox(width: 10),
+            ],
+            Expanded(
+              child: Text(
+                _tabHeading,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.6,
+                    ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: 'Search Crease',
+              child: CreasePressable(
+                onTap: _openSearch,
+                borderRadius: BorderRadius.circular(CreaseRadius.control),
+                scale: 0.94,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: c.surfaceGlass,
+                        borderRadius:
+                            BorderRadius.circular(CreaseRadius.control),
+                        border: Border.all(color: c.hairline),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.search_rounded,
+                        size: 20,
+                        color: c.inkPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'Profile & account',
+              child: CreasePressable(
+                onTap: _openProfile,
+                borderRadius: BorderRadius.circular(CreaseRadius.control),
+                scale: 0.94,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: c.surfaceGlass,
+                            borderRadius:
+                                BorderRadius.circular(CreaseRadius.control),
+                            border: Border.all(color: c.hairline),
+                          ),
+                          alignment: Alignment.center,
+                          child: (_profile.avatarUrl != null &&
+                                  _profile.avatarUrl!.isNotEmpty)
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(
+                                    CreaseRadius.control - 1,
+                                  ),
+                                  child: Image.network(
+                                    _profile.avatarUrl!,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) =>
+                                        _avatarFallback(context, c),
+                                  ),
+                                )
+                              : _avatarFallback(context, c),
+                        ),
+                        if (_isGuestAccount)
+                          Positioned(
+                            right: -2,
+                            top: -2,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: c.pitchGreen,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: c.ground,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -407,140 +579,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Scaffold(
       backgroundColor: c.ground,
       body: SafeArea(
-        child: RefreshIndicator(
-          color: c.pitchGreen,
-          backgroundColor: c.surfaceGlass,
-          onRefresh: _refreshAndSync,
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-                  child: Row(
-                    children: [
-                      if (_navIndex == 0) ...[
-                        const CreaseMark(size: 28),
-                        const SizedBox(width: 10),
-                      ],
-                      Expanded(
-                        child: Text(
-                          _tabHeading,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium
-                              ?.copyWith(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.6,
-                              ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Tooltip(
-                        message: 'Search Crease',
-                        child: CreasePressable(
-                          onTap: _openSearch,
-                          borderRadius:
-                              BorderRadius.circular(CreaseRadius.control),
-                          scale: 0.94,
-                          child: SizedBox(
-                            width: 48,
-                            height: 48,
-                            child: Center(
-                              child: Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  color: c.surfaceGlass,
-                                  borderRadius: BorderRadius.circular(
-                                    CreaseRadius.control,
-                                  ),
-                                  border: Border.all(color: c.hairline),
-                                ),
-                                alignment: Alignment.center,
-                                child: Icon(
-                                  Icons.search_rounded,
-                                  size: 20,
-                                  color: c.inkPrimary,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Tooltip(
-                        message: 'Profile & account',
-                        child: CreasePressable(
-                          onTap: _openProfile,
-                          borderRadius:
-                              BorderRadius.circular(CreaseRadius.control),
-                          scale: 0.94,
-                          child: SizedBox(
-                            width: 48,
-                            height: 48,
-                            child: Center(
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  Container(
-                                    width: 42,
-                                    height: 42,
-                                    decoration: BoxDecoration(
-                                      color: c.surfaceGlass,
-                                      borderRadius: BorderRadius.circular(
-                                        CreaseRadius.control,
-                                      ),
-                                      border: Border.all(color: c.hairline),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: (_profile.avatarUrl != null &&
-                                            _profile.avatarUrl!.isNotEmpty)
-                                        ? ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              CreaseRadius.control - 1,
-                                            ),
-                                            child: Image.network(
-                                              _profile.avatarUrl!,
-                                              width: double.infinity,
-                                              height: double.infinity,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, _, _) =>
-                                                  _avatarFallback(context, c),
-                                            ),
-                                          )
-                                        : _avatarFallback(context, c),
-                                  ),
-                                  if (_isGuestAccount)
-                                    Positioned(
-                                      right: -2,
-                                      top: -2,
-                                      child: Container(
-                                        width: 10,
-                                        height: 10,
-                                        decoration: BoxDecoration(
-                                          color: c.pitchGreen,
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: c.ground,
-                                            width: 2,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+        child: _navIndex == 1
+            ? LiveTabView(
+                headerSliver: _buildHeaderSliver(context, c),
+                onLiveCountChanged: (count) {
+                  if (!mounted || count == _publicLiveCount) return;
+                  setState(() => _publicLiveCount = count);
+                },
+                onStartMatch: () {
+                  setState(() => _navIndex = 0);
+                  _createQuickMatch();
+                },
+              )
+            : RefreshIndicator(
+                color: c.pitchGreen,
+                backgroundColor: c.surfaceGlass,
+                onRefresh: _refreshAndSync,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    _buildHeaderSliver(context, c),
               if (_navIndex == 0) ...[
                 if (_loading)
                   SliverPadding(
@@ -640,6 +698,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               _openMatch(liveMatches[index].config.id),
                           onOpenScorecard: () =>
                               _openScorecard(liveMatches[index].config.id),
+                          onToggleVisibility: () =>
+                              _toggleMatchVisibility(liveMatches[index]),
                           onDelete: () =>
                               _confirmDeleteMatch(liveMatches[index]),
                         ),
@@ -693,14 +753,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ],
                 ],
-              ] else if (_navIndex == 1)
+              ] else if (_navIndex == 2)
                 TeamsTabView(
                   savedTeams: _teams,
                   knownRosters: _knownRosters,
                   matches: _matches,
                   onChanged: _loadMatches,
                 )
-              else if (_navIndex == 2) ...[
+              else if (_navIndex == 3) ...[
                 if (_tournaments.isEmpty)
                   SliverFillRemaining(
                     hasScrollBody: false,
@@ -871,22 +931,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       floatingActionButton: (!_loading &&
               ((_navIndex == 0 && _matches.isNotEmpty) ||
-                  (_navIndex == 1 && _teams.isNotEmpty) ||
-                  (_navIndex == 2 && _tournaments.isNotEmpty)))
+                  (_navIndex == 2 && _teams.isNotEmpty) ||
+                  (_navIndex == 3 && _tournaments.isNotEmpty)))
           ? FloatingActionButton.extended(
               backgroundColor: c.pitchGreen,
               foregroundColor: c.onPitchGreen,
               elevation: 2,
-              onPressed: _navIndex == 1
+              onPressed: _navIndex == 2
                   ? _createTeam
-                  : _navIndex == 2
+                  : _navIndex == 3
                       ? _createTournament
                       : _createQuickMatch,
               icon: const Icon(Icons.add_rounded, size: 20),
               label: Text(
-                _navIndex == 1
+                _navIndex == 2
                     ? 'New team'
-                    : _navIndex == 2
+                    : _navIndex == 3
                         ? 'New tournament'
                         : 'New match',
               ),
@@ -894,6 +954,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           : null,
       bottomNavigationBar: _CreaseBottomNav(
         selectedIndex: _navIndex,
+        hasActiveLive: _publicLiveCount > 0,
         onSelect: (i) {
           if (i == _navIndex) return;
           HapticFeedback.selectionClick();
@@ -928,6 +989,7 @@ class _MatchScoreCard extends StatelessWidget {
     required this.onTap,
     required this.onOpenScoring,
     required this.onOpenScorecard,
+    this.onToggleVisibility,
     required this.onDelete,
   });
 
@@ -935,6 +997,7 @@ class _MatchScoreCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onOpenScoring;
   final VoidCallback onOpenScorecard;
+  final VoidCallback? onToggleVisibility;
   final VoidCallback onDelete;
 
   @override
@@ -1014,6 +1077,27 @@ class _MatchScoreCard extends StatelessWidget {
                         ),
                   ),
                 ),
+                if (match.config.isPublicLive) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: c.pitchGreenSoft,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Public',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontSize: 10,
+                            color: c.pitchGreen,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 if (match.unsyncedCount > 0) ...[
                   Row(
@@ -1064,6 +1148,19 @@ class _MatchScoreCard extends StatelessWidget {
                         label: 'View scorecard',
                         icon: Icons.table_chart_outlined,
                       ),
+                      if (onToggleVisibility != null)
+                        CreaseMenuItem(
+                          value: 'visibility',
+                          label: match.config.isPublicLive
+                              ? 'Make unlisted'
+                              : 'Show on Live tab',
+                          subtitle: match.config.isPublicLive
+                              ? 'Hide from Crease Live (link still works)'
+                              : 'Broadcast live publicly on Crease Live',
+                          icon: match.config.isPublicLive
+                              ? Icons.lock_outline_rounded
+                              : Icons.sensors_rounded,
+                        ),
                     ],
                     const CreaseMenuItem(
                       value: 'delete',
@@ -1077,6 +1174,8 @@ class _MatchScoreCard extends StatelessWidget {
                       onOpenScorecard();
                     } else if (value == 'scoring') {
                       onOpenScoring();
+                    } else if (value == 'visibility') {
+                      onToggleVisibility?.call();
                     } else if (value == 'delete') {
                       onDelete();
                     }
@@ -1233,10 +1332,12 @@ class _TeamScoreRow extends StatelessWidget {
 class _CreaseBottomNav extends StatelessWidget {
   const _CreaseBottomNav({
     required this.selectedIndex,
+    required this.hasActiveLive,
     required this.onSelect,
   });
 
   final int selectedIndex;
+  final bool hasActiveLive;
   final ValueChanged<int> onSelect;
 
   static const _items = [
@@ -1244,6 +1345,11 @@ class _CreaseBottomNav extends StatelessWidget {
       label: 'Matches',
       icon: Icons.sports_cricket_outlined,
       activeIcon: Icons.sports_cricket_rounded,
+    ),
+    (
+      label: 'Live',
+      icon: Icons.sensors_outlined,
+      activeIcon: Icons.sensors_rounded,
     ),
     (
       label: 'Teams',
@@ -1289,14 +1395,36 @@ class _CreaseBottomNav extends StatelessWidget {
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
-                        Icon(
-                          selectedIndex == i
-                              ? _items[i].activeIcon
-                              : _items[i].icon,
-                          size: 22,
-                          color: selectedIndex == i
-                              ? c.pitchGreen
-                              : c.inkSecondary,
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Icon(
+                              selectedIndex == i
+                                  ? _items[i].activeIcon
+                                  : _items[i].icon,
+                              size: 22,
+                              color: selectedIndex == i
+                                  ? c.pitchGreen
+                                  : c.inkSecondary,
+                            ),
+                            if (i == 1 && hasActiveLive && selectedIndex != 1)
+                              Positioned(
+                                right: -3,
+                                top: -2,
+                                child: Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: c.pitchGreen,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: c.surfaceSheet,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                         const SizedBox(height: 3),
                         Text(

@@ -4,6 +4,7 @@ import '../../../domain/models.dart';
 import '../../../theme/crease_theme.dart';
 import '../../../widgets/crease_ui.dart';
 import '../../../widgets/glass_surface.dart';
+import '../../live/widgets/live_broadcast_toggle.dart';
 
 Future<MatchConfig?> showReviseMatchSheet(
   BuildContext context,
@@ -87,6 +88,8 @@ Future<MatchConfig?> showReviseMatchSheet(
 
 Future<void> showMatchOptionsSheet(
   BuildContext context, {
+  required bool isPublicLive,
+  required Future<bool> Function(bool goPublic) onTogglePublicLive,
   required VoidCallback onFiveRuns,
   required VoidCallback onPenaltyRuns,
   required VoidCallback onRetiredHurt,
@@ -95,29 +98,46 @@ Future<void> showMatchOptionsSheet(
   required VoidCallback onHandOver,
   required VoidCallback onAbandonMatch,
 }) {
+  var currentPublic = isPublicLive;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) {
       final c = ctx.crease;
-      return GlassSurface(
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(CreaseRadius.sheet),
-        ),
-        fillColor: c.surfaceSheet,
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 26),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const CreaseSheetHeader(title: 'Match options'),
-              const SizedBox(height: 14),
-              Text(
-                'Scoring events',
-                style: Theme.of(ctx).textTheme.labelMedium,
-              ),
+      return StatefulBuilder(
+        builder: (ctx, setModalState) => GlassSurface(
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(CreaseRadius.sheet),
+          ),
+          fillColor: c.surfaceSheet,
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 26),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const CreaseSheetHeader(title: 'Match options'),
+                const SizedBox(height: 14),
+                Text(
+                  'Live broadcast',
+                  style: Theme.of(ctx).textTheme.labelMedium,
+                ),
+                const SizedBox(height: 8),
+                LiveBroadcastToggleTile(
+                  isPublic: currentPublic,
+                  onChanged: (next) async {
+                    final applied = await onTogglePublicLive(next);
+                    if (ctx.mounted) {
+                      setModalState(() => currentPublic = applied);
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Scoring events',
+                  style: Theme.of(ctx).textTheme.labelMedium,
+                ),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -212,7 +232,8 @@ Future<void> showMatchOptionsSheet(
                 icon: const Icon(Icons.cancel_outlined, size: 18),
                 label: const Text('Abandon match (No result)'),
               ),
-            ],
+              ],
+            ),
           ),
         ),
       );

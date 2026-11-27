@@ -25,6 +25,10 @@ class ScorecardScreen extends StatefulWidget {
 
 class _ScorecardScreenState extends State<ScorecardScreen> {
   DerivedMatchState? _state;
+  MatchConfig? _remoteConfig;
+  List<BallEvent> _remoteEvents = [];
+  Map<String, String> _remotePlayerNames = const {};
+  Map<String, String> _remoteTeamNames = const {};
   bool _loading = true;
   bool _isRemoteLive = false;
   int _selectedInnings = 1;
@@ -77,11 +81,15 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
       });
       return;
     }
+    _remoteConfig = remote.config;
+    _remoteEvents = List<BallEvent>.from(remote.events);
+    _remotePlayerNames = remote.playerNamesById;
+    _remoteTeamNames = remote.teamNamesById;
     final derived = CricketEngine.derive(
       remote.config,
-      remote.events,
-      playerNamesById: remote.playerNamesById,
-      teamNamesById: remote.teamNamesById,
+      _remoteEvents,
+      playerNamesById: _remotePlayerNames,
+      teamNamesById: _remoteTeamNames,
     );
     setState(() {
       _state = derived;
@@ -101,7 +109,29 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
       _realtimeChannel = client
           .channel('scorecard-${widget.matchId}')
           .onPostgresChanges(
-            event: PostgresChangeEvent.all,
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'ball_events',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'match_id',
+              value: widget.matchId,
+            ),
+            callback: _onRemoteBallInserted,
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.update,
+            schema: 'public',
+            table: 'ball_events',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'match_id',
+              value: widget.matchId,
+            ),
+            callback: (_) => _refreshRemote(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.delete,
             schema: 'public',
             table: 'ball_events',
             filter: PostgresChangeFilter(
@@ -126,15 +156,83 @@ class _ScorecardScreenState extends State<ScorecardScreen> {
     } catch (_) {}
   }
 
+  void _onRemoteBallInserted(PostgresChangePayload payload) {
+    final cfg = _remoteConfig;
+    if (cfg == null || !mounted) {
+      _refreshRemote();
+      return;
+    }
+    try {
+      final incoming = BallEvent.fromMap(
+        Map<String, Object?>.from(payload.newRecord),
+      ).copyWith(synced: true);
+
+      // If the ball references a newly added mid-match player we don't know
+      // yet, fall back to a full bundle fetch so names stay resolved.
+      final neededIds = [
+        incoming.strikerId,
+        incoming.nonStrikerId,
+        incoming.bowlerId,
+        if (incoming.dismissedBatterId != null) incoming.dismissedBatterId!,
+        if (incoming.fielderId != null) incoming.fielderId!,
+        if (incoming.nextBatterId != null) incoming.nextBatterId!,
+      ];
+      final hasUnknownPlayer = neededIds.any(
+        (id) =>
+            id.isNotEmpty &&
+            !_remotePlayerNames.containsKey(id) &&
+            !cfg.adHocPlayers.containsKey(id),
+      );
+      if (hasUnknownPlayer) {
+        _refreshRemote();
+        return;
+      }
+
+      final next = List<BallEvent>.from(_remoteEvents);
+      final idx = next.indexWhere((e) => e.id == incoming.id);
+      if (idx >= 0) {
+        next[idx] = incoming;
+      } else {
+        next.add(incoming);
+      }
+      next.sort((a, b) {
+        final innCmp = a.inningsNumber.compareTo(b.inningsNumber);
+        return innCmp != 0
+            ? innCmp
+            : a.sequenceNumber.compareTo(b.sequenceNumber);
+      });
+      _remoteEvents = next;
+
+      final derived = CricketEngine.derive(
+        cfg,
+        next,
+        playerNamesById: _remotePlayerNames,
+        teamNamesById: _remoteTeamNames,
+      );
+      setState(() {
+        _state = derived;
+        if (!_userPickedInnings) {
+          _selectedInnings = derived.activeInningsNumber;
+        }
+      });
+    } catch (_) {
+      _refreshRemote();
+    }
+  }
+
   Future<void> _refreshRemote() async {
     final remote =
         await LocalEventStore.instance.fetchRemoteMatch(widget.matchId);
     if (!mounted || remote == null) return;
+    _remoteConfig = remote.config;
+    _remoteEvents = List<BallEvent>.from(remote.events);
+    _remotePlayerNames = remote.playerNamesById;
+    _remoteTeamNames = remote.teamNamesById;
     final derived = CricketEngine.derive(
       remote.config,
-      remote.events,
-      playerNamesById: remote.playerNamesById,
-      teamNamesById: remote.teamNamesById,
+      _remoteEvents,
+      playerNamesById: _remotePlayerNames,
+      teamNamesById: _remoteTeamNames,
     );
     setState(() {
       _state = derived;

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0+3 — 2026-11-27
+
+### Added
+- Live team roster sync via scoped Supabase Realtime on Team Detail, background pull on open and app resume, pull-to-refresh on Overview & Players tabs, and batched roster sync on cold start and Home refresh.
+- Multi-team player spot linking in Edit Profile (`Linked team spots`) with per-team pickers so players belonging to multiple squads can link each club independently without name collisions.
+- Google Play Flexible In-App Updates (native half-page Play Store update prompt with background download and in-app Restart banner).
+- Firebase Crashlytics integration for production crash reporting and automatic R8 symbol mapping upload.
+
+### Fixed
+- Prevented routine owner squad syncs from overwriting remote teammate claims (`user_id`, `claimed_at`, `avatar_url`) when local SQLite cache is stale.
+- Fixed cross-team unlinking when linking a player spot or updating/removing a profile avatar across multiple teams.
+
 ## 1.0.0+2 — 2026-11-26
 ### Security & Hardening
 - Hardened backend invite & scorer handover flows with private RLS-locked tables, CSPRNG 6-digit codes, 30-minute single-use handover TTL, and server-side rate limiting.

@@ -1,0 +1,5 @@
+en-US:
+• Instant team roster updates: teammate email links now appear live in Team Details, with pull-to-refresh and auto-sync on app resume
+• Multi-team player linking: link your account independently across multiple squads without name collisions or unlinking other teams
+• In-app Google Play updates so you can download new releases in the background without interrupting your match
+• Improved crash diagnostics and stability fixes

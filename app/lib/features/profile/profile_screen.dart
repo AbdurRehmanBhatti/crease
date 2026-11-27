@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/local_event_store.dart';
 import '../../domain/guest_sync_guards.dart';
 import '../../domain/models.dart';
+import '../../domain/roster_sync_planner.dart';
 import '../../domain/stats_engine.dart';
 import '../../domain/team_profile.dart';
 import '../../domain/user_profile.dart';
@@ -32,9 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   UserProfile _profile = const UserProfile();
   TeamProfile? _myTeam;
   PlayerCareerStats? _myStats;
-  List<String> _knownPlayers = const [];
-  Map<String, List<String>> _playerTeamsByLower = const {};
-  Map<String, String> _playerIdByLower = const {};
+  List<TeamLinkOption> _teamLinkOptions = const [];
   int _matchCount = 0;
   bool _loading = true;
   bool _syncing = false;
@@ -100,37 +99,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     final currentUid = _currentUser?.id;
-    final myTeams = teams.where((t) => t.isMyTeam).toList();
-    final canonicalByLower = <String, String>{};
-    final teamsByPlayerLower = <String, List<String>>{};
-    final playerIdByLower = <String, String>{};
-    String? claimedPlayerId;
-    for (final t in myTeams) {
-      for (final p in t.squad) {
-        if (p.archived) continue;
-        final name = p.displayName.trim();
-        if (name.isEmpty || LocalEventStore.isPlaceholderPlayerName(name)) {
-          continue;
-        }
-        final claimedByOther = p.userId != null &&
-            p.userId!.isNotEmpty &&
-            p.userId != currentUid;
-        if (claimedByOther) continue;
-        if (currentUid != null && p.userId == currentUid) {
-          claimedPlayerId ??= p.id;
-        }
-        final key = name.toLowerCase();
-        canonicalByLower.putIfAbsent(key, () => name);
-        playerIdByLower.putIfAbsent(key, () => p.id);
-        final list = teamsByPlayerLower.putIfAbsent(key, () => <String>[]);
-        if (!list.contains(t.name)) list.add(t.name);
-      }
-    }
-    final knownPlayers = canonicalByLower.values.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final teamLinkOptions = RosterSyncTeamLinking.buildTeamLinkOptions(
+      teams: teams,
+      currentUserId: currentUid,
+      fallbackLinkedPlayerName: profile.linkedPlayerName,
+    );
+    final claimedPlayerId = teamLinkOptions
+        .map((o) => o.linkedPlayerId)
+        .whereType<String>()
+        .firstOrNull;
 
     PlayerCareerStats? myStats;
-    if (claimedPlayerId != null) {
+    if (currentUid != null && currentUid.isNotEmpty) {
+      myStats = allStats.where((p) => p.userId == currentUid).firstOrNull;
+    }
+    if (myStats == null && claimedPlayerId != null) {
       myStats = allStats.where((p) => p.playerId == claimedPlayerId).firstOrNull;
     }
     final linked = profile.linkedPlayerName;
@@ -145,9 +128,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _profile = profile;
       _myTeam = myTeam;
       _myStats = myStats;
-      _knownPlayers = knownPlayers;
-      _playerTeamsByLower = teamsByPlayerLower;
-      _playerIdByLower = playerIdByLower;
+      _teamLinkOptions = teamLinkOptions;
       _matchCount = realMatches.length;
       _loading = false;
     });
@@ -186,9 +167,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _editProfile() async {
     final nameCtrl = TextEditingController(text: _profile.displayName);
     var selectedRole = _profile.role;
-    var selectedPlayer = _profile.linkedPlayerName;
+    final initialLinks = <String, String?>{
+      for (final opt in _teamLinkOptions) opt.team.id: opt.linkedPlayerId,
+    };
+    final selectedLinks = Map<String, String?>.from(initialLinks);
     var isSaving = false;
     String? saveError;
+
+    bool hasLinkChanges() {
+      for (final opt in _teamLinkOptions) {
+        if (selectedLinks[opt.team.id] != initialLinks[opt.team.id]) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    Future<void> pickPlayerForTeam(
+      BuildContext ctx,
+      StateSetter setModalState,
+      TeamLinkOption opt,
+    ) async {
+      final currentId = selectedLinks[opt.team.id] ?? '';
+      final picked = await showCreaseOptionPicker<String>(
+        ctx,
+        title: _teamLinkOptions.length > 1
+            ? opt.team.name
+            : 'Link scorecard name',
+        subtitle: _teamLinkOptions.length > 1
+            ? 'Pick your name in this squad to connect your career stats.'
+            : 'Connect your profile to your career stats.',
+        selectedValue: currentId,
+        options: [
+          (value: '', label: 'Not linked', subtitle: null),
+          for (final p in opt.eligiblePlayers)
+            (
+              value: p.id,
+              label: p.displayName,
+              subtitle: _playerOptionSubtitle(p),
+            ),
+        ],
+      );
+      if (picked == null) return;
+      setModalState(() {
+        selectedLinks[opt.team.id] = picked.isEmpty ? null : picked;
+        saveError = null;
+      });
+    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -266,95 +291,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                           ],
                         ),
-                        if (_knownPlayers.isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          Text(
-                            'Link my scorecard name',
-                            style: Theme.of(ctx).textTheme.labelMedium,
+                        if (_teamLinkOptions.isNotEmpty) ...[
+                          const SizedBox(height: 18),
+                          TeamSpotLinkerSection(
+                            options: _teamLinkOptions,
+                            selectedPlayerByTeam: selectedLinks,
+                            enabled: !isSaving,
+                            onSelectTeam: (opt) =>
+                                pickPlayerForTeam(ctx, setModalState, opt),
                           ),
-                          const SizedBox(height: 8),
-                          CreasePressable(
-                            onTap: isSaving
-                                ? null
-                                : () async {
-                                    final currentKey =
-                                        _knownPlayers.contains(selectedPlayer)
-                                            ? (selectedPlayer ?? '')
-                                            : '';
-                                    final picked =
-                                        await showCreaseOptionPicker<String>(
-                                      ctx,
-                                      title: 'Link scorecard name',
-                                      subtitle:
-                                          'Connect your profile to your career stats.',
-                                      selectedValue: currentKey,
-                                      options: [
-                                        (
-                                          value: '',
-                                          label: 'Not linked',
-                                          subtitle: null,
-                                        ),
-                                        for (final p in _knownPlayers)
-                                          (
-                                            value: p,
-                                            label: p,
-                                            subtitle: _playerTeamsByLower[
-                                                    p.toLowerCase()]
-                                                ?.join(', '),
-                                          ),
-                                      ],
-                                    );
-                                    if (picked == null) return;
-                                    setModalState(() {
-                                      selectedPlayer =
-                                          picked.isEmpty ? null : picked;
-                                      saveError = null;
-                                    });
-                                  },
-                          child: Opacity(
-                            opacity: isSaving ? 0.55 : 1,
-                            child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 14,
-                            ),
-                            decoration: BoxDecoration(
-                              color: c.surfaceKey,
-                              borderRadius:
-                                  BorderRadius.circular(CreaseRadius.control),
-                              border: Border.all(color: c.hairline),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    _knownPlayers.contains(selectedPlayer)
-                                        ? selectedPlayer!
-                                        : 'Not linked',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(ctx)
-                                        .textTheme
-                                        .bodyLarge
-                                        ?.copyWith(
-                                          color: _knownPlayers
-                                                  .contains(selectedPlayer)
-                                              ? c.inkPrimary
-                                              : c.inkSecondary,
-                                        ),
-                                  ),
-                                ),
-                                Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  size: 20,
-                                  color: c.inkSecondary,
-                                ),
-                              ],
-                            ),
-                          ),
-                          ),
-                        ),
-                      ],
+                        ],
                       const SizedBox(height: 20),
                       if (saveError != null) ...[
                         Text(
@@ -372,7 +318,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               nameCtrl.text.trim() !=
                                       _profile.displayName.trim() ||
                                   selectedRole != _profile.role ||
-                                  selectedPlayer != _profile.linkedPlayerName;
+                                  hasLinkChanges();
                           return FilledButton(
                             style: FilledButton.styleFrom(
                               backgroundColor: c.pitchGreen,
@@ -385,30 +331,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             onPressed: (hasChanges && !isSaving)
                                 ? () async {
-                                    final linkChanged =
-                                        selectedPlayer !=
-                                            _profile.linkedPlayerName;
                                     final trimmedName = nameCtrl.text.trim();
+                                    final primaryLinkedName =
+                                        RosterSyncTeamLinking
+                                            .primaryLinkedPlayerName(
+                                      _teamLinkOptions,
+                                      selectedLinks,
+                                    );
                                     final updated = _profile.copyWith(
                                       displayName: trimmedName,
                                       role: selectedRole,
-                                      linkedPlayerName: selectedPlayer,
-                                      clearLinkedPlayer: selectedPlayer == null,
+                                      linkedPlayerName: primaryLinkedName,
+                                      clearLinkedPlayer:
+                                          primaryLinkedName == null,
                                     );
                                     setModalState(() {
                                       isSaving = true;
                                       saveError = null;
                                     });
                                     try {
-                                      if (linkChanged) {
-                                        final targetId = selectedPlayer != null
-                                            ? _playerIdByLower[selectedPlayer!
-                                                .trim()
-                                                .toLowerCase()]
-                                            : null;
+                                      for (final opt in _teamLinkOptions) {
+                                        final teamId = opt.team.id;
+                                        if (selectedLinks[teamId] ==
+                                            initialLinks[teamId]) {
+                                          continue;
+                                        }
                                         await LocalEventStore.instance
-                                            .syncSelfPlayerLink(
-                                          targetId,
+                                            .syncSelfPlayerLinkForTeam(
+                                          teamId: teamId,
+                                          targetPlayerId: selectedLinks[teamId],
                                           avatarUrl: updated.avatarUrl,
                                         );
                                       }
@@ -495,16 +446,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final url = await LocalEventStore.instance.uploadProfileAvatar(bytes);
       final updated = _profile.copyWith(avatarUrl: url);
       await LocalEventStore.instance.saveUserProfile(updated);
-      if (updated.linkedPlayerName != null) {
-        final targetId =
-            _playerIdByLower[updated.linkedPlayerName!.trim().toLowerCase()];
-        if (targetId != null) {
-          await LocalEventStore.instance.syncSelfPlayerLink(
-            targetId,
-            avatarUrl: url,
-          );
-        }
-      }
+      await LocalEventStore.instance.syncSelfAvatarAcrossTeams(url);
       if (!mounted) return;
       setState(() {
         _profile = updated;
@@ -583,16 +525,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Navigator.pop(ctx);
                     final updated = _profile.copyWith(clearAvatar: true);
                     await LocalEventStore.instance.saveUserProfile(updated);
-                    if (updated.linkedPlayerName != null) {
-                      final targetId = _playerIdByLower[
-                          updated.linkedPlayerName!.trim().toLowerCase()];
-                      if (targetId != null) {
-                        await LocalEventStore.instance.syncSelfPlayerLink(
-                          targetId,
-                          avatarUrl: null,
-                        );
-                      }
-                    }
+                    await LocalEventStore.instance.syncSelfAvatarAcrossTeams(null);
                     if (!mounted) return;
                     setState(() => _profile = updated);
                   },
@@ -1175,7 +1108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  _knownPlayers.isEmpty
+                                  _teamLinkOptions.isEmpty
                                       ? 'Create or join a team to link your player name and see personal career stats here.'
                                       : 'Pick your name from your squad to connect runs, wickets, and MVP points.',
                                   style: Theme.of(context).textTheme.bodyMedium,
@@ -1183,7 +1116,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ],
                             ),
                           ),
-                          if (_knownPlayers.isNotEmpty) ...[
+                          if (_teamLinkOptions.isNotEmpty) ...[
                             const SizedBox(width: 12),
                             OutlinedButton(
                               onPressed: _editProfile,
@@ -1434,6 +1367,255 @@ class _StatTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+String? _playerOptionSubtitle(PlayerProfile player) {
+  final parts = <String>[
+    if (player.designationLabel.isNotEmpty) player.designationLabel,
+    if (player.role.trim().isNotEmpty) player.role.trim(),
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
+}
+
+/// Renders either a compact single-team player selector (when the user has 1
+/// team) or a clean grouped per-team list (when the user belongs to 2+ teams)
+/// so identical player names across different clubs never collide.
+class TeamSpotLinkerSection extends StatelessWidget {
+  const TeamSpotLinkerSection({
+    super.key,
+    required this.options,
+    required this.selectedPlayerByTeam,
+    required this.onSelectTeam,
+    this.enabled = true,
+  });
+
+  final List<TeamLinkOption> options;
+  final Map<String, String?> selectedPlayerByTeam;
+  final ValueChanged<TeamLinkOption> onSelectTeam;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (options.isEmpty) return const SizedBox.shrink();
+    final c = context.crease;
+
+    if (options.length == 1) {
+      final opt = options.single;
+      final linkedPlayer = opt.playerById(selectedPlayerByTeam[opt.team.id]);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Link my scorecard name',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 8),
+          CreasePressable(
+            onTap: enabled ? () => onSelectTeam(opt) : null,
+            child: Opacity(
+              opacity: enabled ? 1 : 0.55,
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 50),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: c.surfaceKey,
+                  borderRadius: BorderRadius.circular(CreaseRadius.control),
+                  border: Border.all(color: c.hairline),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              linkedPlayer?.displayName ?? 'Not linked',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge
+                                  ?.copyWith(
+                                    fontWeight: linkedPlayer != null
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                    color: linkedPlayer != null
+                                        ? c.inkPrimary
+                                        : c.inkSecondary,
+                                  ),
+                            ),
+                          ),
+                          if (linkedPlayer != null) ...[
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.verified_rounded,
+                              size: 16,
+                              color: c.pitchGreen,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 20,
+                      color: c.inkSecondary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final linkedCount = options
+        .where((opt) => opt.playerById(selectedPlayerByTeam[opt.team.id]) != null)
+        .length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Linked team spots',
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+            Text(
+              '$linkedCount of ${options.length} linked',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: linkedCount > 0 ? c.pitchGreen : c.inkSecondary,
+                    fontWeight:
+                        linkedCount > 0 ? FontWeight.w600 : FontWeight.w500,
+                  ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Opacity(
+          opacity: enabled ? 1 : 0.55,
+          child: Container(
+            decoration: BoxDecoration(
+              color: c.surfaceKey,
+              borderRadius: BorderRadius.circular(CreaseRadius.control),
+              border: Border.all(color: c.hairline),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < options.length; i++) ...[
+                  if (i > 0) Divider(height: 1, color: c.hairlineSubtle),
+                  Builder(
+                    builder: (context) {
+                      final opt = options[i];
+                      final linkedPlayer =
+                          opt.playerById(selectedPlayerByTeam[opt.team.id]);
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: enabled ? () => onSelectTeam(opt) : null,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 52),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              child: Row(
+                                children: [
+                                  CreaseTeamBadge(
+                                    name: opt.team.name,
+                                    teamId: opt.team.id,
+                                    avatarUrl: opt.team.logoUrl,
+                                    size: 28,
+                                    highlighted: opt.team.isMyTeam,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      opt.team.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: c.inkPrimary,
+                                          ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(maxWidth: 148),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (linkedPlayer != null) ...[
+                                          Icon(
+                                            Icons.verified_rounded,
+                                            size: 14,
+                                            color: c.pitchGreen,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Flexible(
+                                            child: Text(
+                                              linkedPlayer.displayName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                    color: c.pitchGreen,
+                                                  ),
+                                            ),
+                                          ),
+                                        ] else
+                                          Text(
+                                            'Not linked',
+                                            maxLines: 1,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: c.inkSecondary,
+                                                ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    Icons.chevron_right_rounded,
+                                    size: 18,
+                                    color: c.inkSecondary,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

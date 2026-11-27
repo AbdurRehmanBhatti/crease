@@ -1,5 +1,6 @@
 import 'package:crease/domain/roster_sync_planner.dart';
 import 'package:crease/domain/team_profile.dart';
+import 'package:crease/features/profile/profile_screen.dart';
 import 'package:crease/features/teams/teams_tab_view.dart';
 import 'package:crease/theme/crease_theme.dart';
 import 'package:flutter/material.dart';
@@ -469,6 +470,135 @@ void main() {
       expect(find.text('Batter · Linked'), findsOneWidget);
       expect(find.text('Wicket-keeper'), findsOneWidget);
       expect(find.byIcon(Icons.verified_rounded), findsOneWidget);
+    });
+  });
+
+  group('Multi-team player linking (RosterSyncTeamLinking + TeamSpotLinkerSection)', () {
+    test('includes non-pinned teams, preserves distinct UUIDs for same names, and filters other-claimed/archived players', () {
+      final teamA = TeamProfile(
+        id: _teamA,
+        name: 'Lahore Lions',
+        isMyTeam: true,
+        isOwner: true,
+        createdAt: DateTime(2026, 11, 27),
+        squad: [
+          _player(id: _p1, teamId: _teamA, displayName: 'Abdur', userId: _ownerUid),
+          _player(id: _p2, teamId: _teamA, displayName: 'Bilal', userId: _teammateUid), // claimed by someone else
+        ],
+      );
+      final teamB = TeamProfile(
+        id: _teamB,
+        name: 'Sunday XI',
+        isMyTeam: false, // non-pinned team must still appear!
+        isOwner: true,
+        createdAt: DateTime(2026, 11, 27),
+        squad: [
+          _player(id: _p3, teamId: _teamB, displayName: 'Abdur', userId: null), // same name, distinct UUID
+          _player(id: _p4, teamId: _teamB, displayName: 'Archived Guy', archived: true),
+        ],
+      );
+
+      final options = RosterSyncTeamLinking.buildTeamLinkOptions(
+        teams: [teamB, teamA],
+        currentUserId: _ownerUid,
+      );
+
+      expect(options, hasLength(2));
+      // Pinned My Team sorts first
+      expect(options[0].team.id, _teamA);
+      expect(options[0].linkedPlayerId, _p1);
+      expect(options[0].eligiblePlayers.map((p) => p.id), [_p1]); // Bilal filtered out
+
+      expect(options[1].team.id, _teamB);
+      expect(options[1].linkedPlayerId, isNull);
+      expect(options[1].eligiblePlayers.map((p) => p.id), [_p3]); // distinct UUID kept, archived filtered out
+
+      // Primary linked name prefers isMyTeam's linked player
+      expect(
+        RosterSyncTeamLinking.primaryLinkedPlayerName(
+          options,
+          {_teamA: _p1, _teamB: _p3},
+        ),
+        'Abdur',
+      );
+      expect(
+        RosterSyncTeamLinking.primaryLinkedPlayerName(
+          options,
+          {_teamA: null, _teamB: null},
+        ),
+        isNull,
+      );
+    });
+
+    testWidgets('TeamSpotLinkerSection renders compact single-team row for 1 team and grouped per-team list for 2+ teams', (tester) async {
+      final teamA = TeamProfile(
+        id: _teamA,
+        name: 'Lahore Lions',
+        isMyTeam: true,
+        isOwner: true,
+        createdAt: DateTime(2026, 11, 27),
+        squad: [_player(id: _p1, teamId: _teamA, displayName: 'Abdur', userId: _ownerUid)],
+      );
+      final teamB = TeamProfile(
+        id: _teamB,
+        name: 'Sunday XI',
+        isMyTeam: false,
+        isOwner: false,
+        createdAt: DateTime(2026, 11, 27),
+        squad: [_player(id: _p3, teamId: _teamB, displayName: 'Abdur', userId: null)],
+      );
+
+      final singleOptions = RosterSyncTeamLinking.buildTeamLinkOptions(
+        teams: [teamA],
+        currentUserId: _ownerUid,
+      );
+      TeamLinkOption? tapped;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: CreaseTheme.light(),
+          home: Scaffold(
+            body: TeamSpotLinkerSection(
+              options: singleOptions,
+              selectedPlayerByTeam: {_teamA: _p1},
+              onSelectTeam: (opt) => tapped = opt,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Link my scorecard name'), findsOneWidget);
+      expect(find.text('Abdur'), findsOneWidget);
+      expect(find.byIcon(Icons.verified_rounded), findsOneWidget);
+
+      // Multi-team state
+      final multiOptions = RosterSyncTeamLinking.buildTeamLinkOptions(
+        teams: [teamA, teamB],
+        currentUserId: _ownerUid,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: CreaseTheme.light(),
+          home: Scaffold(
+            body: TeamSpotLinkerSection(
+              options: multiOptions,
+              selectedPlayerByTeam: {_teamA: _p1, _teamB: null},
+              onSelectTeam: (opt) => tapped = opt,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Linked team spots'), findsOneWidget);
+      expect(find.text('1 of 2 linked'), findsOneWidget);
+      expect(find.text('Lahore Lions'), findsOneWidget);
+      expect(find.text('Sunday XI'), findsOneWidget);
+      expect(find.text('Abdur'), findsOneWidget);
+      expect(find.text('Not linked'), findsOneWidget);
+
+      await tester.tap(find.text('Sunday XI'));
+      expect(tapped?.team.id, _teamB);
     });
   });
 }

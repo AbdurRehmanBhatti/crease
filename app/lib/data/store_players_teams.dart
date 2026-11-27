@@ -885,11 +885,12 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
     }
   }
 
-  /// Claims [targetPlayerId] for the current signed-in user (or unlinks all
-  /// self-claimed spots when [targetPlayerId] is null), awaiting Supabase
-  /// confirmation so shared ownership stays consistent with the server.
-  Future<void> syncSelfPlayerLink(
-    String? targetPlayerId, {
+  /// Claims [targetPlayerId] for the current signed-in user within [teamId]
+  /// (or unlinks the user's spot in [teamId] when [targetPlayerId] is null),
+  /// leaving links in all other teams untouched.
+  Future<void> syncSelfPlayerLinkForTeam({
+    required String teamId,
+    required String? targetPlayerId,
     String? avatarUrl,
   }) async {
     final uid = signedInUserId;
@@ -897,10 +898,22 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
     final db = await database;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
+    final existingInTeam = await db.query(
+      'players',
+      columns: ['id'],
+      where: 'team_id = ? AND user_id = ? AND archived = 0',
+      whereArgs: [teamId, uid],
+    );
+    final oldIdsInTeam = [
+      for (final row in existingInTeam)
+        if (row['id'] is String && row['id'] != targetPlayerId)
+          row['id']! as String,
+    ];
+
     if (targetPlayerId != null && targetPlayerId.isNotEmpty) {
       final rows = await db.query(
         'players',
-        columns: ['user_id'],
+        columns: ['team_id', 'user_id'],
         where: 'id = ?',
         whereArgs: [targetPlayerId],
         limit: 1,
@@ -921,6 +934,27 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
         if (!CreaseSecurity.isValidUuid(uid)) {
           throw StateError('Invalid user session.');
         }
+        // Verify the target spot isn't already claimed remotely before
+        // releasing any existing link in this team.
+        if (oldIdsInTeam.isNotEmpty) {
+          final remoteTarget = await Supabase.instance.client
+              .from('players')
+              .select('user_id')
+              .eq('id', targetPlayerId)
+              .maybeSingle();
+          final remoteUid = (remoteTarget?['user_id'] as String?)?.trim();
+          if (remoteUid != null && remoteUid.isNotEmpty && remoteUid != uid) {
+            throw StateError(
+              'That player spot is already claimed by another account.',
+            );
+          }
+          // Release previous link in this same team first to satisfy
+          // idx_players_team_user_unique (team_id, user_id).
+          for (final oldId in oldIdsInTeam) {
+            await unlinkTeamPlayer(oldId);
+          }
+        }
+
         final updatedRows = await Supabase.instance.client
             .from('players')
             .update({
@@ -937,6 +971,10 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
             'That player spot is already claimed by another account.',
           );
         }
+      } else {
+        for (final oldId in oldIdsInTeam) {
+          await unlinkTeamPlayer(oldId);
+        }
       }
 
       await db.update(
@@ -951,21 +989,46 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
         where: 'id = ?',
         whereArgs: [targetPlayerId],
       );
-    }
-
-    final existing = await db.query(
-      'players',
-      columns: ['id'],
-      where: 'user_id = ? AND archived = 0',
-      whereArgs: [uid],
-    );
-    for (final row in existing) {
-      final oldId = row['id'] as String?;
-      if (oldId != null && oldId != targetPlayerId) {
+    } else {
+      for (final oldId in oldIdsInTeam) {
         await unlinkTeamPlayer(oldId);
       }
     }
 
+    await refreshDirectory();
+  }
+
+  /// Updates `avatar_url` across every player spot linked to the signed-in
+  /// user across all teams without altering any team link.
+  Future<void> syncSelfAvatarAcrossTeams(String? avatarUrl) async {
+    final uid = signedInUserId;
+    if (uid == null) return;
+    final db = await database;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final cleanAvatar = (avatarUrl != null && avatarUrl.trim().isNotEmpty)
+        ? avatarUrl.trim()
+        : null;
+
+    if (isSignedInAccount) {
+      await Supabase.instance.client
+          .from('players')
+          .update({
+            'avatar_url': cleanAvatar,
+            'updated_at': nowMs,
+          })
+          .eq('user_id', uid);
+    }
+
+    await db.update(
+      'players',
+      {
+        'avatar_url': cleanAvatar,
+        'synced': isSignedInAccount ? 1 : 0,
+        'updated_at': nowMs,
+      },
+      where: 'user_id = ? AND archived = 0',
+      whereArgs: [uid],
+    );
     await refreshDirectory();
   }
 

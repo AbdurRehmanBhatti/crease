@@ -448,10 +448,11 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
         whereArgs: [teamId],
       );
 
-      // Sync all players for this team (cleared designations first to avoid unique conflict)
+      // Sync only unsynced players for this team (cleared designations first to
+      // avoid unique conflict) so already-synced remote claims are never touched.
       final playerRows = await db.query(
         'players',
-        where: 'team_id = ?',
+        where: 'team_id = ? AND synced = 0',
         whereArgs: [teamId],
         orderBy: 'created_at ASC',
       );
@@ -510,8 +511,18 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
     String uid,
     PlayerProfile p,
   ) async {
-    await client.from('players').upsert(
-      {
+    // Update owner-editable fields first without sending null claim columns,
+    // so a stale local cache can never overwrite a teammate's remote claim.
+    final updateFields = RosterSyncPlanner.buildOwnerUpdatePayload(p);
+
+    final updated = await client
+        .from('players')
+        .update(updateFields)
+        .eq('id', p.id)
+        .select('id');
+
+    if ((updated as List).isEmpty) {
+      await client.from('players').insert({
         'id': p.id,
         'team_id': p.teamId,
         'owner_id': p.ownerId ?? uid,
@@ -525,15 +536,184 @@ extension LocalEventStorePlayersTeams on LocalEventStore {
         'archived': p.archived,
         'created_at': p.createdAt.millisecondsSinceEpoch,
         'updated_at': p.updatedAt.millisecondsSinceEpoch,
-      },
-      onConflict: 'id',
-    );
+      });
+    }
+
     await db.update(
       'players',
       {'synced': 1},
       where: 'id = ?',
       whereArgs: [p.id],
     );
+  }
+
+  /// Pulls the latest `players` rows for a single team from Supabase and merges
+  /// them into local SQLite without overwriting local unsynced edits.
+  Future<bool> pullTeamRosterFromSupabase(String teamId) async {
+    if (!isSignedInAccount || !CreaseSecurity.isValidUuid(teamId)) {
+      return false;
+    }
+    try {
+      final remoteRows = await Supabase.instance.client
+          .from('players')
+          .select(LocalEventStore._playerSelectCols)
+          .eq('team_id', teamId)
+          .order('created_at', ascending: true);
+      final db = await database;
+      final changed = await _mergeRemotePlayersIntoLocal(
+        db,
+        {teamId},
+        (remoteRows as List).whereType<Map>().toList(),
+      );
+      if (changed > 0) {
+        await refreshDirectory();
+      }
+      return changed > 0;
+    } catch (e) {
+      if (kDebugMode) debugPrint('pullTeamRosterFromSupabase skipped: $e');
+      return false;
+    }
+  }
+
+  /// Pulls the latest `players` rows for all saved/joined local teams in a
+  /// single batched query and merges them into local SQLite.
+  Future<int> pullRostersForLocalTeams() async {
+    if (!isSignedInAccount) return 0;
+    try {
+      final db = await database;
+      final teamRows = await db.query('teams', columns: ['id']);
+      final teamIds = <String>[
+        for (final row in teamRows)
+          if (row['id'] is String &&
+              CreaseSecurity.isValidUuid(row['id']! as String))
+            row['id']! as String,
+      ];
+      if (teamIds.isEmpty) return 0;
+
+      final remoteRows = await Supabase.instance.client
+          .from('players')
+          .select(LocalEventStore._playerSelectCols)
+          .inFilter('team_id', teamIds);
+      final changed = await _mergeRemotePlayersIntoLocal(
+        db,
+        teamIds.toSet(),
+        (remoteRows as List).whereType<Map>().toList(),
+      );
+      if (changed > 0) {
+        await refreshDirectory();
+      }
+      return changed;
+    } catch (e) {
+      if (kDebugMode) debugPrint('pullRostersForLocalTeams skipped: $e');
+      return 0;
+    }
+  }
+
+  /// Applies a Supabase Realtime `public.players` event payload directly into
+  /// local SQLite so live updates require zero follow-up Postgres queries.
+  Future<bool> applyRealtimePlayerRecord(
+    Map<String, dynamic> record, {
+    bool isDelete = false,
+  }) async {
+    try {
+      final id = (record['id'] as String?)?.trim() ?? '';
+      if (id.isEmpty) return false;
+      final db = await database;
+      if (isDelete) {
+        final deleted = await db.delete(
+          'players',
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        if (deleted > 0) {
+          await refreshDirectory();
+          return true;
+        }
+        return false;
+      }
+
+      final teamId = (record['team_id'] as String?)?.trim() ?? '';
+      if (teamId.isEmpty) return false;
+      final changed = await _mergeRemotePlayersIntoLocal(
+        db,
+        {teamId},
+        [record],
+      );
+      if (changed > 0) {
+        await refreshDirectory();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      if (kDebugMode) debugPrint('applyRealtimePlayerRecord skipped: $e');
+      return false;
+    }
+  }
+
+  Future<int> _mergeRemotePlayersIntoLocal(
+    Database db,
+    Set<String> candidateTeamIds,
+    List<Map> remoteRows,
+  ) async {
+    if (candidateTeamIds.isEmpty || remoteRows.isEmpty) return 0;
+
+    final placeholders =
+        List.filled(candidateTeamIds.length, '?').join(', ');
+    final teamIdList = candidateTeamIds.toList();
+    final existingTeamRows = await db.query(
+      'teams',
+      columns: ['id'],
+      where: 'id IN ($placeholders)',
+      whereArgs: teamIdList,
+    );
+    final validTeamIds = {
+      for (final row in existingTeamRows) row['id']! as String,
+    };
+    if (validTeamIds.isEmpty) return 0;
+
+    final localPlayerRows = await db.query(
+      'players',
+      where: 'team_id IN ($placeholders)',
+      whereArgs: teamIdList,
+    );
+    final localById = <String, PlayerProfile>{
+      for (final row in localPlayerRows)
+        row['id']! as String: PlayerProfile.fromMap(row),
+    };
+
+    final actions = RosterSyncPlanner.planMerge(
+      validTeamIds: validTeamIds,
+      localById: localById,
+      remoteRows: remoteRows,
+    );
+    if (actions.isEmpty) return 0;
+
+    final batch = db.batch();
+    for (final action in actions) {
+      final remote = action.remotePlayer;
+      switch (action.kind) {
+        case RosterMergeActionKind.insertOrReplace:
+          batch.insert(
+            'players',
+            remote.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        case RosterMergeActionKind.patchClaimOnly:
+          batch.update(
+            'players',
+            {
+              'user_id': remote.userId,
+              'claimed_at': remote.claimedAt?.millisecondsSinceEpoch,
+              'avatar_url': remote.avatarUrl,
+            },
+            where: 'id = ?',
+            whereArgs: [remote.id],
+          );
+      }
+    }
+
+    await batch.commit(noResult: true);
+    return actions.length;
   }
 
   // ── Team Invites & Player Claiming ────────────────────────────────────────

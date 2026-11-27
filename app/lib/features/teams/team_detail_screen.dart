@@ -24,8 +24,10 @@ enum _WinLossScope { all, batFirst, bowlFirst }
 
 enum _TeamStatsBoard { mvp, batting, bowling, boundaries }
 
-class _TeamDetailScreenState extends State<TeamDetailScreen> {
+class _TeamDetailScreenState extends State<TeamDetailScreen>
+    with WidgetsBindingObserver {
   static const _uuid = Uuid();
+  final _resumeThrottle = ResumeSyncThrottle();
   late TeamProfile _profile;
   late bool _isSaved;
   Set<String> _claimedPlayers = const {};
@@ -33,6 +35,8 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
   _WinLossScope _winLossScope = _WinLossScope.all;
   _TeamStatsBoard _statsBoard = _TeamStatsBoard.mvp;
   bool _uploadingLogo = false;
+  bool _refreshingRemote = false;
+  RealtimeChannel? _playersChannel;
 
   void _setUploadingLogo(bool value) => setState(() => _uploadingLogo = value);
 
@@ -41,6 +45,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _isSaved = widget.savedProfile != null;
     _profile = widget.savedProfile ??
         TeamProfile(
@@ -52,7 +57,104 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     _loadClaimed();
     if (widget.readOnlyPublic && _profile.id.isNotEmpty) {
       _hydratePublicProfile();
+    } else if (_isSaved && _profile.id.isNotEmpty) {
+      unawaited(_refreshTeamFromCloud());
+      _subscribePlayersRealtime();
     }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (_playersChannel != null) {
+      try {
+        Supabase.instance.client.removeChannel(_playersChannel!);
+      } catch (_) {}
+      _playersChannel = null;
+    }
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    if (widget.readOnlyPublic || !_isSaved || _profile.id.isEmpty) return;
+    if (!_resumeThrottle.shouldSync()) return;
+    unawaited(_refreshTeamFromCloud());
+  }
+
+  void _subscribePlayersRealtime() {
+    if (_playersChannel != null ||
+        widget.readOnlyPublic ||
+        !_isSaved ||
+        !LocalEventStore.instance.isSignedInAccount ||
+        !CreaseSecurity.isValidUuid(_profile.id)) {
+      return;
+    }
+    try {
+      final teamId = _profile.id;
+      _playersChannel = Supabase.instance.client
+          .channel('team-players-$teamId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'players',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'team_id',
+              value: teamId,
+            ),
+            callback: (payload) {
+              unawaited(_handleRealtimePlayerChange(payload));
+            },
+          )
+          .subscribe();
+    } catch (_) {}
+  }
+
+  Future<void> _handleRealtimePlayerChange(
+    PostgresChangePayload payload,
+  ) async {
+    final isDelete = payload.eventType == PostgresChangeEvent.delete;
+    final record = isDelete ? payload.oldRecord : payload.newRecord;
+    if (record.isEmpty) return;
+    final changed = await LocalEventStore.instance.applyRealtimePlayerRecord(
+      record,
+      isDelete: isDelete,
+    );
+    if (changed && mounted) {
+      await _loadClaimed();
+    }
+  }
+
+  Future<void> _refreshTeamFromCloud() async {
+    if (_refreshingRemote ||
+        widget.readOnlyPublic ||
+        !_isSaved ||
+        _profile.id.isEmpty) {
+      return;
+    }
+    _refreshingRemote = true;
+    try {
+      await LocalEventStore.instance.pullTeamRosterFromSupabase(_profile.id);
+      _resumeThrottle.markSynced();
+      if (mounted) {
+        await _loadClaimed();
+      }
+    } finally {
+      _refreshingRemote = false;
+    }
+  }
+
+  Future<void> _onManualRefresh() async {
+    if (widget.readOnlyPublic) {
+      if (_profile.id.isNotEmpty) {
+        await _hydratePublicProfile();
+      }
+      return;
+    }
+    await _refreshTeamFromCloud();
   }
 
   Future<void> _hydratePublicProfile() async {
@@ -100,6 +202,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     });
     await LocalEventStore.instance.saveTeam(updated);
     LocalEventStore.instance.syncTeamToSupabase(updated.id);
+    _subscribePlayersRealtime();
   }
 
 
@@ -417,9 +520,14 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
         body: TabBarView(
           children: [
             // TAB 1: OVERVIEW
-            ListView(
-              padding: EdgeInsets.fromLTRB(20, 14, 20, 32 + bottomInset),
-              children: [
+            RefreshIndicator(
+              color: c.pitchGreen,
+              backgroundColor: c.surfaceGlass,
+              onRefresh: _onManualRefresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(20, 14, 20, 32 + bottomInset),
+                children: [
                 if (!widget.readOnlyPublic &&
                     !_profile.isMyTeam &&
                     _profile.isOwner) ...[
@@ -1040,14 +1148,20 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                         ],
                       ],
                     ),
-                  ),
+                ),
               ],
+            ),
             ),
 
             // TAB 2: PLAYERS
-            ListView(
-              padding: EdgeInsets.fromLTRB(20, 12, 20, 32 + bottomInset),
-              children: [
+            RefreshIndicator(
+              color: c.pitchGreen,
+              backgroundColor: c.surfaceGlass,
+              onRefresh: _onManualRefresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(20, 12, 20, 32 + bottomInset),
+                children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -1286,6 +1400,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                         ),
                 ),
               ],
+            ),
             ),
 
             // TAB 3: MATCHES

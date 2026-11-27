@@ -158,14 +158,24 @@ class PlayerProfile {
   static bool _decodeBool(Object? raw) {
     if (raw is bool) return raw;
     if (raw is num) return raw != 0;
+    if (raw is String) {
+      final lower = raw.trim().toLowerCase();
+      return lower == 'true' || lower == 't' || lower == '1';
+    }
     return false;
+  }
+
+  static int? _decodeInt(Object? raw) {
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw.trim());
+    return null;
   }
 
   static PlayerProfile fromMap(Map<String, Object?> map) {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final createdMs = (map['created_at'] as num?)?.toInt() ?? nowMs;
-    final updatedMs = (map['updated_at'] as num?)?.toInt() ?? createdMs;
-    final claimedMs = (map['claimed_at'] as num?)?.toInt();
+    final createdMs = _decodeInt(map['created_at']) ?? nowMs;
+    final updatedMs = _decodeInt(map['updated_at']) ?? createdMs;
+    final claimedMs = _decodeInt(map['claimed_at']);
     final rawAvatar = (map['avatar_url'] as String?)?.trim();
     final rawDes = (map['designation'] as String?)?.trim();
     final rawUid = (map['user_id'] as String?)?.trim();

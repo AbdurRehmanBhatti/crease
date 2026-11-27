@@ -570,6 +570,7 @@ extension LocalEventStoreMatchesBalls on LocalEventStore {
 
   Future<int> pullLatestForMyTeams() async {
     if (!isSignedInAccount) return 0;
+    await pullRostersForLocalTeams();
     final teams = await listTeams();
     var total = 0;
     for (final t in teams.where((t) => t.isMyTeam)) {

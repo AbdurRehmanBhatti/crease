@@ -12,6 +12,7 @@ import '../domain/guest_merge.dart';
 import '../domain/guest_sync_guards.dart';
 import '../domain/models.dart' as models;
 import '../domain/models.dart';
+import '../domain/roster_sync_planner.dart';
 import '../domain/stats_engine.dart';
 import '../domain/team_profile.dart';
 import '../domain/tournament_engine.dart';

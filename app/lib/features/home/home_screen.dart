@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/local_event_store.dart';
 import '../../domain/models.dart';
+import '../../domain/roster_sync_planner.dart';
 import '../../domain/team_profile.dart';
 import '../../domain/tournament_engine.dart';
 import '../../domain/user_profile.dart';
@@ -28,7 +31,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  final _resumeThrottle = ResumeSyncThrottle();
   List<DerivedMatchState> _matches = [];
   List<Tournament> _tournaments = [];
   List<TeamProfile> _teams = [];
@@ -36,19 +40,41 @@ class _HomeScreenState extends State<HomeScreen> {
   UserProfile _profile = const UserProfile();
   bool _loading = true;
   int _navIndex = 0;
+  bool _refreshingRostersOnResume = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     LocalEventStore.instance.directoryNotifier.addListener(_onDirectoryChanged);
     _loadMatches();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     LocalEventStore.instance.directoryNotifier
         .removeListener(_onDirectoryChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    if (!_resumeThrottle.shouldSync()) return;
+    unawaited(_refreshRostersOnResume());
+  }
+
+  Future<void> _refreshRostersOnResume() async {
+    if (_refreshingRostersOnResume) return;
+    _refreshingRostersOnResume = true;
+    try {
+      await LocalEventStore.instance.pullRostersForLocalTeams();
+      _resumeThrottle.markSynced();
+    } finally {
+      _refreshingRostersOnResume = false;
+    }
   }
 
   void _onDirectoryChanged() {
